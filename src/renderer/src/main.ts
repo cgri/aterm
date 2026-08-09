@@ -44,7 +44,7 @@ let sessionTitles = new Map<string, string>()
 const tabBar = new TabBar(barRoot, {
   onSelect: (id) => activate(id, { start: true }),
   onClose: (id) => void closeTab(id),
-  onNew: (anchor) => openNewTabMenu(anchor),
+  onNew: (anchor) => void openNewTabMenu(anchor),
   onReorder: (dragged, before) => reorder(dragged, before)
 })
 
@@ -519,23 +519,32 @@ function defaultTitle(kind: TabKind, cwd: string, worktree?: boolean): string {
 
 /* ----------------------------------------------------------- New tab */
 
-function openNewTabMenu(anchor: DOMRect): void {
+async function openNewTabMenu(anchor: DOMRect): Promise<void> {
+  const cwd = currentCwd()
+  // `claude --worktree` needs a git working tree; offering it anywhere else
+  // would just open a tab that dies with an error.
+  const canWorktree = await api.system.isGitRepo(cwd)
+
   const menu = document.createElement('div')
   menu.className = 'menu'
   menu.style.top = `${anchor.bottom + 2}px`
   menu.style.left = `${Math.max(4, anchor.left - 200)}px`
 
   const items: Array<[string, () => void]> = [
-    ['Claude Code — current folder', () => void createTab('claude', currentCwd())],
-    [
+    ['Claude Code — current folder', () => void createTab('claude', cwd)]
+  ]
+  if (canWorktree) {
+    items.push([
       'Claude Code — current folder, new worktree',
-      () => void createTab('claude', currentCwd(), { worktree: true })
-    ],
+      () => void createTab('claude', cwd, { worktree: true })
+    ])
+  }
+  items.push(
     ['Claude Code — choose folder…', () => void createTabWithPicker('claude')],
-    ['PowerShell — current folder', () => void createTab('powershell', currentCwd())],
+    ['PowerShell — current folder', () => void createTab('powershell', cwd)],
     ['PowerShell — choose folder…', () => void createTabWithPicker('powershell')],
     ['Recently opened sessions…', () => void picker.show()]
-  ]
+  )
 
   for (const [label, action] of items) {
     const item = document.createElement('div')

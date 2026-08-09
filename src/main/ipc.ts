@@ -12,6 +12,7 @@ export const IPC = {
   clipboardWrite: 'clipboard:write',
   newSessionId: 'sessions:new-id',
   homeDir: 'app:home-dir',
+  isGitRepo: 'git:is-repo',
   keymapLoad: 'keymap:load',
 
   // Renderer → main (send, high frequency)

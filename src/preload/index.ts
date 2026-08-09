@@ -47,6 +47,7 @@ const api = {
     keymap: (): Promise<Record<string, string[]>> => ipcRenderer.invoke(IPC.keymapLoad),
     pickFolder: (startIn?: string): Promise<string | undefined> =>
       ipcRenderer.invoke(IPC.pickFolder, startIn),
+    isGitRepo: (cwd: string): Promise<boolean> => ipcRenderer.invoke(IPC.isGitRepo, cwd),
     readClipboard: (): Promise<ClipboardPayload> => ipcRenderer.invoke(IPC.clipboardRead),
     writeClipboard: (text: string): Promise<void> =>
       ipcRenderer.invoke(IPC.clipboardWrite, text)

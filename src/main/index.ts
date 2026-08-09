@@ -18,6 +18,7 @@ import { SessionStore } from './state/SessionStore'
 import { HistoryReader } from './claude/HistoryReader'
 import { hasConversation } from './claude/transcripts'
 import { readJsonFile } from './util/json'
+import { isGitRepo } from './util/git'
 import { SessionDetector } from './claude/SessionDetector'
 import { ProcessTree } from './proc/ProcessTree'
 
@@ -136,6 +137,7 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.newSessionId, () => randomUUID())
   ipcMain.handle(IPC.homeDir, () => homedir())
+  ipcMain.handle(IPC.isGitRepo, (_e, cwd: string) => isGitRepo(cwd))
 
   // Optional rebinding: {"newClaudeTab": ["Ctrl+N"], "search": []}
   ipcMain.handle(IPC.keymapLoad, () => {
