@@ -51,7 +51,7 @@ function createWindow(state: PersistedState): void {
 
   if (bounds?.maximized) win.maximize()
 
-  // Kein Anwendungsmenü: dessen Accelerators würden dem Terminal Tasten wegfangen.
+  // No application menu: its accelerators would steal keys from the terminal.
   Menu.setApplicationMenu(null)
 
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -79,8 +79,8 @@ function send(channel: string, payload: unknown): void {
 }
 
 /**
- * Hält Detector und Prozessbaum-Poller auf dem Stand der laufenden Shell-Tabs.
- * Aufgerufen nach jedem Start/Ende eines Prozesses und bei jedem Poll.
+ * Keeps the detector and the process-tree poller in sync with the running shell
+ * tabs. Called after every process start or exit, and on every poll.
  */
 function syncShellTabs(): void {
   const persisted = new Map(store.current().tabs.map((tab) => [tab.id, tab]))
@@ -137,7 +137,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.newSessionId, () => randomUUID())
   ipcMain.handle(IPC.homeDir, () => homedir())
 
-  // Optionale Umbelegung: {"newClaudeTab": ["Ctrl+N"], "search": []}
+  // Optional rebinding: {"newClaudeTab": ["Ctrl+N"], "search": []}
   ipcMain.handle(IPC.keymapLoad, () => {
     const file = join(app.getPath('userData'), 'keymap.json')
     return existsSync(file) ? (readJsonFile<Record<string, string[]>>(file) ?? {}) : {}
@@ -146,7 +146,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.pickFolder, async (_e, startIn?: string) => {
     if (!win) return undefined
     const result = await dialog.showOpenDialog(win, {
-      title: 'Arbeitsverzeichnis wählen',
+      title: 'Choose working directory',
       defaultPath: startIn,
       properties: ['openDirectory']
     })

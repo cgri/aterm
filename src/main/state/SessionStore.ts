@@ -8,8 +8,8 @@ const SCHEMA_VERSION = 1
 const EMPTY: PersistedState = { version: SCHEMA_VERSION, tabs: [] }
 
 /**
- * Persistiert die Tab-Liste. Geschrieben wird debounced bei jeder Änderung und
- * hart beim Beenden — ein Absturz darf die Tabs nicht kosten.
+ * Persists the tab list. Written debounced on every change and unconditionally
+ * on quit — a crash must not cost the user their tabs.
  */
 export class SessionStore {
   private readonly file: string
@@ -25,7 +25,7 @@ export class SessionStore {
     try {
       const parsed = readJsonFile<PersistedState>(this.file)
       if (typeof parsed?.version !== 'number' || parsed.version > SCHEMA_VERSION) {
-        // Neuere/unbekannte Fassung: beiseitelegen statt Daten zu zerstören.
+        // Newer or unknown format: set it aside rather than destroy data.
         copyFileSync(this.file, `${this.file}.bak`)
         return { ...EMPTY }
       }
@@ -37,14 +37,14 @@ export class SessionStore {
     }
   }
 
-  /** Debounced (300 ms) — der Renderer meldet jede Kleinigkeit. */
+  /** Debounced (300 ms) — the renderer reports every little change. */
   save(state: PersistedState): void {
     this.latest = { ...state, version: SCHEMA_VERSION }
     if (this.pending) clearTimeout(this.pending)
     this.pending = setTimeout(() => this.flush(), 300)
   }
 
-  /** Synchron und sofort — für before-quit. */
+  /** Synchronous and immediate — for before-quit. */
   flush(): void {
     if (this.pending) {
       clearTimeout(this.pending)
@@ -56,7 +56,7 @@ export class SessionStore {
       writeFileSync(tmp, JSON.stringify(this.latest, null, 2), 'utf8')
       renameSync(tmp, this.file)
     } catch {
-      // Kein Grund, das Beenden zu blockieren.
+      // No reason to hold up shutdown.
     }
   }
 

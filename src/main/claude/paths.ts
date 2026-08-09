@@ -14,8 +14,8 @@ export function historyFile(): string {
 }
 
 /**
- * Claude Code legt Transkripte unter projects/<cwd mit [^A-Za-z0-9] → '-'> ab,
- * z. B. C:\projects\meinprojekt → C--projects-meinprojekt.
+ * Claude Code stores transcripts under projects/<cwd with [^A-Za-z0-9] → '-'>,
+ * e.g. C:\projects\myproject → C--projects-myproject.
  */
 export function encodeProjectDir(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9]/g, '-')

@@ -12,16 +12,16 @@ const POLL_MS = 3000
 const AGENT_NAMES = new Set(['claude.exe'])
 
 /**
- * Beantwortet je Tab die Frage „läuft hier gerade ein Claude-Prozess?".
- * Ein einziger langlebiger PowerShell-Prozess pollt den Prozessbaum — das ist
- * deutlich billiger, als alle drei Sekunden eine neue Shell zu starten.
+ * Answers, per tab, the question "is a Claude process running in here right now?"
+ * A single long-lived PowerShell process polls the process tree, which is far
+ * cheaper than starting a new shell every three seconds.
  */
 export class ProcessTree extends EventEmitter {
   private child?: ChildProcessWithoutNullStreams
   private buffer = ''
   private roots = new Map<string, number>()
 
-  /** tabId → Wurzel-PID. Leere Map beendet den Poller. */
+  /** tabId → root PID. An empty map stops the poller. */
   setRoots(roots: Map<string, number>): void {
     this.roots = roots
     if (roots.size === 0) this.stop()
@@ -68,8 +68,8 @@ export class ProcessTree extends EventEmitter {
   }
 
   /**
-   * ConvertTo-Json -Compress liefert je Durchlauf genau eine Zeile (ein Array).
-   * Sehr lange Zeilen können über mehrere Chunks kommen.
+   * ConvertTo-Json -Compress emits exactly one line (an array) per round.
+   * Very long lines can arrive spread over several chunks.
    */
   private consume(chunk: string): void {
     this.buffer += chunk
@@ -80,7 +80,7 @@ export class ProcessTree extends EventEmitter {
       if (line) this.evaluate(line)
       newline = this.buffer.indexOf('\n')
     }
-    // Schutz gegen unbegrenztes Wachstum bei kaputter Ausgabe.
+    // Guard against unbounded growth if the output ever goes wrong.
     if (this.buffer.length > 8_000_000) this.buffer = ''
   }
 

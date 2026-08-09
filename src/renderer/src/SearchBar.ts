@@ -1,6 +1,6 @@
 import type { TerminalView } from './TerminalView'
 
-/** Suche im Scrollback (Strg+Umschalt+F). Enter weiter, Umschalt+Enter zurück. */
+/** Scrollback search (Ctrl+Shift+F). Enter for next, Shift+Enter for previous. */
 export class SearchBar {
   private readonly el: HTMLDivElement
   private readonly input: HTMLInputElement
@@ -11,7 +11,7 @@ export class SearchBar {
     this.el.className = 'searchbar'
 
     this.input = document.createElement('input')
-    this.input.placeholder = 'Suchen…'
+    this.input.placeholder = 'Search…'
     this.input.addEventListener('input', () => this.find(true))
     this.input.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape') {

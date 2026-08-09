@@ -1,9 +1,9 @@
-# aterm — Startprofil für Shell-Tabs.
+# aterm — startup profile for shell tabs.
 #
-# Zweck: Startet der Benutzer hier von Hand `claude`, soll aterm die
-# Session-ID kennen, um den Tab später wiederherstellen zu können. Dazu wird
-# eine UUID vorgegeben und an aterm gemeldet. Das eigene $PROFILE des
-# Benutzers wird von PowerShell weiterhin geladen — hier wird nichts ersetzt.
+# Purpose: when the user types `claude` here by hand, aterm should know the
+# session id so it can restore the tab later. To that end a UUID is supplied up
+# front and reported back to aterm. PowerShell still loads the user's own
+# $PROFILE — nothing here replaces it.
 
 function global:claude {
     $exe = $env:ATERM_CLAUDE_PATH
@@ -13,11 +13,11 @@ function global:claude {
         if ($cmd) { $exe = $cmd.Source }
     }
     if (-not $exe) {
-        Write-Error 'claude.exe nicht gefunden.'
+        Write-Error 'claude.exe not found.'
         return
     }
 
-    # Bringt der Aufruf die Session schon selbst mit, wird nichts hinzugefügt.
+    # If the call already carries its own session, nothing is added.
     $ownsSession = $false
     foreach ($a in $args) {
         $t = [string]$a
@@ -43,12 +43,12 @@ function global:claude {
             at        = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
         }
         $file = Join-Path $env:ATERM_RUNTIME_DIR ("{0}.json" -f $env:ATERM_TAB_ID)
-        # Ohne BOM schreiben — Set-Content -Encoding utf8 setzt in Windows
-        # PowerShell 5.1 eines, und JSON.parse scheitert daran.
+        # Write without a BOM — Set-Content -Encoding utf8 adds one in Windows
+        # PowerShell 5.1, and JSON.parse chokes on it.
         $json = $report | ConvertTo-Json -Compress
         [System.IO.File]::WriteAllText($file, $json, (New-Object System.Text.UTF8Encoding($false)))
     } catch {
-        # Meldung fehlgeschlagen: Der Transkript-Watcher in aterm greift trotzdem.
+        # Reporting failed: aterm's transcript watcher still catches this session.
     }
 
     & $exe --session-id $sessionId @args

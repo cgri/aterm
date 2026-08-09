@@ -28,7 +28,7 @@ let order: string[] = []
 let activeId: string | undefined
 let homeDir = ''
 let fontSize = Number(localStorage.getItem('fontSize') ?? 14)
-/** sessionId → erster Prompt, für Titel und die „zuletzt hier"-Leiste. */
+/** sessionId → first prompt, used for titles and the "last here" bar. */
 let sessionTitles = new Map<string, string>()
 
 const tabBar = new TabBar(barRoot, {
@@ -100,8 +100,8 @@ async function boot(): Promise<void> {
   for (const tab of [...state.tabs].sort((a, b) => a.order - b.order)) {
     addPane(tab)
   }
-  // Der gespeicherte Merker kann veraltet sein — beim Start nachsehen, ob es
-  // wirklich ein fortsetzbares Gespräch gibt, damit der Platzhalter nicht lügt.
+  // The stored flag may be stale — check at startup whether a resumable
+  // conversation really exists, so the placeholder does not lie.
   await Promise.all(
     [...panes.values()].map(async (pane) => {
       const { kind, cwd, claudeSessionId } = pane.tab
@@ -110,13 +110,13 @@ async function boot(): Promise<void> {
     })
   )
 
-  // Lazy: der wiederhergestellte Tab wird nur angezeigt, nicht gestartet.
+  // Lazy: the restored tab is only displayed, not started.
   activate(state.activeTabId ?? order[0], { start: false })
   render()
   void refreshClaudeTitles()
 }
 
-/* ------------------------------------------------------- Tab-Verwaltung */
+/* -------------------------------------------------------- Tab handling */
 
 function addPane(tab: TabState): Pane {
   const el = document.createElement('div')
@@ -164,7 +164,7 @@ async function createTab(
     cwd,
     title: opts.title ?? defaultTitle(kind, cwd),
     claudeSessionId: opts.claudeSessionId,
-    // Beim Fortsetzen einer bestehenden Session muss der erste Start --resume nutzen.
+    // When resuming an existing session, the very first start must use --resume.
     everStarted: Boolean(opts.resume),
     order: order.length
   }
@@ -186,7 +186,7 @@ async function openSession(session: RecentSession): Promise<void> {
 async function closeTab(id: string): Promise<void> {
   const pane = panes.get(id)
   if (!pane) return
-  if (pane.status === 'running' && !confirm(`„${pane.tab.title}" läuft noch. Wirklich schließen?`)) {
+  if (pane.status === 'running' && !confirm(`"${pane.tab.title}" is still running. Close it anyway?`)) {
     return
   }
 
@@ -247,7 +247,7 @@ function reorder(draggedId: string, beforeId: string | undefined): void {
   persist()
 }
 
-/* ------------------------------------------------------- Prozess-Start */
+/* ------------------------------------------------------ Process start */
 
 async function startPane(pane: Pane): Promise<void> {
   const { tab } = pane
@@ -291,8 +291,8 @@ async function startPane(pane: Pane): Promise<void> {
   }
 
   if (result.claudeSessionId) tab.claudeSessionId = result.claudeSessionId
-  // everStarted heißt: „es gibt ein fortsetzbares Gespräch". Ob das zutrifft,
-  // entscheidet der Main-Prozess anhand des Transkripts.
+  // everStarted means "a resumable conversation exists". Whether that holds is
+  // decided by the main process from the transcript.
   tab.everStarted = Boolean(result.resumed)
   pane.status = 'running'
   pane.exitCode = undefined
@@ -317,7 +317,7 @@ function onExit(tabId: string, exitCode: number): void {
   render()
 }
 
-/* ------------------------------------- Erkennung in PowerShell-Tabs */
+/* ------------------------------- Detection inside PowerShell tabs */
 
 function onSessionDetected(tabId: string, sessionId: string): void {
   const pane = panes.get(tabId)
@@ -339,7 +339,7 @@ function onAgentActivity(running: Record<string, boolean>): void {
   if (changed) render()
 }
 
-/* ------------------------------------------------------------- Anzeige */
+/* ------------------------------------------------------------ Rendering */
 
 function render(): void {
   const models: TabViewModel[] = order
@@ -377,15 +377,15 @@ function updatePlaceholder(pane: Pane): void {
   hint.className = 'sub'
   hint.textContent =
     pane.tab.kind === 'claude' && pane.tab.everStarted
-      ? 'Enter — Session fortsetzen'
-      : 'Enter — öffnen'
+      ? 'Enter — resume session'
+      : 'Enter — open'
 
   pane.placeholder.append(title, sub, hint)
 }
 
 interface BarAction {
   label: string
-  /** Als Tastenhinweis dargestellt statt als Schaltfläche. */
+  /** Rendered as a key hint rather than a clickable action. */
   key?: string
   onClick?: () => void
 }
@@ -430,17 +430,17 @@ function showBar(pane: Pane, message: string, actions: BarAction[]): void {
 }
 
 /**
- * Lief in diesem Shell-Tab zuletzt eine Claude-Session, wird sie angeboten —
- * aber nicht ausgeführt: Ein Shell-Tab kann für ganz anderes gedacht sein.
+ * If a Claude session last ran in this shell tab, it is offered — but not
+ * executed: a shell tab may well be meant for something else entirely.
  */
 function offerResume(pane: Pane): void {
   const sessionId = pane.tab.claudeSessionId
   if (pane.tab.kind !== 'powershell' || !sessionId) return
 
   const label = sessionTitles.get(sessionId) ?? `Session ${sessionId.slice(0, 8)}`
-  showBar(pane, `Zuletzt hier: ${label}`, [
+  showBar(pane, `Last here: ${label}`, [
     {
-      label: 'claude --resume einfügen',
+      label: 'insert claude --resume',
       onClick: () => {
         api.pty.write(pane.tab.id, `claude --resume ${sessionId}`)
         hideBar(pane)
@@ -455,7 +455,7 @@ function hideBar(pane: Pane): void {
   pane.bar.replaceChildren()
 }
 
-/* ------------------------------------------------------------- Titel */
+/* ------------------------------------------------------------ Titles */
 
 async function refreshClaudeTitles(): Promise<void> {
   const sessions = await api.sessions.recent()
@@ -463,8 +463,8 @@ async function refreshClaudeTitles(): Promise<void> {
   let changed = false
 
   for (const pane of panes.values()) {
-    // Nur Agenten-Tabs übernehmen den Prompt als Titel. Ein Shell-Tab heißt
-    // weiter nach seinem Verzeichnis — die Session steht in der Inline-Leiste.
+    // Only agent tabs take the prompt as their title. A shell tab keeps being
+    // named after its directory — its session shows up in the inline bar.
     if (pane.tab.kind !== 'claude') continue
     const title = pane.tab.claudeSessionId
       ? sessionTitles.get(pane.tab.claudeSessionId)
@@ -480,9 +480,9 @@ async function refreshClaudeTitles(): Promise<void> {
   }
 }
 
-// Der Titel entsteht erst mit dem ersten Prompt. Nur nachfassen, solange
-// wirklich eine Session ohne bekannten Titel offen ist — history.jsonl ist
-// einige hundert KB groß und will nicht im Leerlauf gelesen werden.
+// The title only appears with the first prompt. Keep checking only while a
+// session without a known title is actually open — history.jsonl runs to
+// several hundred KB and should not be read while nothing is pending.
 setInterval(() => {
   const pending = [...panes.values()].some(
     (pane) => pane.tab.claudeSessionId && !sessionTitles.has(pane.tab.claudeSessionId)
@@ -495,7 +495,7 @@ function defaultTitle(kind: TabKind, cwd: string): string {
   return kind === 'claude' ? `Claude · ${leaf}` : leaf
 }
 
-/* --------------------------------------------------------- Neuer Tab */
+/* ----------------------------------------------------------- New tab */
 
 function openNewTabMenu(anchor: DOMRect): void {
   const menu = document.createElement('div')
@@ -504,11 +504,11 @@ function openNewTabMenu(anchor: DOMRect): void {
   menu.style.left = `${Math.max(4, anchor.left - 200)}px`
 
   const items: Array<[string, () => void]> = [
-    ['Claude Code — aktueller Ordner', () => void createTab('claude', currentCwd())],
-    ['Claude Code — Ordner wählen…', () => void createTabWithPicker('claude')],
-    ['PowerShell — aktueller Ordner', () => void createTab('powershell', currentCwd())],
-    ['PowerShell — Ordner wählen…', () => void createTabWithPicker('powershell')],
-    ['Zuletzt geöffnete Sessions…', () => void picker.show()]
+    ['Claude Code — current folder', () => void createTab('claude', currentCwd())],
+    ['Claude Code — choose folder…', () => void createTabWithPicker('claude')],
+    ['PowerShell — current folder', () => void createTab('powershell', currentCwd())],
+    ['PowerShell — choose folder…', () => void createTabWithPicker('powershell')],
+    ['Recently opened sessions…', () => void picker.show()]
   ]
 
   for (const [label, action] of items) {
@@ -546,7 +546,7 @@ function activePane(): Pane | undefined {
   return activeId ? panes.get(activeId) : undefined
 }
 
-/* ------------------------------------------------------ Schriftgröße */
+/* -------------------------------------------------------- Font size */
 
 function changeFontSize(delta: number | 'reset'): void {
   fontSize = delta === 'reset' ? 14 : Math.min(28, Math.max(8, fontSize + delta))
@@ -554,7 +554,7 @@ function changeFontSize(delta: number | 'reset'): void {
   for (const pane of panes.values()) pane.view?.setFontSize(fontSize)
 }
 
-/* ------------------------------------------------------- Persistenz */
+/* ------------------------------------------------------ Persistence */
 
 function persist(): void {
   const state: PersistedState = {

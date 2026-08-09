@@ -5,7 +5,7 @@ export interface TabViewModel {
   title: string
   kind: TabKind
   status: 'stopped' | 'running' | 'exited'
-  /** Shell-Tab, in dem gerade ein Claude-Prozess läuft. */
+  /** A shell tab with a Claude process running inside it. */
   agentRunning: boolean
 }
 
@@ -34,7 +34,7 @@ export class TabBar {
     const plus = document.createElement('button')
     plus.id = 'newtab'
     plus.textContent = '+'
-    plus.title = 'Neuer Tab (Strg+T)'
+    plus.title = 'New tab (Ctrl+T)'
     plus.addEventListener('click', () => this.handlers.onNew(plus.getBoundingClientRect()))
     this.root.appendChild(plus)
   }
@@ -58,7 +58,7 @@ export class TabBar {
     const close = document.createElement('span')
     close.className = 'close'
     close.textContent = '×'
-    close.title = 'Schließen (Strg+W)'
+    close.title = 'Close (Ctrl+W)'
     close.addEventListener('click', (ev) => {
       ev.stopPropagation()
       this.handlers.onClose(tab.id)

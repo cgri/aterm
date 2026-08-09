@@ -1,13 +1,14 @@
 /**
- * Legt die Vendor-Binaries von electron-builder im Cache ab.
+ * Places electron-builder's vendor binaries in its cache.
  *
- * Hintergrund: Das Archiv `winCodeSign` enthält macOS-Symlinks. Windows lässt
- * das Anlegen von Symlinks nur mit Entwicklermodus oder Administratorrechten zu
- * — sonst bricht das Entpacken ab und der Installer-Build scheitert, obwohl
- * für einen Windows-Build kein einziges macOS-Artefakt gebraucht wird.
+ * Background: the `winCodeSign` archive contains macOS symlinks, and Windows
+ * only allows creating symlinks with developer mode or administrator rights —
+ * otherwise the extraction aborts and the installer build fails, even though a
+ * Windows build needs no macOS artifact at all.
  *
- * Deshalb wird das Archiv hier ohne den `darwin`-Zweig entpackt. Läuft
- * electron-builder danach, findet es den fertigen Ordner vor und lädt nichts nach.
+ * The archive is therefore extracted here without the `darwin` branch. When
+ * electron-builder runs afterwards it finds the finished folder and downloads
+ * nothing.
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, mkdirSync, rmSync, statSync } from 'node:fs'
@@ -21,16 +22,16 @@ const target = join(signCache, `winCodeSign-${WIN_CODE_SIGN_VERSION}`)
 const sevenZip = join(process.cwd(), 'node_modules', '7zip-bin', 'win', 'x64', '7za.exe')
 
 if (existsSync(join(target, 'windows-10'))) {
-  console.log('[setup-builder-cache] winCodeSign liegt bereits im Cache.')
+  console.log('[setup-builder-cache] winCodeSign is already in the cache.')
   process.exit(0)
 }
 
 if (!existsSync(sevenZip)) {
-  console.error('[setup-builder-cache] 7za.exe nicht gefunden — zuerst npm install ausführen.')
+  console.error('[setup-builder-cache] 7za.exe not found — run npm install first.')
   process.exit(1)
 }
 
-/** Ein abgebrochener Lauf hinterlässt das Archiv unter einem zufälligen Namen. */
+/** An aborted run leaves the archive behind under a random name. */
 function findDownloadedArchive() {
   if (!existsSync(signCache)) return undefined
   const archives = readdirSync(signCache)
@@ -46,8 +47,8 @@ function download() {
     `winCodeSign-${WIN_CODE_SIGN_VERSION}/winCodeSign-${WIN_CODE_SIGN_VERSION}.7z`
   const out = join(signCache, `winCodeSign-${WIN_CODE_SIGN_VERSION}.7z`)
   mkdirSync(signCache, { recursive: true })
-  console.log('[setup-builder-cache] lade winCodeSign …')
-  // curl nutzt den System-Proxy; der eingebaute Downloader tut das nicht zuverlässig.
+  console.log('[setup-builder-cache] downloading winCodeSign …')
+  // curl uses the system proxy; the built-in downloader does not do so reliably.
   const result = spawnSync('curl', ['-L', '--fail', '--silent', '--show-error', '-o', out, url], {
     stdio: 'inherit',
     shell: true
@@ -57,7 +58,7 @@ function download() {
 
 const archive = findDownloadedArchive() ?? download()
 if (!archive) {
-  console.error('[setup-builder-cache] winCodeSign konnte nicht beschafft werden.')
+  console.error('[setup-builder-cache] could not obtain winCodeSign.')
   process.exit(1)
 }
 
@@ -71,13 +72,13 @@ const extract = spawnSync(
 )
 
 if (extract.status !== 0 || !existsSync(join(target, 'windows-10'))) {
-  console.error('[setup-builder-cache] Entpacken fehlgeschlagen.')
+  console.error('[setup-builder-cache] extraction failed.')
   process.exit(1)
 }
 
-// Die halb entpackten Verzeichnisse abgebrochener Läufe stören sonst nur.
+// The half-extracted directories from aborted runs are only in the way.
 for (const name of readdirSync(signCache)) {
   if (/^\d+$/.test(name)) rmSync(join(signCache, name), { recursive: true, force: true })
 }
 
-console.log(`[setup-builder-cache] winCodeSign bereit unter ${target}`)
+console.log(`[setup-builder-cache] winCodeSign ready at ${target}`)

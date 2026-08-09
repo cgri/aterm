@@ -1,15 +1,15 @@
 import type { RecentSession } from '@shared/types'
 
 export interface SessionPickerHandlers {
-  /** Session in einem neuen Tab fortsetzen. */
+  /** Resume the session in a new tab. */
   onOpen: (session: RecentSession) => void
-  /** Session ist bereits offen → dorthin wechseln. */
+  /** The session is already open → switch to it. */
   onFocus: (tabId: string) => void
-  /** tabId der bereits offenen Session, falls vorhanden. */
+  /** tabId of the already open session, if there is one. */
   openTabFor: (sessionId: string) => string | undefined
 }
 
-/** Overlay „Zuletzt geöffnete Sessions" (Strg+Umschalt+O). */
+/** The "recently opened sessions" overlay (Ctrl+Shift+O). */
 export class SessionPicker {
   private readonly root: HTMLDivElement
   private readonly input: HTMLInputElement
@@ -27,7 +27,7 @@ export class SessionPicker {
     box.className = 'picker-box'
 
     this.input = document.createElement('input')
-    this.input.placeholder = 'Session suchen (Titel oder Pfad)…'
+    this.input.placeholder = 'Search sessions (title or path)…'
     this.input.addEventListener('input', () => {
       this.cursor = 0
       this.applyFilter()
@@ -83,8 +83,8 @@ export class SessionPicker {
       const empty = document.createElement('div')
       empty.className = 'picker-empty'
       empty.textContent = this.sessions.length
-        ? 'Keine Treffer.'
-        : 'Keine Claude-Code-Sessions gefunden.'
+        ? 'No matches.'
+        : 'No Claude Code sessions found.'
       this.list.appendChild(empty)
       return
     }
@@ -110,8 +110,8 @@ export class SessionPicker {
       meta.className = 'picker-meta'
       const openTab = this.handlers.openTabFor(session.sessionId)
       meta.textContent = openTab
-        ? 'offen'
-        : `${formatWhen(session.lastUsed)} · ${session.promptCount} Prompts`
+        ? 'open'
+        : `${formatWhen(session.lastUsed)} · ${session.promptCount} prompts`
       if (openTab) meta.classList.add('is-open')
 
       row.append(title, meta)
@@ -156,11 +156,11 @@ export class SessionPicker {
 function formatWhen(ts: number): string {
   const diff = Date.now() - ts
   const min = Math.round(diff / 60000)
-  if (min < 1) return 'gerade eben'
-  if (min < 60) return `vor ${min} min`
+  if (min < 1) return 'just now'
+  if (min < 60) return `${min} min ago`
   const hours = Math.round(min / 60)
-  if (hours < 24) return `vor ${hours} h`
+  if (hours < 24) return `${hours} h ago`
   const days = Math.round(hours / 24)
-  if (days < 30) return `vor ${days} d`
-  return new Date(ts).toLocaleDateString('de-DE')
+  if (days < 30) return `${days} d ago`
+  return new Date(ts).toLocaleDateString('en-GB')
 }

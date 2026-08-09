@@ -1,23 +1,23 @@
 export type TabKind = 'claude' | 'powershell'
 
-/** Was aterm dauerhaft über einen Tab weiß. Landet so in state.json. */
+/** What aterm remembers about a tab. This is what ends up in state.json. */
 export interface TabState {
   id: string
   kind: TabKind
   title: string
   cwd: string
   /**
-   * Bei kind==='claude' die Session des Agenten selbst, bei kind==='powershell'
-   * die zuletzt in diesem Tab erkannte Claude-Session (siehe SessionDetector).
+   * For kind==='claude' the agent's own session; for kind==='powershell' the
+   * Claude session most recently detected in that tab (see SessionDetector).
    */
   claudeSessionId?: string
-  /** Steuert --session-id (erster Start) vs. --resume (jeder weitere). */
+  /** Whether a resumable conversation exists — decided from the transcript. */
   everStarted: boolean
   order: number
 }
 
 export type TabRunState =
-  /** Kein Prozess — frisch wiederhergestellter Tab, wartet auf Aktivierung. */
+  /** No process — freshly restored tab, waiting to be activated. */
   | { status: 'stopped' }
   | { status: 'running'; agentRunning: boolean }
   | { status: 'exited'; exitCode: number }
@@ -47,7 +47,7 @@ export interface PtyExitEvent {
   exitCode: number
 }
 
-/** Der Main-Prozess hat einer Session eine im Shell-Tab gestartete Claude-Session zugeordnet. */
+/** The main process matched a Claude session started inside a shell tab to that tab. */
 export interface SessionDetectedEvent {
   tabId: string
   sessionId: string
@@ -55,7 +55,7 @@ export interface SessionDetectedEvent {
 }
 
 export interface AgentActivityEvent {
-  /** tabId → läuft in diesem Tab gerade ein claude.exe-Nachfahre? */
+  /** tabId → is a claude.exe descendant running in that tab right now? */
   running: Record<string, boolean>
 }
 
@@ -68,9 +68,9 @@ export interface StartSpec {
   tabId: string
   kind: TabKind
   cwd: string
-  /** Vorgegebene Session-ID (neu erzeugt oder wiederhergestellt). */
+  /** The session id to use (freshly generated or restored). */
   claudeSessionId?: string
-  /** true → --resume statt --session-id */
+  /** true → --resume instead of --session-id */
   resume: boolean
   cols: number
   rows: number
@@ -78,9 +78,9 @@ export interface StartSpec {
 
 export interface StartResult {
   ok: boolean
-  /** Tatsächlich verwendete Session-ID (kann vom Wunsch abweichen). */
+  /** The session id actually used (may differ from the requested one). */
   claudeSessionId?: string
-  /** Wurde --resume genutzt? Entschieden wird das im Main-Prozess. */
+  /** Was --resume used? The main process makes that call. */
   resumed?: boolean
   error?: string
 }

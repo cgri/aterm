@@ -14,8 +14,8 @@ interface Running {
 }
 
 /**
- * Hält je Tab höchstens einen PTY-Prozess. Tabs ohne Eintrag sind reine
- * Datensätze (lazy Restore) — das ist der Normalfall direkt nach dem Start.
+ * Holds at most one PTY process per tab. Tabs without an entry are pure records
+ * (lazy restore) — which is the normal state right after startup.
  */
 export class PtyManager extends EventEmitter {
   private running = new Map<string, Running>()
@@ -29,9 +29,9 @@ export class PtyManager extends EventEmitter {
 
     const cwd = existsSync(spec.cwd) ? spec.cwd : homedir()
 
-    // Fortsetzen nur, wenn es wirklich ein Gespräch gibt — sonst scheitert
-    // `--resume` mit „No conversation found with session ID". Der Wunsch des
-    // Renderers ist dafür nicht maßgeblich, die Ablage von Claude Code ist es.
+    // Only resume when a conversation really exists, otherwise `--resume` fails
+    // with "No conversation found with session ID". What the renderer asked for
+    // does not decide this — Claude Code's own storage does.
     const resume =
       spec.kind === 'claude' &&
       Boolean(spec.claudeSessionId) &&
@@ -70,8 +70,8 @@ export class PtyManager extends EventEmitter {
 
     proc.onData((data) => this.emit('data', { tabId: spec.tabId, data }))
     proc.onExit(({ exitCode }) => {
-      // Nur aufräumen, wenn noch derselbe Prozess registriert ist — ein
-      // zwischenzeitlicher Neustart darf nicht abgeräumt werden.
+      // Only clean up while the same process is still registered — a restart
+      // that happened in between must not be torn down.
       if (this.running.get(spec.tabId)?.proc === proc) this.running.delete(spec.tabId)
       this.emit('exit', { tabId: spec.tabId, exitCode })
     })
@@ -89,7 +89,7 @@ export class PtyManager extends EventEmitter {
     try {
       entry.proc.resize(Math.max(cols, 20), Math.max(rows, 5))
     } catch {
-      // Prozess ist zwischen Prüfung und resize gestorben — irrelevant.
+      // The process died between the check and the resize — harmless.
     }
   }
 
@@ -100,7 +100,7 @@ export class PtyManager extends EventEmitter {
     try {
       entry.proc.kill()
     } catch {
-      // bereits beendet
+      // already gone
     }
   }
 
@@ -112,7 +112,7 @@ export class PtyManager extends EventEmitter {
     return this.running.has(tabId)
   }
 
-  /** tabId → Wurzel-PID, für die Prozessbaum-Auswertung. */
+  /** tabId → root PID, used when walking the process tree. */
   pids(): Map<string, number> {
     const out = new Map<string, number>()
     for (const [tabId, entry] of this.running) out.set(tabId, entry.pid)

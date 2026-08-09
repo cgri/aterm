@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
 
 /**
- * Liest JSON und verträgt ein führendes BOM. Windows-PowerShell schreibt mit
- * `Set-Content -Encoding utf8` eines — ohne diese Behandlung scheitert
- * JSON.parse still, und die Datei sieht in jedem Editor trotzdem korrekt aus.
+ * Reads JSON, tolerating a leading BOM. Windows PowerShell writes one with
+ * `Set-Content -Encoding utf8` — without this, JSON.parse fails silently while
+ * the file still looks perfectly fine in any editor.
  */
 export function readJsonFile<T>(file: string): T | undefined {
   try {

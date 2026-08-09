@@ -14,7 +14,7 @@ import { readJsonFile } from '../util/json'
 import { projectsDir } from './paths'
 import { firstUserEntry } from './transcripts'
 
-/** Was der Detector über einen laufenden Shell-Tab wissen muss. */
+/** What the detector needs to know about a running shell tab. */
 export interface ShellTabInfo {
   tabId: string
   cwd: string
@@ -25,13 +25,13 @@ export interface ShellTabInfo {
 const UUID_JSONL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$/i
 
 /**
- * Findet heraus, welche Claude-Session in einem PowerShell-Tab gestartet wurde.
+ * Works out which Claude session was started inside a PowerShell tab.
  *
- * Ebene 1 — das Startprofil meldet die von ihm vergebene UUID über eine Datei
- * in runtime/. Deterministisch, greift sofort.
- * Ebene 2 — neue Transkripte unter ~/.claude/projects werden beobachtet; ihre
- * erste Nutzer-Zeile nennt sessionId und cwd. Greift auch, wenn der Wrapper
- * umgangen wurde. Bei mehreren gleich guten Kandidaten wird nicht geraten.
+ * Level 1 — the startup profile reports the UUID it assigned through a file in
+ * runtime/. Deterministic, and takes effect immediately.
+ * Level 2 — new transcripts under ~/.claude/projects are watched; the first user
+ * line names sessionId and cwd. This also works when the wrapper was bypassed.
+ * When several candidates match equally well, nothing is guessed.
  */
 export class SessionDetector extends EventEmitter {
   private readonly runtimeDir: string
@@ -65,22 +65,22 @@ export class SessionDetector extends EventEmitter {
     this.transcriptWatcher = undefined
   }
 
-  /** Der Main-Prozess meldet nach jedem Tab-Wechsel den aktuellen Stand. */
+  /** The main process reports the current picture after every tab change. */
   updateShellTabs(tabs: ShellTabInfo[]): void {
     this.shellTabs = tabs
   }
 
-  /** Aufräumen, wenn ein Tab verschwindet. */
+  /** Clean up when a tab goes away. */
   forgetTab(tabId: string): void {
     const file = join(this.runtimeDir, `${tabId}.json`)
     try {
       rmSync(file, { force: true })
     } catch {
-      // egal
+      // does not matter
     }
   }
 
-  // ------------------------------------------------------------ Ebene 1
+  // ------------------------------------------------------------ Level 1
 
   private watchRuntime(): void {
     try {
@@ -88,7 +88,7 @@ export class SessionDetector extends EventEmitter {
         if (filename) this.readRuntimeReport(String(filename))
       })
     } catch {
-      // Ohne Watcher bleibt Ebene 2.
+      // Without a watcher, level 2 still applies.
     }
   }
 
@@ -97,16 +97,16 @@ export class SessionDetector extends EventEmitter {
     const file = join(this.runtimeDir, filename)
     if (!existsSync(file)) return
 
-    // Fehlt etwas, ist die Datei halb geschrieben — das nächste Event bringt sie vollständig.
+    // If anything is missing the file is half-written — the next event brings it whole.
     const report = readJsonFile<{ tabId?: string; sessionId?: string }>(file)
     if (!report?.tabId || !report.sessionId) return
 
     this.emitDetected({ tabId: report.tabId, sessionId: report.sessionId, source: 'wrapper' })
   }
 
-  // ------------------------------------------------------------ Ebene 2
+  // ------------------------------------------------------------ Level 2
 
-  /** Alles, was es beim Start schon gab, ist für uns kein Neuzugang. */
+  /** Anything that already existed at startup is not a new arrival. */
   private seedTranscripts(): void {
     const root = projectsDir()
     if (!existsSync(root)) return
@@ -127,18 +127,18 @@ export class SessionDetector extends EventEmitter {
         if (!UUID_JSONL.test(basename(rel))) return
         if (this.knownTranscripts.has(rel)) return
         this.knownTranscripts.add(rel)
-        // Die erste Nutzer-Zeile erscheint erst mit dem ersten Prompt.
+        // The first user line only appears with the first prompt.
         setTimeout(() => this.inspectTranscript(join(root, rel)), 400)
       })
     } catch {
-      // Ohne Watcher bleibt Ebene 1.
+      // Without a watcher, level 1 still applies.
     }
   }
 
   private inspectTranscript(file: string, attempt = 0): void {
     if (!existsSync(file)) return
 
-    // Nur Dateien, die nach dem App-Start entstanden sind, kommen infrage.
+    // Only files created after the app started are candidates.
     try {
       if (statSync(file).birthtimeMs < this.startedAt - 60_000) return
     } catch {
@@ -156,7 +156,7 @@ export class SessionDetector extends EventEmitter {
     )
     const byCwd = candidates.filter((tab) => samePath(tab.cwd, head.cwd))
 
-    // Eindeutig über den Pfad, sonst der einzige Tab mit laufendem Agenten.
+    // Unambiguous by path, otherwise the only tab with a running agent.
     const target =
       byCwd.length === 1 ? byCwd[0] : byCwd.length === 0 && candidates.length === 1 ? candidates[0] : undefined
     if (!target) return
@@ -187,4 +187,3 @@ function samePath(a: string, b: string): boolean {
   const norm = (p: string): string => p.replace(/[\\/]+$/, '').toLowerCase()
   return norm(a) === norm(b)
 }
-

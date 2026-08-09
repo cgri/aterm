@@ -12,12 +12,12 @@ export interface KeymapContext {
   openSessionPicker(): void
   toggleSearch(): void
   changeFontSize(delta: number | 'reset'): void
-  /** Enter auf einem noch nicht gestarteten Tab → starten. true, wenn gestartet. */
+  /** Enter on a tab that has not started → start it. true when it did. */
   startActiveTab(): boolean
   overlayOpen(): boolean
 }
 
-/** Alles, was sich über userData/keymap.json umbelegen lässt. */
+/** Everything that can be rebound through userData/keymap.json. */
 export type Action =
   | 'newClaudeTab'
   | 'newShellTab'
@@ -44,9 +44,9 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   search: ['Ctrl+Shift+F'],
   paste: ['Ctrl+V', 'Ctrl+Shift+V'],
   copy: ['Ctrl+Shift+C'],
-  // ESC v — damit greift Claude Codes eigene Bild-Einfügung.
+  // ESC v — this triggers Claude Code's own image paste.
   pasteImage: ['Alt+V'],
-  // ESC CR — neue Zeile im Prompt statt Absenden.
+  // ESC CR — newline in the prompt instead of submitting.
   newline: ['Shift+Enter'],
   fontLarger: ['Ctrl++', 'Ctrl+='],
   fontSmaller: ['Ctrl+-'],
@@ -60,7 +60,7 @@ interface Combo {
   key: string
 }
 
-/** „Ctrl+Shift+O" → Combo. Unbekannte Angaben werden übersprungen. */
+/** "Ctrl+Shift+O" → Combo. Unrecognised entries are skipped. */
 export function parseCombo(text: string): Combo | undefined {
   const parts = text.split('+').map((p) => p.trim()).filter(Boolean)
   if (parts.length === 0) return undefined
@@ -73,7 +73,7 @@ export function parseCombo(text: string): Combo | undefined {
     else if (lower === 'alt') combo.alt = true
     else combo.key = lower
   }
-  // „Ctrl++" zerfällt zu ['Ctrl','',''] — die letzte Angabe ist dann die Taste.
+  // "Ctrl++" splits into ['Ctrl','',''] — the trailing entry is then the key.
   if (!combo.key && text.endsWith('+')) combo.key = '+'
   return combo.key ? combo : undefined
 }
@@ -90,9 +90,8 @@ function matches(ev: KeyboardEvent, combo: Combo): boolean {
 export type Bindings = Array<{ action: Action; combo: Combo }>
 
 /**
- * Baut die Belegung aus den Vorgaben und den Überschreibungen aus keymap.json.
- * Eine Überschreibung ersetzt die Vorgabe einer Aktion vollständig; ein leeres
- * Array schaltet sie ab.
+ * Builds the bindings from the defaults and the overrides in keymap.json. An
+ * override replaces an action's default entirely; an empty array disables it.
  */
 export function buildBindings(overrides?: Partial<Record<Action, string[]>>): Bindings {
   const bindings: Bindings = []
@@ -107,8 +106,8 @@ export function buildBindings(overrides?: Partial<Record<Action, string[]>>): Bi
 }
 
 /**
- * Ein einziger Listener in der Capture-Phase: Was hier behandelt wird, erreicht
- * xterm.js gar nicht erst. Alles andere läuft unverändert ins PTY.
+ * A single listener in the capture phase: whatever is handled here never reaches
+ * xterm.js. Everything else goes through to the PTY untouched.
  */
 export function installKeymap(ctx: KeymapContext, bindings: Bindings): void {
   document.addEventListener(
@@ -124,15 +123,15 @@ export function installKeymap(ctx: KeymapContext, bindings: Bindings): void {
 }
 
 function handle(ev: KeyboardEvent, ctx: KeymapContext, bindings: Bindings): boolean {
-  // Overlays (Session-Picker, Suche) bringen ihre eigene Tastatur mit; nur
-  // Kombinationen mit Strg oder Alt kommen dort noch durch.
+  // Overlays (session picker, search) bring their own keyboard handling; only
+  // combinations with Ctrl or Alt still get through there.
   if (ctx.overlayOpen() && !ev.ctrlKey && !ev.altKey) return false
 
   const hit = bindings.find((b) => matches(ev, b.combo))
   if (hit) return dispatch(hit.action, ctx, ev)
 
-  // Strg+C ist kontextabhängig: mit Auswahl kopieren, ohne Auswahl abbrechen
-  // (0x03 ans PTY) — genau wie in der PowerShell.
+  // Ctrl+C is context dependent: copy with a selection, interrupt without one
+  // (0x03 to the PTY) — exactly as PowerShell behaves.
   if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && ev.key.toLowerCase() === 'c') {
     if (ctx.activeView()?.term.hasSelection()) {
       void copySelection(ctx)
@@ -141,13 +140,13 @@ function handle(ev: KeyboardEvent, ctx: KeymapContext, bindings: Bindings): bool
     return false
   }
 
-  // Ctrl+1..9 springt direkt auf einen Tab.
+  // Ctrl+1..9 jumps straight to a tab.
   if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && /^[1-9]$/.test(ev.key)) {
     ctx.selectTabByIndex(Number(ev.key) - 1)
     return true
   }
 
-  // Enter startet einen Platzhalter-Tab — nur, wenn dort kein Prozess läuft.
+  // Enter starts a placeholder tab — only when no process is running in it.
   if (!ev.ctrlKey && !ev.altKey && !ev.shiftKey && ev.key === 'Enter') {
     return ctx.startActiveTab()
   }
@@ -217,6 +216,6 @@ async function paste(ctx: KeymapContext): Promise<void> {
   if (!view) return
   const payload = await window.aterm.system.readClipboard()
   if (payload.kind === 'text') view.term.paste(payload.text)
-  // Bilder landen als Datei im Temp-Verzeichnis; Claude Code liest den Pfad.
+  // Images land as a file in the temp directory; Claude Code reads the path.
   else if (payload.kind === 'image') view.term.paste(`"${payload.path}"`)
 }

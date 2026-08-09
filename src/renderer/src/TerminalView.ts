@@ -11,7 +11,7 @@ const THEME = {
   selectionBackground: '#2f3b52'
 }
 
-/** Eine xterm.js-Instanz samt Container — genau eine je laufendem Tab. */
+/** One xterm.js instance and its container — exactly one per running tab. */
 export class TerminalView {
   readonly element: HTMLDivElement
   readonly term: Terminal
@@ -39,10 +39,10 @@ export class TerminalView {
     this.term.loadAddon(this.fit)
     this.term.loadAddon(this.search)
 
-    // Ohne das hier rechnet xterm.js mit den Unicode-6-Breiten: Emoji wie ✅, ❌
-    // oder 📁 gelten dort als eine Spalte breit, werden aber zwei Spalten breit
-    // gezeichnet. Der Glyph überdeckt dann das folgende Leerzeichen, und der
-    // Text klebt am Symbol. Unicode 11 kennt sie als doppelt breit.
+    // Without this, xterm.js uses Unicode 6 widths, where emoji such as ✅, ❌ or
+    // 📁 count as one column wide although they are drawn two columns wide. The
+    // glyph then covers the following space and the text ends up glued to the
+    // symbol. Unicode 11 knows them as double width.
     this.term.loadAddon(new Unicode11Addon())
     this.term.unicode.activeVersion = '11'
 
@@ -56,7 +56,7 @@ export class TerminalView {
     try {
       this.term.loadAddon(new WebglAddon())
     } catch {
-      // Ohne WebGL rendert xterm.js über das DOM weiter — nur langsamer.
+      // Without WebGL, xterm.js keeps rendering through the DOM — just slower.
     }
 
     this.observer = new ResizeObserver(() => this.refit())
@@ -64,7 +64,7 @@ export class TerminalView {
     this.refit()
   }
 
-  /** Passt die PTY-Größe an die Fenstergröße an. Meldet nur echte Änderungen. */
+  /** Matches the PTY size to the window size. Reports real changes only. */
   refit(): void {
     if (!this.element.isConnected || this.element.clientHeight === 0) return
     try {
@@ -75,7 +75,7 @@ export class TerminalView {
         this.onResize(this.term.cols, this.term.rows)
       }
     } catch {
-      // Während Layout-Umbauten kann proposeDimensions scheitern.
+      // proposeDimensions can fail while the layout is being rearranged.
     }
   }
 

@@ -35,7 +35,7 @@ body {
   height: 100%;
 }
 
-/* ---------- Tab-Leiste ---------- */
+/* ---------- Tab bar ---------- */
 
 #tabbar {
   display: flex;
@@ -157,7 +157,7 @@ body {
   overflow: hidden;
 }
 
-/* xterm bringt seinen eigenen Innenabstand nicht mit — der Rahmen sitzt außen. */
+/* xterm brings no padding of its own — the inset lives here. */
 .pane .term .xterm {
   padding: 4px 0 2px 6px;
 }
@@ -205,7 +205,7 @@ body {
   color: var(--fg);
 }
 
-/* Platzhalter für noch nicht gestartete Tabs */
+/* Placeholder for tabs that have not started yet */
 .placeholder {
   position: absolute;
   inset: 0;
@@ -235,7 +235,7 @@ body {
   font-size: 12px;
 }
 
-/* ---------- Menü / Overlays ---------- */
+/* ---------- Menu / overlays ---------- */
 
 .menu {
   position: absolute;
@@ -259,7 +259,7 @@ body {
   color: #fff;
 }
 
-/* ---------- Session-Picker ---------- */
+/* ---------- Session picker ---------- */
 
 .picker {
   position: fixed;
@@ -352,7 +352,7 @@ body {
   color: var(--fg-dim);
 }
 
-/* ---------- Suchleiste ---------- */
+/* ---------- Search bar ---------- */
 
 .searchbar {
   position: absolute;

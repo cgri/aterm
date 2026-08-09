@@ -9,11 +9,10 @@ export interface LaunchSpec {
 }
 
 /**
- * Marker, mit denen eine laufende Claude-Code-Session ihre Kindprozesse
- * kennzeichnet. Wird aterm aus einer solchen Session heraus gestartet, erbt
- * es sie — und würde sie an jeden Tab weiterreichen. Claude Code hielte sich
- * dann für einen Unterprozess und **schriebe kein Transkript**; die Session
- * ließe sich später nicht fortsetzen. Deshalb müssen sie hier weg.
+ * Markers a running Claude Code session uses to tag its child processes. When
+ * aterm is launched from inside such a session it inherits them, and would pass
+ * them on to every tab. Claude Code would then consider itself a subprocess and
+ * **write no transcript**, leaving the session unresumable. So they have to go.
  */
 const INHERITED_SESSION_MARKERS = [
   'CLAUDECODE',
@@ -23,7 +22,7 @@ const INHERITED_SESSION_MARKERS = [
   'CLAUDE_PID'
 ]
 
-/** Die Umgebung für Tabs: geerbt, aber ohne fremde Session-Identität. */
+/** The environment for tabs: inherited, but without a foreign session identity. */
 function baseEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env }
   for (const name of INHERITED_SESSION_MARKERS) delete env[name]
@@ -31,8 +30,8 @@ function baseEnv(): NodeJS.ProcessEnv {
 }
 
 /**
- * Sucht die Claude-Code-CLI. Reihenfolge: ATERM_CLAUDE_PATH → PATH → der
- * Standard-Installationsort des Installers.
+ * Locates the Claude Code CLI. Order: ATERM_CLAUDE_PATH → PATH → the installer's
+ * default location.
  */
 export function resolveClaudeExe(): string | undefined {
   const override = process.env.ATERM_CLAUDE_PATH
@@ -51,7 +50,7 @@ export function resolveClaudeExe(): string | undefined {
   return existsSync(fallback) ? fallback : undefined
 }
 
-/** Pfad zum mitgelieferten PowerShell-Startprofil (dev wie paketiert). */
+/** Path to the bundled PowerShell startup profile (dev and packaged alike). */
 export function profileScriptPath(): string {
   return app.isPackaged
     ? join(process.resourcesPath, 'aterm-profile.ps1')
@@ -70,8 +69,8 @@ export function powershellLaunch(tabId: string, runtimeDir: string, useProfile: 
   if (useProfile && existsSync(script)) {
     return {
       file,
-      // -ExecutionPolicy Bypass, damit weder Mark-of-the-Web noch eine strengere
-      // Policy das mitgelieferte Profil blockiert (Plan: Risiken).
+      // -ExecutionPolicy Bypass so that neither a mark-of-the-web nor a stricter
+      // policy can block the bundled profile.
       args: ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', script],
       env
     }
@@ -85,7 +84,7 @@ export function claudeLaunch(opts: {
   resume: boolean
 }): LaunchSpec {
   const exe = resolveClaudeExe()
-  if (!exe) throw new Error('claude.exe nicht gefunden (PATH oder ATERM_CLAUDE_PATH setzen)')
+  if (!exe) throw new Error('claude.exe not found (set PATH or ATERM_CLAUDE_PATH)')
 
   const claudeArgs = opts.resume
     ? ['--resume', opts.sessionId]
@@ -93,7 +92,7 @@ export function claudeLaunch(opts: {
 
   const env: NodeJS.ProcessEnv = { ...baseEnv(), ATERM_TAB_ID: opts.tabId }
 
-  // .cmd/.bat brauchen einen Interpreter; die .exe wird direkt gestartet.
+  // .cmd/.bat need an interpreter; the .exe is started directly.
   if (/\.(cmd|bat)$/i.test(exe)) {
     const cmd = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'cmd.exe')
     return { file: cmd, args: ['/c', exe, ...claudeArgs], env }

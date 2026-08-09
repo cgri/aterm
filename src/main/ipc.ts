@@ -1,4 +1,4 @@
-/** Alle IPC-Kanalnamen an einer Stelle — Main und Preload teilen sich diese Datei. */
+/** Every IPC channel name in one place — main and preload share this file. */
 export const IPC = {
   // Renderer → Main (invoke)
   ptyStart: 'pty:start',
@@ -14,7 +14,7 @@ export const IPC = {
   homeDir: 'app:home-dir',
   keymapLoad: 'keymap:load',
 
-  // Renderer → Main (send, hochfrequent)
+  // Renderer → main (send, high frequency)
   ptyWrite: 'pty:write',
   ptyResize: 'pty:resize',
 

@@ -13,9 +13,9 @@ interface HistoryLine {
 const CACHE_MS = 5000
 
 /**
- * Liest ~/.claude/history.jsonl (eine Zeile je Prompt) und verdichtet sie zu
- * einer Liste von Sessions. Bewusst defensiv: kaputte oder unbekannte Zeilen
- * werden übersprungen, ein leeres Ergebnis ist kein Fehler.
+ * Reads ~/.claude/history.jsonl (one line per prompt) and condenses it into a
+ * list of sessions. Deliberately defensive: broken or unknown lines are skipped,
+ * and an empty result is not an error.
  */
 export class HistoryReader {
   private cache?: { at: number; value: RecentSession[] }
@@ -33,7 +33,7 @@ export class HistoryReader {
         this.cache = undefined
       })
     } catch {
-      // Ohne Watcher greift einfach nur der Zeit-Cache.
+      // Without a watcher the time-based cache is all that applies.
     }
   }
 
@@ -49,7 +49,7 @@ export class HistoryReader {
     return value
   }
 
-  /** Titel einer bekannten Session (erster Prompt), falls vorhanden. */
+  /** Title of a known session (its first prompt), if there is one. */
   titleFor(sessionId: string): string | undefined {
     return this.recent().find((s) => s.sessionId === sessionId)?.title
   }
@@ -87,8 +87,8 @@ export class HistoryReader {
       }
       existing.promptCount += 1
       if (timestamp > existing.lastUsed) existing.lastUsed = timestamp
-      // Der Titel ist der *erste* Prompt — history.jsonl ist chronologisch,
-      // aber darauf verlassen wir uns nicht.
+      // The title is the *first* prompt. history.jsonl is chronological, but we
+      // do not rely on that.
       if (timestamp < existing.firstAt) {
         existing.firstAt = timestamp
         existing.title = cleanTitle(display)
@@ -104,6 +104,6 @@ export class HistoryReader {
 
 export function cleanTitle(display: string | undefined): string {
   const text = (display ?? '').replace(/\s+/g, ' ').trim()
-  if (!text) return '(ohne Titel)'
+  if (!text) return '(untitled)'
   return text.length > 90 ? `${text.slice(0, 89)}…` : text
 }
