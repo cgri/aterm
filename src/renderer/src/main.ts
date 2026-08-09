@@ -4,8 +4,12 @@ import type { PersistedState, RecentSession, TabKind, TabState } from '@shared/t
 import { TabBar, type TabViewModel } from './TabBar'
 import { TerminalView } from './TerminalView'
 import { SessionPicker } from './SessionPicker'
-import { buildBindings, installKeymap, type Action } from './keymap'
+import { buildBindings, installKeymap, installWheelZoom, type Action } from './keymap'
 import { SearchBar } from './SearchBar'
+import { ZoomIndicator } from './ZoomIndicator'
+
+/** Font size the zoom percentage is relative to, and the target of a reset. */
+const BASE_FONT_SIZE = 14
 
 interface Pane {
   tab: TabState
@@ -27,7 +31,7 @@ const panes = new Map<string, Pane>()
 let order: string[] = []
 let activeId: string | undefined
 let homeDir = ''
-let fontSize = Number(localStorage.getItem('fontSize') ?? 14)
+let fontSize = Number(localStorage.getItem('fontSize') ?? BASE_FONT_SIZE)
 /** sessionId → first prompt, used for titles and the "last here" bar. */
 let sessionTitles = new Map<string, string>()
 
@@ -39,6 +43,7 @@ const tabBar = new TabBar(barRoot, {
 })
 
 const searchBar = new SearchBar(() => activePane()?.view)
+const zoomIndicator = new ZoomIndicator(document.body)
 
 const picker = new SessionPicker({
   onOpen: (session) => void openSession(session),
@@ -90,6 +95,7 @@ async function boot(): Promise<void> {
     },
     buildBindings(overrides)
   )
+  installWheelZoom((delta) => changeFontSize(delta))
 
   const state = await api.state.load()
   if (state.tabs.length === 0) {
@@ -549,9 +555,13 @@ function activePane(): Pane | undefined {
 /* -------------------------------------------------------- Font size */
 
 function changeFontSize(delta: number | 'reset'): void {
-  fontSize = delta === 'reset' ? 14 : Math.min(28, Math.max(8, fontSize + delta))
+  fontSize =
+    delta === 'reset' ? BASE_FONT_SIZE : Math.min(28, Math.max(8, fontSize + delta))
   localStorage.setItem('fontSize', String(fontSize))
   for (const pane of panes.values()) pane.view?.setFontSize(fontSize)
+  // Also shown when the size was already clamped — that is the feedback that
+  // the limit is reached.
+  zoomIndicator.show(Math.round((fontSize / BASE_FONT_SIZE) * 100))
 }
 
 /* ------------------------------------------------------ Persistence */

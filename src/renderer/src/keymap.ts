@@ -122,6 +122,36 @@ export function installKeymap(ctx: KeymapContext, bindings: Bindings): void {
   )
 }
 
+/** One wheel notch on Windows is 100; precision trackpads send far smaller steps. */
+const ZOOM_STEP = 100
+
+/**
+ * Ctrl+Wheel changes the font size. Registered with `passive: false`, because
+ * Chromium makes wheel listeners on `document` passive by default and then
+ * ignores `preventDefault()` — without it the page zooms on top of the resize.
+ */
+export function installWheelZoom(changeFontSize: (delta: number) => void): void {
+  let accumulated = 0
+
+  document.addEventListener(
+    'wheel',
+    (ev) => {
+      if (!ev.ctrlKey || ev.altKey) return
+      ev.preventDefault()
+      ev.stopPropagation()
+
+      accumulated += ev.deltaY
+      while (Math.abs(accumulated) >= ZOOM_STEP) {
+        const direction = Math.sign(accumulated)
+        accumulated -= direction * ZOOM_STEP
+        // Wheel up means a negative deltaY, and up should enlarge.
+        changeFontSize(-direction)
+      }
+    },
+    { capture: true, passive: false }
+  )
+}
+
 function handle(ev: KeyboardEvent, ctx: KeymapContext, bindings: Bindings): boolean {
   // Overlays (session picker, search) bring their own keyboard handling; only
   // combinations with Ctrl or Alt still get through there.
