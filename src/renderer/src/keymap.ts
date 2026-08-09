@@ -3,7 +3,7 @@ import type { TerminalView } from './TerminalView'
 
 export interface KeymapContext {
   activeView(): TerminalView | undefined
-  /** Schreibt direkt ins PTY des aktiven Tabs. */
+  /** Writes straight into the active tab's PTY. */
   write(data: string): void
   newTab(kind: TabKind): void
   /** The overlay behind "+". */
@@ -237,7 +237,7 @@ function dispatch(action: Action, ctx: KeymapContext, ev: KeyboardEvent): boolea
       ctx.changeFontSize('reset')
       return true
     default: {
-      // Sollte unerreichbar sein — lieber durchreichen als schlucken.
+      // Should be unreachable — rather pass the key on than swallow it.
       void ev
       return false
     }
