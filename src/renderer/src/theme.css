@@ -128,6 +128,10 @@ body {
 .tab .dot.exited {
   background: var(--err);
 }
+/* The program is waiting for input — the one state that wants to be noticed. */
+.tab .dot.awaiting {
+  background: var(--warn);
+}
 
 .tab .label {
   flex: 1 1 auto;

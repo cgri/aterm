@@ -79,6 +79,17 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   through `util/json.ts`; the shell profile writes without a BOM via `UTF8Encoding($false)`.
 - **Restore is lazy.** Restored tabs render as placeholders; the process starts on click or
   Enter, including the tab that was active last.
+- **The tab label follows the terminal title, and the title carries a state marker.** A
+  program naming itself through OSC 0/2 names its tab (`term.onTitleChange`). Claude Code
+  puts its state in front: a Braille spinner (`U+2800`–`U+28FF`) while it works, changing
+  about once a second, and `✳` (`U+2733`) while it waits for input. `readPtyTitle` in
+  `renderer/src/main.ts` splits the two apart — the text becomes the label, the marker
+  becomes the colour of the tab's dot (amber while waiting). Stripping the spinner is not
+  cosmetic: every frame is a title change, and `TabBar.render` rebuilds the whole bar, so
+  keeping the frame in the label would re-render the tab bar once a second per tab.
+  ConPTY also announces the launched image (`…\powershell.exe`) as a title at startup;
+  `LAUNCHED_IMAGE` drops it. The marker set was read off the wire, not from documentation —
+  `[Console]::Title` in a tab reports what Claude Code currently set.
 - **The tab bar is the title bar.** The window uses `titleBarStyle: 'hidden'`, so Electron
   overlays the native window controls on the right. `#tabbar` is the drag region and every
   clickable child opts out again with `-webkit-app-region: no-drag`; the room left beside

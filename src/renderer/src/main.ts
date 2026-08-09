@@ -38,7 +38,12 @@ interface Pane {
    * gone.
    */
   ptyTitle?: string
+  /** What the status marker in that title said, if there was one. */
+  ptyState?: PtyState
 }
+
+/** Claude Code says what it is up to in front of its window title. */
+type PtyState = 'working' | 'awaiting'
 
 const api = window.aterm
 const barRoot = document.getElementById('tabbar') as HTMLElement
@@ -318,6 +323,7 @@ async function startPane(pane: Pane): Promise<void> {
     pane.view.term.reset()
     // The next process names itself; until then the tab is back to its own name.
     pane.ptyTitle = undefined
+    pane.ptyState = undefined
   }
 
   if (tab.kind === 'claude' && !tab.claudeSessionId) {
@@ -372,6 +378,7 @@ function onExit(tabId: string, exitCode: number): void {
   pane.exitCode = exitCode
   pane.agentRunning = false
   pane.ptyTitle = undefined
+  pane.ptyState = undefined
   showBar(pane, `Process exited (code ${exitCode})`, [{ key: 'Enter', label: 'start again' }])
   render()
 }
@@ -409,7 +416,8 @@ function render(): void {
       title: paneTitle(pane),
       kind: pane.tab.kind,
       status: pane.status,
-      agentRunning: pane.agentRunning
+      agentRunning: pane.agentRunning,
+      awaitingInput: pane.ptyState === 'awaiting'
     }))
   tabBar.render(models, activeId)
 
@@ -529,12 +537,13 @@ function paneTitle(pane: Pane): string {
 /**
  * Takes over the title a process set for itself. Titles arrive as often as the
  * process cares to send them and rendering rebuilds the whole tab bar, so
- * anything that does not actually change the text stops here.
+ * anything that does not actually change what is shown stops here.
  */
 function setPtyTitle(pane: Pane, raw: string): void {
-  const next = cleanPtyTitle(raw)
-  if (next === pane.ptyTitle) return
-  pane.ptyTitle = next
+  const next = readPtyTitle(raw)
+  if (next.title === pane.ptyTitle && next.state === pane.ptyState) return
+  pane.ptyTitle = next.title
+  pane.ptyState = next.state
   // Nothing persisted changed — the title belongs to the process, not the tab.
   render()
 }
@@ -548,15 +557,41 @@ function setPtyTitle(pane: Pane, raw: string): void {
  */
 const LAUNCHED_IMAGE = /^(?:[a-z]:[\\/]|\\\\)[^\r\n]*\.(?:exe|cmd|bat|com)$/i
 
-function cleanPtyTitle(raw: string): string | undefined {
+/**
+ * Claude Code puts its state in front of the title: a Braille spinner while it
+ * works, and ✳ while it waits for input. The dot in the tab says that better
+ * than a symbol glued to the text does — and dropping the spinner is what keeps
+ * a working tab from rebuilding the whole tab bar once a second, because every
+ * frame is a title change of its own.
+ */
+// Escaped rather than literal, because the Braille range starts at U+2800, which
+// is blank and would sit invisible in the source. `|$` because a marker can
+// arrive before there is any summary behind it: the trailing space is gone by
+// then, and the bare glyph must not end up as the tab's name.
+const SPINNER_MARKER = /^[\u2800-\u28ff](?:\s+|$)/
+const AWAITING_MARKER = /^\u2733(?:\s+|$)/
+
+function readPtyTitle(raw: string): { title?: string; state?: PtyState } {
   const text = raw
     .replace(/[\x00-\x1f\x7f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-  if (!text || LAUNCHED_IMAGE.test(text)) return undefined
+  if (!text || LAUNCHED_IMAGE.test(text)) return {}
+
+  const marker = SPINNER_MARKER.test(text)
+    ? { state: 'working' as const, pattern: SPINNER_MARKER }
+    : AWAITING_MARKER.test(text)
+      ? { state: 'awaiting' as const, pattern: AWAITING_MARKER }
+      : undefined
+
+  const label = marker ? text.replace(marker.pattern, '') : text
+  if (!label) return { state: marker?.state }
   // The tab bar ellipsises anyway; this is only a guard against a runaway
   // sequence being carried around as a tooltip.
-  return text.length > 200 ? `${text.slice(0, 199)}…` : text
+  return {
+    title: label.length > 200 ? `${label.slice(0, 199)}…` : label,
+    state: marker?.state
+  }
 }
 
 async function refreshClaudeTitles(): Promise<void> {
