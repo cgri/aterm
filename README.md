@@ -4,6 +4,11 @@ A lean terminal host for AI agents on Windows. Tabs like Windows Terminal — pl
 session handling for Claude Code: tabs survive a restart, and earlier sessions can
 be found again and resumed.
 
+![A Claude Code tab working in a demo project, with two more tabs beside it](docs/screenshot.png)
+
+The active tab is named by the running agent, and its dot turns amber while Claude
+Code waits for input.
+
 ## What it does
 
 - **Tabs** for Claude Code and PowerShell, with drag-to-reorder and a status dot.
