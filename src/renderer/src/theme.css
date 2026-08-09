@@ -1,3 +1,8 @@
+/* Two palettes, picked by data-theme on <html>. appearance.ts sets that attribute
+   before anything is drawn, so there is no flash of the wrong theme; the colours
+   Electron draws itself (window controls, window background) are repeated in
+   CHROME_COLORS in main/index.ts and have to be changed together with these.
+   The dark palette is the fallback: without the attribute the app stays dark. */
 :root {
   --bg: #12141a;
   --bg-chrome: #191c24;
@@ -10,8 +15,34 @@
   --warn: #d9a441;
   --err: #e05561;
   --border: #262b36;
+  --hover: #3a4150;
+  --on-accent: #fff;
+  --on-accent-dim: #dce8ff;
+  --scrim: #0009;
+  --shadow: #000a;
+  --shadow-soft: #0007;
   --font-ui: 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, monospace;
+}
+
+:root[data-theme='light'] {
+  --bg: #ffffff;
+  --bg-chrome: #f2f3f5;
+  --bg-tab: #e6e8ec;
+  --bg-tab-active: #ffffff;
+  --fg: #1f2430;
+  --fg-dim: #6b7280;
+  --accent: #1a6fe0;
+  --ok: #1f8a4c;
+  --warn: #a86a08;
+  --err: #c02a37;
+  --border: #d3d7de;
+  --hover: #cdd2da;
+  --on-accent: #fff;
+  --on-accent-dim: #dde9ff;
+  --scrim: #3a404d40;
+  --shadow: #00000033;
+  --shadow-soft: #00000022;
 }
 
 * {
@@ -56,7 +87,8 @@ body {
 
 /* Everything clickable has to opt out of dragging again. */
 #tabbar .tab,
-#tabbar #newtab {
+#tabbar #newtab,
+#tabbar #theme-toggle {
   -webkit-app-region: no-drag;
 }
 
@@ -121,7 +153,7 @@ body {
 }
 
 .tab .close:hover {
-  background: #3a4150;
+  background: var(--hover);
   color: var(--fg);
 }
 
@@ -140,6 +172,24 @@ body {
 }
 
 #newtab:hover {
+  color: var(--fg);
+  background: var(--bg-tab);
+}
+
+/* Sits at the right end, right next to the native window controls. */
+#theme-toggle {
+  margin-left: auto;
+  width: 34px;
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 15px;
+  line-height: 1;
+  cursor: default;
+}
+
+#theme-toggle:hover {
   color: var(--fg);
   background: var(--bg-tab);
 }
@@ -172,6 +222,15 @@ body {
 /* xterm brings no padding of its own — the inset lives here. */
 .pane .term .xterm {
   padding: 4px 0 2px 6px;
+}
+
+/* xterm.css hardcodes a black viewport, which the renderer only ever paints over
+   cell by cell. The inset above and the column left of the first cell keep that
+   black — invisible on the dark palette, a black frame on the light one. The
+   terminal background is --bg in both, so this is the same colour the cells get. */
+.pane .term .xterm,
+.pane .term .xterm .xterm-viewport {
+  background-color: var(--bg);
 }
 
 .bar {
@@ -257,7 +316,7 @@ body {
   justify-content: center;
   align-items: flex-start;
   padding-top: 70px;
-  background: #0009;
+  background: var(--scrim);
 }
 
 .picker.visible {
@@ -272,7 +331,7 @@ body {
   background: var(--bg-chrome);
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 16px 48px #000a;
+  box-shadow: 0 16px 48px var(--shadow);
   overflow: hidden;
 }
 
@@ -319,11 +378,11 @@ body {
 
 .picker-row.selected {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .picker-row.selected .picker-meta {
-  color: #dce8ff;
+  color: var(--on-accent-dim);
 }
 
 .picker-title {
@@ -364,6 +423,55 @@ body {
   padding: 7px 14px;
 }
 
+/* ---------- Confirm dialog ---------- */
+
+/* Same overlay again, sized to a sentence and a pair of buttons. */
+.dialog-box {
+  width: min(420px, 90vw);
+}
+
+.dialog-text {
+  padding: 18px 18px 4px;
+  line-height: 1.45;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 18px 16px;
+}
+
+.dialog-actions button {
+  font: inherit;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-tab);
+  color: var(--fg);
+  cursor: default;
+}
+
+.dialog-actions button:hover {
+  background: var(--hover);
+}
+
+.dialog-actions button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.dialog-actions button.primary:hover {
+  filter: brightness(1.12);
+}
+
+/* The focused button is the one Enter activates — that has to be visible. */
+.dialog-actions button:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* ---------- Search bar ---------- */
 
 .searchbar {
@@ -378,7 +486,7 @@ body {
   background: var(--bg-chrome);
   border: 1px solid var(--border);
   border-radius: 6px;
-  box-shadow: 0 6px 18px #0007;
+  box-shadow: 0 6px 18px var(--shadow-soft);
 }
 
 .searchbar input {
@@ -403,7 +511,7 @@ body {
   background: var(--bg-chrome);
   border: 1px solid var(--border);
   border-radius: 6px;
-  box-shadow: 0 6px 18px #0007;
+  box-shadow: 0 6px 18px var(--shadow-soft);
   color: var(--fg);
   font-family: var(--font-mono);
   font-size: 12px;

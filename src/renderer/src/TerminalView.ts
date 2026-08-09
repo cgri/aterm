@@ -1,14 +1,44 @@
-import { Terminal } from '@xterm/xterm'
+import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebglAddon } from '@xterm/addon-webgl'
+import type { Appearance } from '@shared/types'
 
-const THEME = {
-  background: '#12141a',
-  foreground: '#d7dae2',
-  cursor: '#4f8cff',
-  selectionBackground: '#2f3b52'
+/**
+ * The dark theme leaves the ANSI palette to xterm.js, whose default is built for
+ * a dark background. On a light background those colours are barely readable, so
+ * the light theme brings all sixteen of its own.
+ */
+const THEMES: Record<Appearance, ITheme> = {
+  dark: {
+    background: '#12141a',
+    foreground: '#d7dae2',
+    cursor: '#4f8cff',
+    selectionBackground: '#2f3b52'
+  },
+  light: {
+    background: '#ffffff',
+    foreground: '#1f2430',
+    cursor: '#1a6fe0',
+    selectionBackground: '#cfe0ff',
+    black: '#24292e',
+    red: '#d1242f',
+    green: '#1a7f37',
+    yellow: '#9a6700',
+    blue: '#0969da',
+    magenta: '#8250df',
+    cyan: '#1b7c83',
+    white: '#6e7781',
+    brightBlack: '#57606a',
+    brightRed: '#a40e26',
+    brightGreen: '#116329',
+    brightYellow: '#7d4e00',
+    brightBlue: '#0550ae',
+    brightMagenta: '#6639ba',
+    brightCyan: '#135e6c',
+    brightWhite: '#24292e'
+  }
 }
 
 /** One xterm.js instance and its container — exactly one per running tab. */
@@ -22,6 +52,7 @@ export class TerminalView {
   constructor(
     readonly tabId: string,
     fontSize: number,
+    appearance: Appearance,
     private readonly onInput: (data: string) => void,
     private readonly onResize: (cols: number, rows: number) => void
   ) {
@@ -34,7 +65,7 @@ export class TerminalView {
       scrollback: 10000,
       cursorBlink: true,
       allowProposedApi: true,
-      theme: THEME
+      theme: THEMES[appearance]
     })
     this.term.loadAddon(this.fit)
     this.term.loadAddon(this.search)
@@ -90,6 +121,10 @@ export class TerminalView {
   setFontSize(size: number): void {
     this.term.options.fontSize = size
     this.refit()
+  }
+
+  setAppearance(appearance: Appearance): void {
+    this.term.options.theme = THEMES[appearance]
   }
 
   write(data: string): void {

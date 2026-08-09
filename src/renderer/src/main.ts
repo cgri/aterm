@@ -8,6 +8,9 @@ import { NewTabMenu, type MenuItem } from './NewTabMenu'
 import { buildBindings, installKeymap, installWheelZoom, type Action } from './keymap'
 import { SearchBar } from './SearchBar'
 import { ZoomIndicator } from './ZoomIndicator'
+import { ConfirmDialog } from './ConfirmDialog'
+import { ThemeToggle } from './ThemeToggle'
+import { currentAppearance, onThemeChange } from './appearance'
 
 /** Font size the zoom percentage is relative to, and the target of a reset. */
 const BASE_FONT_SIZE = 14
@@ -42,14 +45,25 @@ let fontSize = Number(localStorage.getItem('fontSize') ?? BASE_FONT_SIZE)
 /** sessionId → first prompt, used for titles and the "last here" bar. */
 let sessionTitles = new Map<string, string>()
 
-const tabBar = new TabBar(barRoot, {
-  onSelect: (id) => activate(id, { start: true }),
-  onClose: (id) => void closeTab(id),
-  onNew: () => void openNewTabMenu(),
-  onReorder: (dragged, before) => reorder(dragged, before)
+const themeToggle = new ThemeToggle()
+
+const tabBar = new TabBar(
+  barRoot,
+  {
+    onSelect: (id) => activate(id, { start: true }),
+    onClose: (id) => void closeTab(id),
+    onNew: () => void openNewTabMenu(),
+    onReorder: (dragged, before) => reorder(dragged, before)
+  },
+  [themeToggle.element]
+)
+
+onThemeChange(() => {
+  for (const pane of panes.values()) pane.view?.setAppearance(currentAppearance())
 })
 
 const newTabMenu = new NewTabMenu(() => activePane()?.view?.focus())
+const confirmDialog = new ConfirmDialog(() => activePane()?.view?.focus())
 const searchBar = new SearchBar(() => activePane()?.view)
 const zoomIndicator = new ZoomIndicator(document.body)
 
@@ -100,7 +114,8 @@ async function boot(): Promise<void> {
         void startPane(pane)
         return true
       },
-      overlayOpen: () => picker.isOpen() || searchBar.isOpen() || newTabMenu.isOpen()
+      overlayOpen: () =>
+        picker.isOpen() || searchBar.isOpen() || newTabMenu.isOpen() || confirmDialog.isOpen()
     },
     buildBindings(overrides)
   )
@@ -208,8 +223,15 @@ async function openSession(session: RecentSession): Promise<void> {
 async function closeTab(id: string): Promise<void> {
   const pane = panes.get(id)
   if (!pane) return
-  if (pane.status === 'running' && !confirm(`"${pane.tab.title}" is still running. Close it anyway?`)) {
-    return
+
+  if (pane.status === 'running') {
+    const confirmed = await confirmDialog.ask({
+      message: `"${pane.tab.title}" is still running. Close it anyway?`,
+      confirmLabel: 'Close tab'
+    })
+    if (!confirmed) return
+    // The tab may be gone by the time the dialog is answered.
+    if (!panes.has(id)) return
   }
 
   await api.pty.kill(id)
@@ -278,6 +300,7 @@ async function startPane(pane: Pane): Promise<void> {
     const view = new TerminalView(
       tab.id,
       fontSize,
+      currentAppearance(),
       (data) => api.pty.write(tab.id, data),
       (cols, rows) => api.pty.resize(tab.id, cols, rows)
     )
@@ -589,6 +612,7 @@ function installFocusGuard(): void {
       // switched to, and overlays bring their own focus handling.
       if (!document.hasFocus()) return
       if (picker.isOpen() || searchBar.isOpen() || newTabMenu.isOpen()) return
+      if (confirmDialog.isOpen()) return
       activePane()?.view?.focus()
     })
   })
