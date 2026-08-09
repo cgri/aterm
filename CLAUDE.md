@@ -26,6 +26,11 @@ safety net. Verify behaviour by running the app.
 Windows only. `npm run dev` must not be started twice; two `electron-vite dev` processes
 produce two windows and it is not obvious which one is which.
 
+A dev run keeps its state in `%APPDATA%\aterm-dev`, separate from the installed app's
+`%APPDATA%\aterm` (`app.setPath` in `main/index.ts`). Sharing it meant the dev instance
+restored the installed app's tabs and started a second `claude` on a session id already in
+use, which killed that session. So a dev window starts with no tabs — that is correct.
+
 ## Architecture
 
 Electron app in three processes, no UI framework — plain TypeScript and DOM.
