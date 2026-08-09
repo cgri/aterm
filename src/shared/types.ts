@@ -72,6 +72,11 @@ export interface StartSpec {
   claudeSessionId?: string
   /** true → --resume instead of --session-id */
   resume: boolean
+  /**
+   * true → ask Claude Code for a fresh git worktree (`--worktree`). Only ever
+   * honoured on a first start; resuming a session must not branch off again.
+   */
+  worktree?: boolean
   cols: number
   rows: number
 }
