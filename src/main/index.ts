@@ -23,6 +23,17 @@ import { isGitRepo } from './util/git'
 import { SessionDetector } from './claude/SessionDetector'
 import { ProcessTree } from './proc/ProcessTree'
 
+/**
+ * A dev run gets its own userData directory. Otherwise it shares
+ * `%APPDATA%\aterm` with the installed app — the same state.json, so it restores
+ * the very tabs that are already open there and starts a second `claude` on a
+ * session id that is in use. That session then dies. Set before `whenReady`,
+ * because everything below reads the path once the app is up.
+ */
+if (!app.isPackaged) {
+  app.setPath('userData', join(app.getPath('appData'), 'aterm-dev'))
+}
+
 const history = new HistoryReader()
 const processTree = new ProcessTree()
 let detector: SessionDetector
