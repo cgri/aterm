@@ -128,9 +128,33 @@ body {
 .tab .dot.exited {
   background: var(--err);
 }
-/* The program is waiting for input — the one state that wants to be noticed. */
+/* The program is waiting for input — the one state that wants to be noticed, so
+   it is the only one that moves. The ring is a box-shadow: it costs no layout,
+   so nothing in the tab shifts while it pulses. Note that TabBar.render replaces
+   the whole bar, so any re-render restarts the pulse from the beginning — that
+   only happens when some other tab changes state, but it is visible when it
+   does. Keeping it in phase needs the dot elements to survive a render. */
 .tab .dot.awaiting {
   background: var(--warn);
+  animation: dot-pulse 1.8s ease-out infinite;
+}
+
+@keyframes dot-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--warn);
+  }
+  70% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab .dot.awaiting {
+    animation: none;
+  }
 }
 
 .tab .label {
