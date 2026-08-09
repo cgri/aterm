@@ -11,6 +11,12 @@ interface Running {
   pid: number
   cwd: string
   kind: StartSpec['kind']
+  /**
+   * The session the process was launched with. It stays put for the life of the
+   * process, while the conversation in the tab may move on — which is why session
+   * switches are matched against this and not against state.json.
+   */
+  sessionId?: string
 }
 
 /**
@@ -68,7 +74,13 @@ export class PtyManager extends EventEmitter {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
 
-    const entry: Running = { proc, pid: proc.pid, cwd, kind: spec.kind }
+    const entry: Running = {
+      proc,
+      pid: proc.pid,
+      cwd,
+      kind: spec.kind,
+      sessionId: spec.claudeSessionId
+    }
     this.running.set(spec.tabId, entry)
 
     proc.onData((data) => this.emit('data', { tabId: spec.tabId, data }))
@@ -126,6 +138,17 @@ export class PtyManager extends EventEmitter {
     return [...this.running.entries()]
       .filter(([, e]) => e.kind === 'powershell')
       .map(([tabId]) => tabId)
+  }
+
+  /** The running Claude tabs with the session each of them was launched with. */
+  claudeTabs(): { tabId: string; cwd: string; sessionId: string }[] {
+    const out: { tabId: string; cwd: string; sessionId: string }[] = []
+    for (const [tabId, entry] of this.running) {
+      if (entry.kind === 'claude' && entry.sessionId) {
+        out.push({ tabId, cwd: entry.cwd, sessionId: entry.sessionId })
+      }
+    }
+    return out
   }
 
   cwdOf(tabId: string): string | undefined {

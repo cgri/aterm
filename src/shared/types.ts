@@ -13,8 +13,11 @@ export interface TabState {
   title: string
   cwd: string
   /**
-   * For kind==='claude' the agent's own session; for kind==='powershell' the
-   * Claude session most recently detected in that tab (see SessionDetector).
+   * The Claude conversation this tab was last in — what a restart resumes. For
+   * kind==='claude' that is the id aterm assigned only until the session moves on
+   * (`/clear`, `/resume`); from then on it is the conversation's id, not the one the
+   * process was started with. For kind==='powershell' it is the session most
+   * recently detected in that tab. Both are kept up to date by SessionDetector.
    */
   claudeSessionId?: string
   /** Whether a resumable conversation exists — decided from the transcript. */
@@ -59,11 +62,15 @@ export interface PtyExitEvent {
   exitCode: number
 }
 
-/** The main process matched a Claude session started inside a shell tab to that tab. */
+/**
+ * The main process worked out which Claude conversation a tab is in: one started
+ * inside a shell tab ('wrapper', 'transcript'), or one a running Claude tab moved
+ * to by itself ('switch' — `/clear` and `/resume` leave the old id behind).
+ */
 export interface SessionDetectedEvent {
   tabId: string
   sessionId: string
-  source: 'wrapper' | 'transcript'
+  source: 'wrapper' | 'transcript' | 'switch'
 }
 
 export interface AgentActivityEvent {

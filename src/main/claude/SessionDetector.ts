@@ -12,7 +12,7 @@ import { basename, join } from 'node:path'
 import type { SessionDetectedEvent } from '@shared/types'
 import { readJsonFile } from '../util/json'
 import { projectsDir } from './paths'
-import { firstUserEntry } from './transcripts'
+import { firstUserEntry, transcriptOrigin, transcriptTail } from './transcripts'
 
 /** What the detector needs to know about a running shell tab. */
 export interface ShellTabInfo {
@@ -22,16 +22,32 @@ export interface ShellTabInfo {
   claudeSessionId?: string
 }
 
+/** What the detector needs to know about a running Claude tab. */
+export interface ClaudeTabInfo {
+  tabId: string
+  cwd: string
+  /** The session the process was launched with — it never changes while it runs. */
+  processSessionId: string
+  /** The conversation the tab is currently believed to be in. */
+  conversationId?: string
+}
+
 const UUID_JSONL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$/i
 
+/** A file being written to fires a change event per line; once every two seconds is plenty. */
+const RECHECK_MS = 2000
+
 /**
- * Works out which Claude session was started inside a PowerShell tab.
+ * Works out which Claude conversation a tab is in.
  *
- * Level 1 — the startup profile reports the UUID it assigned through a file in
- * runtime/. Deterministic, and takes effect immediately.
- * Level 2 — new transcripts under ~/.claude/projects are watched; the first user
- * line names sessionId and cwd. This also works when the wrapper was bypassed.
- * When several candidates match equally well, nothing is guessed.
+ * Level 1 — a session started inside a PowerShell tab: the startup profile reports
+ * the UUID it assigned through a file in runtime/. Deterministic, and takes effect
+ * immediately.
+ * Level 2 — the same, from the transcript: new files under ~/.claude/projects are
+ * watched; the first user line names sessionId and cwd. This also works when the
+ * wrapper was bypassed. When several candidates match equally well, nothing is
+ * guessed.
+ * Level 3 — a Claude tab whose conversation moved on under it (see `inspectSwitch`).
  */
 export class SessionDetector extends EventEmitter {
   private readonly runtimeDir: string
@@ -39,6 +55,8 @@ export class SessionDetector extends EventEmitter {
   private transcriptWatcher?: FSWatcher
   private knownTranscripts = new Set<string>()
   private shellTabs: ShellTabInfo[] = []
+  private claudeTabs: ClaudeTabInfo[] = []
+  private lastSwitchCheck = new Map<string, number>()
   private startedAt = Date.now()
 
   constructor(userDataDir: string) {
@@ -68,6 +86,10 @@ export class SessionDetector extends EventEmitter {
   /** The main process reports the current picture after every tab change. */
   updateShellTabs(tabs: ShellTabInfo[]): void {
     this.shellTabs = tabs
+  }
+
+  updateClaudeTabs(tabs: ClaudeTabInfo[]): void {
+    this.claudeTabs = tabs
   }
 
   /** Clean up when a tab goes away. */
@@ -125,10 +147,13 @@ export class SessionDetector extends EventEmitter {
         if (!filename) return
         const rel = String(filename)
         if (!UUID_JSONL.test(basename(rel))) return
-        if (this.knownTranscripts.has(rel)) return
-        this.knownTranscripts.add(rel)
-        // The first user line only appears with the first prompt.
-        setTimeout(() => this.inspectTranscript(join(root, rel)), 400)
+        const fresh = !this.knownTranscripts.has(rel)
+        if (fresh) {
+          this.knownTranscripts.add(rel)
+          // The first user line only appears with the first prompt.
+          setTimeout(() => this.inspectTranscript(join(root, rel)), 400)
+        }
+        this.inspectSwitch(rel, fresh)
       })
     } catch {
       // Without a watcher, level 1 still applies.
@@ -166,6 +191,60 @@ export class SessionDetector extends EventEmitter {
       sessionId: head.sessionId,
       source: 'transcript'
     })
+  }
+
+  // ------------------------------------------------------------ Level 3
+
+  /**
+   * A running Claude tab whose conversation moved on. `/clear` opens a new
+   * transcript, `/resume` continues an existing one, and in both cases the process
+   * keeps the `session_id` it was launched with — that is what makes the match
+   * unambiguous, even with several tabs in the same directory. Without this the tab
+   * would keep resuming the state from before the switch, which is exactly how a
+   * restart used to lose an afternoon of work.
+   *
+   * Which id a file names is not guessed from its size or age: a file that has just
+   * appeared is read from the front (the session that forked it off), an existing one
+   * from the back (the session writing into it now).
+   */
+  private inspectSwitch(rel: string, fresh: boolean, attempt = 0): void {
+    if (this.claudeTabs.length === 0) return
+
+    const conversation = basename(rel, '.jsonl')
+    // The file a tab is known to be in needs no second look — the common case, and
+    // it fires an event per written line.
+    if (this.claudeTabs.some((tab) => tab.conversationId === conversation)) return
+
+    if (!fresh) {
+      const last = this.lastSwitchCheck.get(rel) ?? 0
+      if (Date.now() - last < RECHECK_MS) return
+      this.lastSwitchCheck.set(rel, Date.now())
+    }
+
+    const file = join(projectsDir(), rel)
+    if (!existsSync(file)) return
+
+    // Right after `/clear` the file holds a few lines that name no session_id yet.
+    const origin = fresh ? transcriptOrigin(file) : transcriptTail(file)
+    if (!origin) {
+      if (fresh && attempt < 20) {
+        setTimeout(() => this.inspectSwitch(rel, true, attempt + 1), 1500)
+      }
+      return
+    }
+    if (origin.sessionId !== conversation) return
+
+    const target = this.claudeTabs.find(
+      (tab) => tab.processSessionId === origin.processSessionId
+    )
+    if (!target || target.conversationId === origin.sessionId) return
+
+    target.conversationId = origin.sessionId
+    this.emit('detected', {
+      tabId: target.tabId,
+      sessionId: origin.sessionId,
+      source: 'switch'
+    } satisfies SessionDetectedEvent)
   }
 
   private emitDetected(event: SessionDetectedEvent): void {

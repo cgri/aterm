@@ -394,12 +394,22 @@ function onExit(tabId: string, exitCode: number): void {
   render()
 }
 
-/* ------------------------------- Detection inside PowerShell tabs */
+/* ----------------------------------------- Session detection */
 
+/**
+ * Which conversation a tab is in, as worked out by the main process: one the user
+ * started inside a PowerShell tab, or one a Claude tab moved to by itself when the
+ * user ran `/clear` or `/resume`. In the second case the id the process was launched
+ * with is now stale, and keeping it would make the next start resume the state from
+ * before the switch.
+ */
 function onSessionDetected(tabId: string, sessionId: string): void {
   const pane = panes.get(tabId)
   if (!pane || pane.tab.claudeSessionId === sessionId) return
   pane.tab.claudeSessionId = sessionId
+  // The conversation was only reported because something was written into it, so it
+  // is resumable. The main process still decides that for itself on every start.
+  pane.tab.everStarted = true
   persist()
   void refreshClaudeTitles()
 }
