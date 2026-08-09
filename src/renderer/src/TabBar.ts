@@ -59,7 +59,11 @@ export class TabBar {
     close.className = 'close'
     close.textContent = '×'
     close.title = 'Close (Ctrl+W)'
-    close.addEventListener('click', (ev) => {
+    // Closing on mousedown, not click: selecting a tab re-renders the whole bar,
+    // so this element is gone by mouseup and no click event is ever delivered.
+    close.addEventListener('mousedown', (ev) => {
+      if (ev.button !== 0) return
+      ev.preventDefault()
       ev.stopPropagation()
       this.handlers.onClose(tab.id)
     })
