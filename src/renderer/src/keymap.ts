@@ -6,6 +6,8 @@ export interface KeymapContext {
   /** Schreibt direkt ins PTY des aktiven Tabs. */
   write(data: string): void
   newTab(kind: TabKind): void
+  /** The menu behind "+", anchored to that button. */
+  openNewTabMenu(): void
   closeActiveTab(): void
   cycleTab(delta: number): void
   selectTabByIndex(index: number): void
@@ -19,6 +21,7 @@ export interface KeymapContext {
 
 /** Everything that can be rebound through userData/keymap.json. */
 export type Action =
+  | 'newTabMenu'
   | 'newClaudeTab'
   | 'newShellTab'
   | 'closeTab'
@@ -35,7 +38,9 @@ export type Action =
   | 'fontReset'
 
 export const DEFAULT_BINDINGS: Record<Action, string[]> = {
-  newClaudeTab: ['Ctrl+T'],
+  newTabMenu: ['Ctrl+T'],
+  // No default: Ctrl+T opens the menu instead. Still bindable in keymap.json.
+  newClaudeTab: [],
   newShellTab: ['Ctrl+Shift+T'],
   closeTab: ['Ctrl+W'],
   nextTab: ['Ctrl+Tab', 'Ctrl+PageDown'],
@@ -186,6 +191,9 @@ function handle(ev: KeyboardEvent, ctx: KeymapContext, bindings: Bindings): bool
 
 function dispatch(action: Action, ctx: KeymapContext, ev: KeyboardEvent): boolean {
   switch (action) {
+    case 'newTabMenu':
+      ctx.openNewTabMenu()
+      return true
     case 'newClaudeTab':
       ctx.newTab('claude')
       return true

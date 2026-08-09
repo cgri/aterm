@@ -18,11 +18,17 @@ export interface TabBarHandlers {
 
 export class TabBar {
   private dragging?: string
+  private plus?: HTMLButtonElement
 
   constructor(
     private readonly root: HTMLElement,
     private readonly handlers: TabBarHandlers
   ) {}
+
+  /** Where the new-tab menu hangs when it is opened from the keyboard. */
+  newButtonRect(): DOMRect {
+    return (this.plus ?? this.root).getBoundingClientRect()
+  }
 
   render(tabs: TabViewModel[], activeId: string | undefined): void {
     this.root.replaceChildren()
@@ -37,6 +43,7 @@ export class TabBar {
     plus.title = 'New tab (Ctrl+T)'
     plus.addEventListener('click', () => this.handlers.onNew(plus.getBoundingClientRect()))
     this.root.appendChild(plus)
+    this.plus = plus
   }
 
   private renderTab(tab: TabViewModel, active: boolean): HTMLElement {

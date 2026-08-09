@@ -248,13 +248,18 @@ body {
   box-shadow: 0 8px 24px #0008;
 }
 
+.menu:focus {
+  outline: none;
+}
+
 .menu .item {
   padding: 6px 10px;
   border-radius: 4px;
   cursor: default;
 }
 
-.menu .item:hover {
+.menu .item:hover,
+.menu .item.selected {
   background: var(--accent);
   color: #fff;
 }

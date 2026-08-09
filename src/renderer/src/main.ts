@@ -4,6 +4,7 @@ import type { PersistedState, RecentSession, TabKind, TabState } from '@shared/t
 import { TabBar, type TabViewModel } from './TabBar'
 import { TerminalView } from './TerminalView'
 import { SessionPicker } from './SessionPicker'
+import { NewTabMenu, type MenuItem } from './NewTabMenu'
 import { buildBindings, installKeymap, installWheelZoom, type Action } from './keymap'
 import { SearchBar } from './SearchBar'
 import { ZoomIndicator } from './ZoomIndicator'
@@ -48,6 +49,7 @@ const tabBar = new TabBar(barRoot, {
   onReorder: (dragged, before) => reorder(dragged, before)
 })
 
+const newTabMenu = new NewTabMenu(() => activePane()?.view?.focus())
 const searchBar = new SearchBar(() => activePane()?.view)
 const zoomIndicator = new ZoomIndicator(document.body)
 
@@ -80,6 +82,7 @@ async function boot(): Promise<void> {
         if (pane && pane.status === 'running') api.pty.write(pane.tab.id, data)
       },
       newTab: (kind) => void createTab(kind, currentCwd()),
+      openNewTabMenu: () => void openNewTabMenu(tabBar.newButtonRect()),
       closeActiveTab: () => {
         if (activeId) void closeTab(activeId)
       },
@@ -97,7 +100,7 @@ async function boot(): Promise<void> {
         void startPane(pane)
         return true
       },
-      overlayOpen: () => picker.isOpen() || searchBar.isOpen()
+      overlayOpen: () => picker.isOpen() || searchBar.isOpen() || newTabMenu.isOpen()
     },
     buildBindings(overrides)
   )
@@ -521,52 +524,34 @@ function defaultTitle(kind: TabKind, cwd: string, worktree?: boolean): string {
 /* ----------------------------------------------------------- New tab */
 
 async function openNewTabMenu(anchor: DOMRect): Promise<void> {
+  // Ctrl+T on the open menu closes it again.
+  if (newTabMenu.isOpen()) {
+    newTabMenu.close()
+    return
+  }
+
   const cwd = currentCwd()
   // `claude --worktree` needs a git working tree; offering it anywhere else
   // would just open a tab that dies with an error.
   const canWorktree = await api.system.isGitRepo(cwd)
 
-  const menu = document.createElement('div')
-  menu.className = 'menu'
-  menu.style.top = `${anchor.bottom + 2}px`
-  menu.style.left = `${Math.max(4, anchor.left - 200)}px`
-
-  const items: Array<[string, () => void]> = [
-    ['Claude Code — current folder', () => void createTab('claude', cwd)]
+  const items: MenuItem[] = [
+    { label: 'Claude Code — current folder', run: () => void createTab('claude', cwd) }
   ]
   if (canWorktree) {
-    items.push([
-      'Claude Code — current folder, new worktree',
-      () => void createTab('claude', cwd, { worktree: true })
-    ])
+    items.push({
+      label: 'Claude Code — current folder, new worktree',
+      run: () => void createTab('claude', cwd, { worktree: true })
+    })
   }
   items.push(
-    ['Claude Code — choose folder…', () => void createTabWithPicker('claude')],
-    ['PowerShell — current folder', () => void createTab('powershell', cwd)],
-    ['PowerShell — choose folder…', () => void createTabWithPicker('powershell')],
-    ['Recently opened sessions…', () => void picker.show()]
+    { label: 'Claude Code — choose folder…', run: () => void createTabWithPicker('claude') },
+    { label: 'PowerShell — current folder', run: () => void createTab('powershell', cwd) },
+    { label: 'PowerShell — choose folder…', run: () => void createTabWithPicker('powershell') },
+    { label: 'Recently opened sessions…', run: () => void picker.show() }
   )
 
-  for (const [label, action] of items) {
-    const item = document.createElement('div')
-    item.className = 'item'
-    item.textContent = label
-    item.addEventListener('mousedown', (ev) => {
-      ev.preventDefault()
-      menu.remove()
-      action()
-    })
-    menu.appendChild(item)
-  }
-
-  const dismiss = (ev: MouseEvent): void => {
-    if (!menu.contains(ev.target as Node)) {
-      menu.remove()
-      document.removeEventListener('mousedown', dismiss, true)
-    }
-  }
-  document.addEventListener('mousedown', dismiss, true)
-  document.body.appendChild(menu)
+  newTabMenu.open(anchor, items)
 }
 
 async function createTabWithPicker(kind: TabKind): Promise<void> {
