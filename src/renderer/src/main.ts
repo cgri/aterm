@@ -102,6 +102,7 @@ async function boot(): Promise<void> {
     buildBindings(overrides)
   )
   installWheelZoom((delta) => changeFontSize(delta))
+  installFocusGuard()
 
   const state = await api.state.load()
   if (state.tabs.length === 0) {
@@ -579,6 +580,32 @@ function currentCwd(): string {
 
 function activePane(): Pane | undefined {
   return activeId ? panes.get(activeId) : undefined
+}
+
+/* ------------------------------------------------------------ Focus */
+
+/**
+ * Keeps the keyboard in the terminal. Chromium drops the focus to `<body>`
+ * whenever the focused element is hidden (the session picker closes) or a
+ * mousedown lands on something that cannot take focus — a tab, the empty space
+ * of the tab bar. xterm.js then draws its unfocused cursor as a hollow box and
+ * every keystroke goes nowhere, so take the focus back whenever it ends up on
+ * nothing.
+ *
+ * The check runs in a later task, because at focusout time the focus has not
+ * moved yet. Preventing the default of the mousedown would be the direct fix,
+ * but it would also stop the tabs from being dragged.
+ */
+function installFocusGuard(): void {
+  document.addEventListener('focusout', () => {
+    setTimeout(() => {
+      if (document.activeElement !== document.body) return
+      // While the window is inactive the focus belongs to whatever the user
+      // switched to, and overlays bring their own focus handling.
+      if (!document.hasFocus() || picker.isOpen() || searchBar.isOpen()) return
+      activePane()?.view?.focus()
+    })
+  })
 }
 
 /* -------------------------------------------------------- Font size */
