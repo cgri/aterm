@@ -261,6 +261,21 @@ body {
   background-color: var(--bg);
 }
 
+/* A scrollbar track is not an element background, so the rule above does not
+   reach it. The viewport is `position: absolute; inset: 0` and therefore covers
+   the padding as well, its scrollbar included, while the canvas sits in the
+   normal flow and is inset by that padding. The canvas hides the bar everywhere
+   except in those few pixels, where Chromium's light track showed through as a
+   white stripe above and below the terminal. Under the canvas the bar cannot be
+   grabbed anyway, so hiding it costs nothing — the wheel still scrolls. */
+.pane .term .xterm .xterm-viewport {
+  scrollbar-width: none;
+}
+
+.pane .term .xterm .xterm-viewport::-webkit-scrollbar {
+  display: none;
+}
+
 .bar {
   flex: 0 0 auto;
   display: none;
