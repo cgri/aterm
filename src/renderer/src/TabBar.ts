@@ -12,23 +12,17 @@ export interface TabViewModel {
 export interface TabBarHandlers {
   onSelect: (id: string) => void
   onClose: (id: string) => void
-  onNew: (anchor: DOMRect) => void
+  onNew: () => void
   onReorder: (draggedId: string, beforeId: string | undefined) => void
 }
 
 export class TabBar {
   private dragging?: string
-  private plus?: HTMLButtonElement
 
   constructor(
     private readonly root: HTMLElement,
     private readonly handlers: TabBarHandlers
   ) {}
-
-  /** Where the new-tab menu hangs when it is opened from the keyboard. */
-  newButtonRect(): DOMRect {
-    return (this.plus ?? this.root).getBoundingClientRect()
-  }
 
   render(tabs: TabViewModel[], activeId: string | undefined): void {
     this.root.replaceChildren()
@@ -41,9 +35,8 @@ export class TabBar {
     plus.id = 'newtab'
     plus.textContent = '+'
     plus.title = 'New tab (Ctrl+T)'
-    plus.addEventListener('click', () => this.handlers.onNew(plus.getBoundingClientRect()))
+    plus.addEventListener('click', () => this.handlers.onNew())
     this.root.appendChild(plus)
-    this.plus = plus
   }
 
   private renderTab(tab: TabViewModel, active: boolean): HTMLElement {

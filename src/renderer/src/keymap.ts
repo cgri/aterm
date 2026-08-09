@@ -6,7 +6,7 @@ export interface KeymapContext {
   /** Schreibt direkt ins PTY des aktiven Tabs. */
   write(data: string): void
   newTab(kind: TabKind): void
-  /** The menu behind "+", anchored to that button. */
+  /** The overlay behind "+". */
   openNewTabMenu(): void
   closeActiveTab(): void
   cycleTab(delta: number): void

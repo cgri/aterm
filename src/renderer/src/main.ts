@@ -45,7 +45,7 @@ let sessionTitles = new Map<string, string>()
 const tabBar = new TabBar(barRoot, {
   onSelect: (id) => activate(id, { start: true }),
   onClose: (id) => void closeTab(id),
-  onNew: (anchor) => void openNewTabMenu(anchor),
+  onNew: () => void openNewTabMenu(),
   onReorder: (dragged, before) => reorder(dragged, before)
 })
 
@@ -82,7 +82,7 @@ async function boot(): Promise<void> {
         if (pane && pane.status === 'running') api.pty.write(pane.tab.id, data)
       },
       newTab: (kind) => void createTab(kind, currentCwd()),
-      openNewTabMenu: () => void openNewTabMenu(tabBar.newButtonRect()),
+      openNewTabMenu: () => void openNewTabMenu(),
       closeActiveTab: () => {
         if (activeId) void closeTab(activeId)
       },
@@ -523,8 +523,8 @@ function defaultTitle(kind: TabKind, cwd: string, worktree?: boolean): string {
 
 /* ----------------------------------------------------------- New tab */
 
-async function openNewTabMenu(anchor: DOMRect): Promise<void> {
-  // Ctrl+T on the open menu closes it again.
+async function openNewTabMenu(): Promise<void> {
+  // Ctrl+T on the open overlay closes it again.
   if (newTabMenu.isOpen()) {
     newTabMenu.close()
     return
@@ -551,7 +551,7 @@ async function openNewTabMenu(anchor: DOMRect): Promise<void> {
     { label: 'Recently opened sessions…', run: () => void picker.show() }
   )
 
-  newTabMenu.open(anchor, items)
+  newTabMenu.show(items)
 }
 
 async function createTabWithPicker(kind: TabKind): Promise<void> {
@@ -587,7 +587,8 @@ function installFocusGuard(): void {
       if (document.activeElement !== document.body) return
       // While the window is inactive the focus belongs to whatever the user
       // switched to, and overlays bring their own focus handling.
-      if (!document.hasFocus() || picker.isOpen() || searchBar.isOpen()) return
+      if (!document.hasFocus()) return
+      if (picker.isOpen() || searchBar.isOpen() || newTabMenu.isOpen()) return
       activePane()?.view?.focus()
     })
   })

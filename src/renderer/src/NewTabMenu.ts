@@ -4,72 +4,88 @@ export interface MenuItem {
 }
 
 /**
- * The menu behind "+" and Ctrl+T. It takes the focus while it is open, so the
- * arrow keys navigate the menu instead of reaching the terminal — the keymap
- * lets plain keys through to it because it counts as an open overlay.
+ * The "new tab" overlay behind "+" and Ctrl+T — same shape as the session
+ * picker. It takes the focus while it is open, so the arrow keys navigate the
+ * list instead of reaching the terminal; the keymap lets plain keys through to
+ * it because it counts as an open overlay.
  */
 export class NewTabMenu {
-  private root?: HTMLDivElement
+  private readonly root: HTMLDivElement
+  private readonly box: HTMLDivElement
+  private readonly list: HTMLDivElement
   private items: MenuItem[] = []
   private cursor = 0
+  private open = false
 
-  /** Called after the menu is gone, so the caller can take the focus back. */
-  constructor(private readonly onClosed: () => void) {}
+  /** Called after the overlay is gone, so the caller can take the focus back. */
+  constructor(private readonly onClosed: () => void) {
+    this.root = document.createElement('div')
+    this.root.className = 'picker menu'
 
-  isOpen(): boolean {
-    return Boolean(this.root)
+    this.box = document.createElement('div')
+    this.box.className = 'picker-box menu-box'
+    // Focusable without being a tab stop — the overlay is opened, not tabbed into.
+    this.box.tabIndex = -1
+
+    const title = document.createElement('div')
+    title.className = 'picker-group'
+    title.textContent = 'New tab'
+
+    this.list = document.createElement('div')
+    this.list.className = 'picker-list'
+
+    this.box.append(title, this.list)
+    this.root.appendChild(this.box)
+    document.body.appendChild(this.root)
+
+    this.root.addEventListener('mousedown', (ev) => {
+      if (ev.target === this.root) this.close()
+    })
+    this.box.addEventListener('keydown', (ev) => this.onKey(ev))
   }
 
-  open(anchor: DOMRect, items: MenuItem[]): void {
-    this.close()
-    if (items.length === 0) return
+  isOpen(): boolean {
+    return this.open
+  }
 
+  show(items: MenuItem[]): void {
+    if (items.length === 0) return
     this.items = items
     this.cursor = 0
-
-    const root = document.createElement('div')
-    root.className = 'menu'
-    // Focusable without being a tab stop — the menu is opened, not tabbed into.
-    root.tabIndex = -1
-    root.style.top = `${anchor.bottom + 2}px`
-    root.style.left = `${Math.max(4, anchor.left - 200)}px`
-    root.addEventListener('keydown', (ev) => this.onKey(ev))
-    this.root = root
-
-    items.forEach((item, index) => {
-      const el = document.createElement('div')
-      el.className = `item${index === this.cursor ? ' selected' : ''}`
-      el.textContent = item.label
-      // The pointer moves the cursor too, so mouse and keyboard never disagree.
-      el.addEventListener('mousemove', () => this.setCursor(index))
-      el.addEventListener('mousedown', (ev) => {
-        ev.preventDefault()
-        this.choose(index)
-      })
-      root.appendChild(el)
-    })
-
-    document.body.appendChild(root)
-    document.addEventListener('mousedown', this.onOutsideMouseDown, true)
-    root.focus()
+    this.renderList()
+    this.root.classList.add('visible')
+    this.open = true
+    this.box.focus()
   }
 
   close(): void {
-    if (!this.root) return
-    document.removeEventListener('mousedown', this.onOutsideMouseDown, true)
-    this.root.remove()
-    this.root = undefined
+    if (!this.open) return
+    this.root.classList.remove('visible')
+    this.open = false
     this.onClosed()
   }
 
-  private readonly onOutsideMouseDown = (ev: MouseEvent): void => {
-    if (!this.root?.contains(ev.target as Node)) this.close()
+  private renderList(): void {
+    this.list.replaceChildren()
+
+    this.items.forEach((item, index) => {
+      const row = document.createElement('div')
+      row.className = `picker-row${index === this.cursor ? ' selected' : ''}`
+      row.textContent = item.label
+      // The pointer moves the cursor too, so mouse and keyboard never disagree.
+      row.addEventListener('mousemove', () => this.setCursor(index))
+      row.addEventListener('mousedown', (ev) => {
+        ev.preventDefault()
+        this.choose(index)
+      })
+      this.list.appendChild(row)
+    })
   }
 
   private setCursor(index: number): void {
     this.cursor = index
-    ;[...(this.root?.children ?? [])].forEach((el, i) => {
-      el.classList.toggle('selected', i === index)
+    ;[...this.list.children].forEach((row, i) => {
+      row.classList.toggle('selected', i === index)
     })
   }
 
