@@ -30,6 +30,9 @@ let store: SessionStore
 let win: BrowserWindow | undefined
 let agentRunning: Record<string, boolean> = {}
 
+/** Height of the tab bar, which doubles as the title bar. Mirrors `#tabbar` in theme.css. */
+const TITLE_BAR_HEIGHT = 34
+
 function createWindow(state: PersistedState): void {
   const bounds = state.window
   win = new BrowserWindow({
@@ -40,8 +43,16 @@ function createWindow(state: PersistedState): void {
     minWidth: 640,
     minHeight: 400,
     backgroundColor: '#12141a',
-    autoHideMenuBar: true,
     title: 'aterm',
+    // The tab bar is the title bar. Electron keeps drawing the native window
+    // controls as an overlay on the right; the renderer learns how much room is
+    // left through the `titlebar-area-*` CSS environment variables.
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#191c24',
+      symbolColor: '#d7dae2',
+      height: TITLE_BAR_HEIGHT
+    },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

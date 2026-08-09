@@ -37,15 +37,27 @@ body {
 
 /* ---------- Tab bar ---------- */
 
+/* The tab bar is the window's title bar: the strip itself drags the window and
+   the padding keeps the tabs clear of the native window controls, which Electron
+   overlays on the right. `titlebar-area-width` is what is left beside them; the
+   fallbacks apply when the window controls overlay is unavailable. */
 #tabbar {
   display: flex;
   align-items: stretch;
-  height: 34px;
+  height: env(titlebar-area-height, 34px);
+  padding-right: calc(100% - env(titlebar-area-width, 100%));
   flex: 0 0 auto;
   background: var(--bg-chrome);
   border-bottom: 1px solid var(--border);
   user-select: none;
   overflow: hidden;
+  -webkit-app-region: drag;
+}
+
+/* Everything clickable has to opt out of dragging again. */
+#tabbar .tab,
+#tabbar #newtab {
+  -webkit-app-region: no-drag;
 }
 
 .tab {
