@@ -42,8 +42,9 @@ main/                      Node side: owns all processes, files and Claude Code 
   state/SessionStore.ts    userData/state.json, debounced + flushed on quit
   claude/HistoryReader.ts  ~/.claude/history.jsonl → the session list
   claude/transcripts.ts    is a session resumable? (reads the transcript)
-  claude/SessionDetector.ts finds sessions the user started by hand in a shell tab
+  claude/SessionDetector.ts which conversation is a tab in? (shell tabs, and switches)
   proc/ProcessTree.ts      one long-lived PowerShell that polls Win32_Process
+  proc/orphans.ts          ends tab processes that outlived the aterm that spawned them
   ipc.ts                   every channel name, shared with preload
 preload/index.ts           contextBridge → window.aterm
 renderer/src/main.ts       tab lifecycle, panes, persistence — the controller
@@ -69,6 +70,16 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
 - **Claude Code writes no transcript until a conversation happens.** A session that was
   merely opened cannot be resumed; `--resume` fails with "No conversation found with
   session ID". `hasConversation()` requires a `type:"user"` line, not just the file.
+- **A tab's conversation is not the session it was started with.** `/clear` opens a new
+  transcript and `/resume` continues an existing one, while the process keeps the id it
+  was launched with. Every transcript line names both: `sessionId` is the conversation the
+  file holds, `session_id` is the session the writing process was started with. Trusting
+  the assigned id alone is what once cost an afternoon of work — the tab was resumed to
+  the state from before the `/clear`. `TabState.claudeSessionId` therefore tracks the
+  *conversation* (see level 3 below), while the *launched* id lives only in
+  `PtyManager`'s `Running` for as long as the process does. A new file is read from the
+  front (`transcriptOrigin` — which session forked it off), an existing one from the back
+  (`transcriptTail` — who is writing now).
 - **Inherited session markers must be stripped.** When aterm is launched from inside a
   Claude Code session it inherits `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`,
   `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_PID`. Passing them to tabs
@@ -121,13 +132,36 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   as one column but draw as two, so the following space is covered and text sticks to the
   symbol.
 
-### Session detection in shell tabs
+### Session detection
 
-Two layers, because the user may type `claude` themselves. Layer 1: shell tabs run
-`resources/aterm-profile.ps1`, which wraps `claude`, assigns a UUID and reports it to
-`userData/runtime/<tabId>.json`. Layer 2: a watcher on `~/.claude/projects` reads the first
-user line of any new transcript, which names `sessionId` and `cwd`. When several candidates
-match equally well, nothing is assigned — do not add guessing here.
+Three layers. The first two exist because the user may type `claude` themselves in a shell
+tab. Layer 1: shell tabs run `resources/aterm-profile.ps1`, which wraps `claude`, assigns a
+UUID and reports it to `userData/runtime/<tabId>.json`. Layer 2: a watcher on
+`~/.claude/projects` reads the first user line of any new transcript, which names
+`sessionId` and `cwd`. When several candidates match equally well, nothing is assigned — do
+not add guessing here.
+
+Layer 3 answers a different question — a *Claude* tab whose conversation moved on under it.
+Here nothing has to be guessed at all: the file names the launched session in `session_id`,
+and `PtyManager.claudeTabs()` says which tab was launched with it, so even several tabs in
+one directory stay apart. Two cheap filters keep the watcher quiet: a file that a tab is
+already known to be in is skipped (it fires an event per written line), and anything else is
+re-read at most every two seconds. Do not match on `cwd` here — a `--worktree` tab writes
+its transcript under the worktree, not under the tab's directory.
+
+### Processes that outlive aterm
+
+`before-quit` kills every PTY, but an installer or a task-manager kill ends aterm with
+`TerminateProcess` and it never runs. Tab processes hang off their ConPTY rather than a job
+object, so they can survive, and a `claude` still holding a session while aterm resumes that
+same session is what destroys a conversation. `reapOrphanTabs()` runs once at startup and
+ends them. A process qualifies when it looks like a tab process (`--session-id`/`--resume`,
+or `-File …aterm-profile.ps1` — matched as the argument, not as a substring, or any shell
+merely mentioning the script would qualify) **and** the pid it claims as its parent is gone
+or belongs to a younger process. That second half is what spares a `claude` running in some
+other terminal and the tabs of every live aterm, dev or installed: their parent is still
+there. It deliberately does not look at session ids, so a conversation that moved on is
+covered too.
 
 ## Build environment
 

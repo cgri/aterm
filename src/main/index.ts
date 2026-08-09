@@ -22,6 +22,7 @@ import { readJsonFile } from './util/json'
 import { isGitRepo } from './util/git'
 import { SessionDetector } from './claude/SessionDetector'
 import { ProcessTree } from './proc/ProcessTree'
+import { reapOrphanTabs } from './proc/orphans'
 
 /**
  * A dev run gets its own userData directory. Otherwise it shares
@@ -131,10 +132,10 @@ function send(channel: string, payload: unknown): void {
 }
 
 /**
- * Keeps the detector and the process-tree poller in sync with the running shell
- * tabs. Called after every process start or exit, and on every poll.
+ * Keeps the detector and the process-tree poller in sync with the running tabs.
+ * Called after every process start or exit, and on every poll.
  */
-function syncShellTabs(): void {
+function syncTabs(): void {
   const persisted = new Map(store.current().tabs.map((tab) => [tab.id, tab]))
   detector.updateShellTabs(
     ptys.shellTabIds().map((tabId) => ({
@@ -144,6 +145,17 @@ function syncShellTabs(): void {
       claudeSessionId: persisted.get(tabId)?.claudeSessionId
     }))
   )
+  // The conversation comes from state.json, the session the process was launched
+  // with from the PtyManager. After a `/clear` those two differ, and telling them
+  // apart is the whole point.
+  detector.updateClaudeTabs(
+    ptys.claudeTabs().map(({ tabId, cwd, sessionId }) => ({
+      tabId,
+      cwd,
+      processSessionId: sessionId,
+      conversationId: persisted.get(tabId)?.claudeSessionId
+    }))
+  )
   processTree.setRoots(new Map([...ptys.pids()].filter(([tabId]) => ptys.shellTabIds().includes(tabId))))
 }
 
@@ -151,26 +163,26 @@ function registerIpc(): void {
   ptys.on('data', (e: PtyDataEvent) => send(IPC.ptyData, e))
   ptys.on('exit', (e: PtyExitEvent) => {
     send(IPC.ptyExit, e)
-    syncShellTabs()
+    syncTabs()
   })
 
   processTree.on('activity', (e: AgentActivityEvent) => {
     agentRunning = e.running
     send(IPC.agentActivity, e)
-    syncShellTabs()
+    syncTabs()
   })
 
   detector.on('detected', (e: SessionDetectedEvent) => send(IPC.sessionDetected, e))
 
   ipcMain.handle(IPC.ptyStart, (_e, spec: StartSpec) => {
     const result = ptys.start(spec)
-    syncShellTabs()
+    syncTabs()
     return result
   })
   ipcMain.handle(IPC.ptyKill, (_e, tabId: string) => {
     ptys.kill(tabId)
     detector.forgetTab(tabId)
-    syncShellTabs()
+    syncTabs()
   })
   ipcMain.on(IPC.ptyWrite, (_e, tabId: string, data: string) => ptys.write(tabId, data))
   ipcMain.on(IPC.ptyResize, (_e, tabId: string, cols: number, rows: number) =>
@@ -238,6 +250,10 @@ app.whenReady().then(() => {
   // Matches `build.appId`, so the taskbar entry keeps the app's identity and icon
   // instead of Electron's.
   app.setAppUserModelId('de.aterm.app')
+
+  // Anything a previous run left behind goes before the first tab can start. Not
+  // awaited: tabs restore lazily, so the first start is a click away at the earliest.
+  reapOrphanTabs()
 
   const userData = app.getPath('userData')
   store = new SessionStore(userData)
