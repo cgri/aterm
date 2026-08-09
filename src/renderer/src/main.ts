@@ -4,7 +4,7 @@ import type { PersistedState, RecentSession, TabKind, TabState } from '@shared/t
 import { TabBar, type TabViewModel } from './TabBar'
 import { TerminalView } from './TerminalView'
 import { SessionPicker } from './SessionPicker'
-import { buildBindings, installKeymap, type Action } from './keymap'
+import { buildBindings, installKeymap, installWheelZoom, type Action } from './keymap'
 import { SearchBar } from './SearchBar'
 
 interface Pane {
@@ -90,6 +90,7 @@ async function boot(): Promise<void> {
     },
     buildBindings(overrides)
   )
+  installWheelZoom((delta) => changeFontSize(delta))
 
   const state = await api.state.load()
   if (state.tabs.length === 0) {

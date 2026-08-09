@@ -29,6 +29,7 @@ be found again and resumed.
 | `Ctrl+Shift+O` | Session picker |
 | `Ctrl+Shift+F` | Search the scrollback |
 | `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Font size |
+| `Ctrl+Wheel` | Font size, one step per wheel notch (not rebindable) |
 | `Enter` | On a tab that has not started yet: open it |
 
 Rebind via `%APPDATA%\aterm\keymap.json`. An entry replaces the default for that
