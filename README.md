@@ -91,6 +91,10 @@ the already extracted local Electron (no second download), and `npmRebuild: fals
 stops electron-builder from recompiling node-pty — `npm run setup` does that, with
 the special cases above handled.
 
+The icon is kept twice: `build/icon.ico` is stamped into the exe and the installer,
+while `resources/icon.png` is shipped as a resource, because the window icon is set
+from a PNG at runtime and a dev run would otherwise show the Electron default.
+
 ## Rendering
 
 The terminal enables the **Unicode 11 width tables** (`@xterm/addon-unicode11`).

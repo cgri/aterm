@@ -33,6 +33,15 @@ let agentRunning: Record<string, boolean> = {}
 /** Height of the tab bar, which doubles as the title bar. Mirrors `#tabbar` in theme.css. */
 const TITLE_BAR_HEIGHT = 34
 
+/**
+ * Window and taskbar icon. The packaged exe carries the .ico of its own, but the
+ * window itself is only given an icon here — without it a dev run shows the
+ * Electron default.
+ */
+const ICON = app.isPackaged
+  ? join(process.resourcesPath, 'icon.png')
+  : join(__dirname, '../../resources/icon.png')
+
 function createWindow(state: PersistedState): void {
   const bounds = state.window
   win = new BrowserWindow({
@@ -44,6 +53,7 @@ function createWindow(state: PersistedState): void {
     minHeight: 400,
     backgroundColor: '#12141a',
     title: 'aterm',
+    icon: ICON,
     // The tab bar is the title bar. Electron keeps drawing the native window
     // controls as an overlay on the right; the renderer learns how much room is
     // left through the `titlebar-area-*` CSS environment variables.
@@ -185,6 +195,10 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
+  // Matches `build.appId`, so the taskbar entry keeps the app's identity and icon
+  // instead of Electron's.
+  app.setAppUserModelId('de.aterm.app')
+
   const userData = app.getPath('userData')
   store = new SessionStore(userData)
   detector = new SessionDetector(userData)
