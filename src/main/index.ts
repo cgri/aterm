@@ -22,6 +22,7 @@ import { readJsonFile } from './util/json'
 import { isGitRepo } from './util/git'
 import { SessionDetector } from './claude/SessionDetector'
 import { ProcessTree } from './proc/ProcessTree'
+import { reapOrphanTabs } from './proc/orphans'
 
 /**
  * A dev run gets its own userData directory. Otherwise it shares
@@ -249,6 +250,10 @@ app.whenReady().then(() => {
   // Matches `build.appId`, so the taskbar entry keeps the app's identity and icon
   // instead of Electron's.
   app.setAppUserModelId('de.aterm.app')
+
+  // Anything a previous run left behind goes before the first tab can start. Not
+  // awaited: tabs restore lazily, so the first start is a click away at the earliest.
+  reapOrphanTabs()
 
   const userData = app.getPath('userData')
   store = new SessionStore(userData)

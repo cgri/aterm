@@ -44,6 +44,7 @@ main/                      Node side: owns all processes, files and Claude Code 
   claude/transcripts.ts    is a session resumable? (reads the transcript)
   claude/SessionDetector.ts which conversation is a tab in? (shell tabs, and switches)
   proc/ProcessTree.ts      one long-lived PowerShell that polls Win32_Process
+  proc/orphans.ts          ends tab processes that outlived the aterm that spawned them
   ipc.ts                   every channel name, shared with preload
 preload/index.ts           contextBridge → window.aterm
 renderer/src/main.ts       tab lifecycle, panes, persistence — the controller
@@ -147,6 +148,20 @@ one directory stay apart. Two cheap filters keep the watcher quiet: a file that 
 already known to be in is skipped (it fires an event per written line), and anything else is
 re-read at most every two seconds. Do not match on `cwd` here — a `--worktree` tab writes
 its transcript under the worktree, not under the tab's directory.
+
+### Processes that outlive aterm
+
+`before-quit` kills every PTY, but an installer or a task-manager kill ends aterm with
+`TerminateProcess` and it never runs. Tab processes hang off their ConPTY rather than a job
+object, so they can survive, and a `claude` still holding a session while aterm resumes that
+same session is what destroys a conversation. `reapOrphanTabs()` runs once at startup and
+ends them. A process qualifies when it looks like a tab process (`--session-id`/`--resume`,
+or `-File …aterm-profile.ps1` — matched as the argument, not as a substring, or any shell
+merely mentioning the script would qualify) **and** the pid it claims as its parent is gone
+or belongs to a younger process. That second half is what spares a `claude` running in some
+other terminal and the tabs of every live aterm, dev or installed: their parent is still
+there. It deliberately does not look at session ids, so a conversation that moved on is
+covered too.
 
 ## Build environment
 
