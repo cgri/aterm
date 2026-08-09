@@ -1,0 +1,572 @@
+import '@xterm/xterm/css/xterm.css'
+import './theme.css'
+import type { PersistedState, RecentSession, TabKind, TabState } from '@shared/types'
+import { TabBar, type TabViewModel } from './TabBar'
+import { TerminalView } from './TerminalView'
+import { SessionPicker } from './SessionPicker'
+import { buildBindings, installKeymap, type Action } from './keymap'
+import { SearchBar } from './SearchBar'
+
+interface Pane {
+  tab: TabState
+  el: HTMLDivElement
+  termHost: HTMLDivElement
+  bar: HTMLDivElement
+  placeholder: HTMLDivElement
+  view?: TerminalView
+  status: 'stopped' | 'running' | 'exited'
+  exitCode?: number
+  agentRunning: boolean
+}
+
+const api = window.aterm
+const barRoot = document.getElementById('tabbar') as HTMLElement
+const paneRoot = document.getElementById('panes') as HTMLElement
+
+const panes = new Map<string, Pane>()
+let order: string[] = []
+let activeId: string | undefined
+let homeDir = ''
+let fontSize = Number(localStorage.getItem('fontSize') ?? 14)
+/** sessionId → erster Prompt, für Titel und die „zuletzt hier"-Leiste. */
+let sessionTitles = new Map<string, string>()
+
+const tabBar = new TabBar(barRoot, {
+  onSelect: (id) => activate(id, { start: true }),
+  onClose: (id) => void closeTab(id),
+  onNew: (anchor) => openNewTabMenu(anchor),
+  onReorder: (dragged, before) => reorder(dragged, before)
+})
+
+const searchBar = new SearchBar(() => activePane()?.view)
+
+const picker = new SessionPicker({
+  onOpen: (session) => void openSession(session),
+  onFocus: (tabId) => activate(tabId, { start: true }),
+  openTabFor: (sessionId) =>
+    [...panes.values()].find((p) => p.tab.claudeSessionId === sessionId)?.tab.id
+})
+
+/* ------------------------------------------------------------------ Boot */
+
+void boot()
+
+async function boot(): Promise<void> {
+  homeDir = await api.system.homeDir()
+
+  api.pty.onData(({ tabId, data }) => panes.get(tabId)?.view?.write(data))
+  api.pty.onExit(({ tabId, exitCode }) => onExit(tabId, exitCode))
+  api.sessions.onDetected(({ tabId, sessionId }) => onSessionDetected(tabId, sessionId))
+  api.sessions.onAgentActivity(({ running }) => onAgentActivity(running))
+
+  const overrides = (await api.system.keymap()) as Partial<Record<Action, string[]>>
+
+  installKeymap(
+    {
+      activeView: () => activePane()?.view,
+      write: (data) => {
+        const pane = activePane()
+        if (pane && pane.status === 'running') api.pty.write(pane.tab.id, data)
+      },
+      newTab: (kind) => void createTab(kind, currentCwd()),
+      closeActiveTab: () => {
+        if (activeId) void closeTab(activeId)
+      },
+      cycleTab: (delta) => cycleTab(delta),
+      selectTabByIndex: (index) => {
+        const id = order[index]
+        if (id) activate(id, { start: true })
+      },
+      openSessionPicker: () => void picker.show(),
+      toggleSearch: () => searchBar.toggle(activePane()?.el),
+      changeFontSize: (delta) => changeFontSize(delta),
+      startActiveTab: () => {
+        const pane = activePane()
+        if (!pane || pane.status === 'running') return false
+        void startPane(pane)
+        return true
+      },
+      overlayOpen: () => picker.isOpen() || searchBar.isOpen()
+    },
+    buildBindings(overrides)
+  )
+
+  const state = await api.state.load()
+  if (state.tabs.length === 0) {
+    await createTab('powershell', homeDir)
+    return
+  }
+
+  for (const tab of [...state.tabs].sort((a, b) => a.order - b.order)) {
+    addPane(tab)
+  }
+  // Der gespeicherte Merker kann veraltet sein — beim Start nachsehen, ob es
+  // wirklich ein fortsetzbares Gespräch gibt, damit der Platzhalter nicht lügt.
+  await Promise.all(
+    [...panes.values()].map(async (pane) => {
+      const { kind, cwd, claudeSessionId } = pane.tab
+      if (kind !== 'claude' || !claudeSessionId) return
+      pane.tab.everStarted = await api.sessions.resumable(cwd, claudeSessionId)
+    })
+  )
+
+  // Lazy: der wiederhergestellte Tab wird nur angezeigt, nicht gestartet.
+  activate(state.activeTabId ?? order[0], { start: false })
+  render()
+  void refreshClaudeTitles()
+}
+
+/* ------------------------------------------------------- Tab-Verwaltung */
+
+function addPane(tab: TabState): Pane {
+  const el = document.createElement('div')
+  el.className = 'pane'
+
+  const termHost = document.createElement('div')
+  termHost.style.display = 'contents'
+
+  const placeholder = document.createElement('div')
+  placeholder.className = 'placeholder'
+  placeholder.addEventListener('mousedown', () => {
+    const pane = panes.get(tab.id)
+    if (pane && pane.status !== 'running') void startPane(pane)
+  })
+
+  const bar = document.createElement('div')
+  bar.className = 'bar'
+
+  el.append(termHost, placeholder, bar)
+  paneRoot.appendChild(el)
+
+  const pane: Pane = {
+    tab,
+    el,
+    termHost,
+    bar,
+    placeholder,
+    status: 'stopped',
+    agentRunning: false
+  }
+  panes.set(tab.id, pane)
+  if (!order.includes(tab.id)) order.push(tab.id)
+  updatePlaceholder(pane)
+  return pane
+}
+
+async function createTab(
+  kind: TabKind,
+  cwd: string,
+  opts: { claudeSessionId?: string; title?: string; resume?: boolean } = {}
+): Promise<void> {
+  const tab: TabState = {
+    id: crypto.randomUUID(),
+    kind,
+    cwd,
+    title: opts.title ?? defaultTitle(kind, cwd),
+    claudeSessionId: opts.claudeSessionId,
+    // Beim Fortsetzen einer bestehenden Session muss der erste Start --resume nutzen.
+    everStarted: Boolean(opts.resume),
+    order: order.length
+  }
+  const pane = addPane(tab)
+  activate(tab.id, { start: false })
+  await startPane(pane)
+  render()
+  persist()
+}
+
+async function openSession(session: RecentSession): Promise<void> {
+  await createTab('claude', session.cwd, {
+    claudeSessionId: session.sessionId,
+    title: session.title,
+    resume: true
+  })
+}
+
+async function closeTab(id: string): Promise<void> {
+  const pane = panes.get(id)
+  if (!pane) return
+  if (pane.status === 'running' && !confirm(`„${pane.tab.title}" läuft noch. Wirklich schließen?`)) {
+    return
+  }
+
+  await api.pty.kill(id)
+  pane.view?.dispose()
+  pane.el.remove()
+  panes.delete(id)
+  order = order.filter((x) => x !== id)
+
+  if (activeId === id) activeId = order[Math.max(0, order.length - 1)]
+  if (order.length === 0) {
+    await createTab('powershell', homeDir)
+    return
+  }
+  activate(activeId, { start: false })
+  render()
+  persist()
+}
+
+function activate(id: string | undefined, opts: { start: boolean }): void {
+  if (!id || !panes.has(id)) return
+  activeId = id
+
+  for (const [paneId, pane] of panes) {
+    pane.el.classList.toggle('active', paneId === id)
+  }
+
+  const pane = panes.get(id)!
+  if (opts.start && pane.status !== 'running') {
+    void startPane(pane)
+  } else {
+    pane.view?.refit()
+    pane.view?.focus()
+  }
+  searchBar.detach()
+  render()
+  persist()
+}
+
+function cycleTab(delta: number): void {
+  if (order.length < 2 || !activeId) return
+  const index = order.indexOf(activeId)
+  const next = (index + delta + order.length) % order.length
+  activate(order[next], { start: true })
+}
+
+function reorder(draggedId: string, beforeId: string | undefined): void {
+  const from = order.indexOf(draggedId)
+  if (from < 0) return
+  order.splice(from, 1)
+  const to = beforeId ? order.indexOf(beforeId) : order.length
+  order.splice(to < 0 ? order.length : to, 0, draggedId)
+  order.forEach((id, index) => {
+    const pane = panes.get(id)
+    if (pane) pane.tab.order = index
+  })
+  render()
+  persist()
+}
+
+/* ------------------------------------------------------- Prozess-Start */
+
+async function startPane(pane: Pane): Promise<void> {
+  const { tab } = pane
+
+  if (!pane.view) {
+    const view = new TerminalView(
+      tab.id,
+      fontSize,
+      (data) => api.pty.write(tab.id, data),
+      (cols, rows) => api.pty.resize(tab.id, cols, rows)
+    )
+    pane.view = view
+    view.open(pane.termHost)
+  } else {
+    pane.view.term.reset()
+  }
+
+  if (tab.kind === 'claude' && !tab.claudeSessionId) {
+    tab.claudeSessionId = await api.sessions.newId()
+  }
+
+  const size = pane.view.size()
+  const result = await api.pty.start({
+    tabId: tab.id,
+    kind: tab.kind,
+    cwd: tab.cwd,
+    claudeSessionId: tab.claudeSessionId,
+    resume: tab.kind === 'claude' && tab.everStarted,
+    cols: size.cols,
+    rows: size.rows
+  })
+
+  if (!result.ok) {
+    pane.status = 'exited'
+    pane.exitCode = -1
+    showBar(pane, `Start fehlgeschlagen: ${result.error ?? 'unbekannter Fehler'}`, [
+      { key: 'Enter', label: 'erneut versuchen' }
+    ])
+    render()
+    return
+  }
+
+  if (result.claudeSessionId) tab.claudeSessionId = result.claudeSessionId
+  // everStarted heißt: „es gibt ein fortsetzbares Gespräch". Ob das zutrifft,
+  // entscheidet der Main-Prozess anhand des Transkripts.
+  tab.everStarted = Boolean(result.resumed)
+  pane.status = 'running'
+  pane.exitCode = undefined
+  hideBar(pane)
+  updatePlaceholder(pane)
+  pane.view.refit()
+  pane.view.focus()
+  offerResume(pane)
+  render()
+  persist()
+
+  if (tab.kind === 'claude') void refreshClaudeTitles()
+}
+
+function onExit(tabId: string, exitCode: number): void {
+  const pane = panes.get(tabId)
+  if (!pane) return
+  pane.status = 'exited'
+  pane.exitCode = exitCode
+  pane.agentRunning = false
+  showBar(pane, `Prozess beendet (Code ${exitCode})`, [{ key: 'Enter', label: 'fortsetzen' }])
+  render()
+}
+
+/* ------------------------------------- Erkennung in PowerShell-Tabs */
+
+function onSessionDetected(tabId: string, sessionId: string): void {
+  const pane = panes.get(tabId)
+  if (!pane || pane.tab.claudeSessionId === sessionId) return
+  pane.tab.claudeSessionId = sessionId
+  persist()
+  void refreshClaudeTitles()
+}
+
+function onAgentActivity(running: Record<string, boolean>): void {
+  let changed = false
+  for (const [tabId, pane] of panes) {
+    const next = Boolean(running[tabId])
+    if (pane.agentRunning !== next) {
+      pane.agentRunning = next
+      changed = true
+    }
+  }
+  if (changed) render()
+}
+
+/* ------------------------------------------------------------- Anzeige */
+
+function render(): void {
+  const models: TabViewModel[] = order
+    .map((id) => panes.get(id))
+    .filter((pane): pane is Pane => Boolean(pane))
+    .map((pane) => ({
+      id: pane.tab.id,
+      title: pane.tab.title,
+      kind: pane.tab.kind,
+      status: pane.status,
+      agentRunning: pane.agentRunning
+    }))
+  tabBar.render(models, activeId)
+
+  for (const pane of panes.values()) updatePlaceholder(pane)
+  document.title = activePane() ? `${activePane()!.tab.title} — aterm` : 'aterm'
+}
+
+function updatePlaceholder(pane: Pane): void {
+  const show = pane.status === 'stopped'
+  pane.placeholder.classList.toggle('visible', show)
+  if (!show) return
+
+  pane.placeholder.replaceChildren()
+
+  const title = document.createElement('div')
+  title.className = 'title'
+  title.textContent = pane.tab.title
+
+  const sub = document.createElement('div')
+  sub.className = 'sub'
+  sub.textContent = pane.tab.cwd
+
+  const hint = document.createElement('div')
+  hint.className = 'sub'
+  hint.textContent =
+    pane.tab.kind === 'claude' && pane.tab.everStarted
+      ? 'Enter — Session fortsetzen'
+      : 'Enter — öffnen'
+
+  pane.placeholder.append(title, sub, hint)
+}
+
+interface BarAction {
+  label: string
+  /** Als Tastenhinweis dargestellt statt als Schaltfläche. */
+  key?: string
+  onClick?: () => void
+}
+
+function showBar(pane: Pane, message: string, actions: BarAction[]): void {
+  pane.bar.replaceChildren()
+
+  const text = document.createElement('b')
+  text.textContent = message
+  pane.bar.appendChild(text)
+
+  for (const action of actions) {
+    if (action.key) {
+      const key = document.createElement('span')
+      key.className = 'key'
+      key.textContent = action.key
+      pane.bar.appendChild(key)
+    }
+    const label = document.createElement('span')
+    label.textContent = action.label
+    if (action.onClick) {
+      label.className = 'action'
+      label.addEventListener('mousedown', (ev) => {
+        ev.preventDefault()
+        action.onClick!()
+      })
+    }
+    pane.bar.appendChild(label)
+  }
+
+  const dismiss = document.createElement('span')
+  dismiss.className = 'action dismiss'
+  dismiss.textContent = '×'
+  dismiss.title = 'Ausblenden'
+  dismiss.addEventListener('mousedown', (ev) => {
+    ev.preventDefault()
+    hideBar(pane)
+  })
+  pane.bar.appendChild(dismiss)
+
+  pane.bar.classList.add('visible')
+}
+
+/**
+ * Lief in diesem Shell-Tab zuletzt eine Claude-Session, wird sie angeboten —
+ * aber nicht ausgeführt: Ein Shell-Tab kann für ganz anderes gedacht sein.
+ */
+function offerResume(pane: Pane): void {
+  const sessionId = pane.tab.claudeSessionId
+  if (pane.tab.kind !== 'powershell' || !sessionId) return
+
+  const label = sessionTitles.get(sessionId) ?? `Session ${sessionId.slice(0, 8)}`
+  showBar(pane, `Zuletzt hier: ${label}`, [
+    {
+      label: 'claude --resume einfügen',
+      onClick: () => {
+        api.pty.write(pane.tab.id, `claude --resume ${sessionId}`)
+        hideBar(pane)
+        pane.view?.focus()
+      }
+    }
+  ])
+}
+
+function hideBar(pane: Pane): void {
+  pane.bar.classList.remove('visible')
+  pane.bar.replaceChildren()
+}
+
+/* ------------------------------------------------------------- Titel */
+
+async function refreshClaudeTitles(): Promise<void> {
+  const sessions = await api.sessions.recent()
+  sessionTitles = new Map(sessions.map((s) => [s.sessionId, s.title]))
+  let changed = false
+
+  for (const pane of panes.values()) {
+    // Nur Agenten-Tabs übernehmen den Prompt als Titel. Ein Shell-Tab heißt
+    // weiter nach seinem Verzeichnis — die Session steht in der Inline-Leiste.
+    if (pane.tab.kind !== 'claude') continue
+    const title = pane.tab.claudeSessionId
+      ? sessionTitles.get(pane.tab.claudeSessionId)
+      : undefined
+    if (title && title !== pane.tab.title) {
+      pane.tab.title = title
+      changed = true
+    }
+  }
+  if (changed) {
+    render()
+    persist()
+  }
+}
+
+// Der Titel entsteht erst mit dem ersten Prompt. Nur nachfassen, solange
+// wirklich eine Session ohne bekannten Titel offen ist — history.jsonl ist
+// einige hundert KB groß und will nicht im Leerlauf gelesen werden.
+setInterval(() => {
+  const pending = [...panes.values()].some(
+    (pane) => pane.tab.claudeSessionId && !sessionTitles.has(pane.tab.claudeSessionId)
+  )
+  if (pending) void refreshClaudeTitles()
+}, 5000)
+
+function defaultTitle(kind: TabKind, cwd: string): string {
+  const leaf = cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd
+  return kind === 'claude' ? `Claude · ${leaf}` : leaf
+}
+
+/* --------------------------------------------------------- Neuer Tab */
+
+function openNewTabMenu(anchor: DOMRect): void {
+  const menu = document.createElement('div')
+  menu.className = 'menu'
+  menu.style.top = `${anchor.bottom + 2}px`
+  menu.style.left = `${Math.max(4, anchor.left - 200)}px`
+
+  const items: Array<[string, () => void]> = [
+    ['Claude Code — aktueller Ordner', () => void createTab('claude', currentCwd())],
+    ['Claude Code — Ordner wählen…', () => void createTabWithPicker('claude')],
+    ['PowerShell — aktueller Ordner', () => void createTab('powershell', currentCwd())],
+    ['PowerShell — Ordner wählen…', () => void createTabWithPicker('powershell')],
+    ['Zuletzt geöffnete Sessions…', () => void picker.show()]
+  ]
+
+  for (const [label, action] of items) {
+    const item = document.createElement('div')
+    item.className = 'item'
+    item.textContent = label
+    item.addEventListener('mousedown', (ev) => {
+      ev.preventDefault()
+      menu.remove()
+      action()
+    })
+    menu.appendChild(item)
+  }
+
+  const dismiss = (ev: MouseEvent): void => {
+    if (!menu.contains(ev.target as Node)) {
+      menu.remove()
+      document.removeEventListener('mousedown', dismiss, true)
+    }
+  }
+  document.addEventListener('mousedown', dismiss, true)
+  document.body.appendChild(menu)
+}
+
+async function createTabWithPicker(kind: TabKind): Promise<void> {
+  const dir = await api.system.pickFolder(currentCwd())
+  if (dir) await createTab(kind, dir)
+}
+
+function currentCwd(): string {
+  return activePane()?.tab.cwd ?? homeDir
+}
+
+function activePane(): Pane | undefined {
+  return activeId ? panes.get(activeId) : undefined
+}
+
+/* ------------------------------------------------------ Schriftgröße */
+
+function changeFontSize(delta: number | 'reset'): void {
+  fontSize = delta === 'reset' ? 14 : Math.min(28, Math.max(8, fontSize + delta))
+  localStorage.setItem('fontSize', String(fontSize))
+  for (const pane of panes.values()) pane.view?.setFontSize(fontSize)
+}
+
+/* ------------------------------------------------------- Persistenz */
+
+function persist(): void {
+  const state: PersistedState = {
+    version: 1,
+    tabs: order
+      .map((id, index) => {
+        const pane = panes.get(id)
+        if (!pane) return undefined
+        return { ...pane.tab, order: index }
+      })
+      .filter((tab): tab is TabState => Boolean(tab)),
+    activeTabId: activeId
+  }
+  void api.state.save(state)
+}

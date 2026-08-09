@@ -1,0 +1,379 @@
+:root {
+  --bg: #12141a;
+  --bg-chrome: #191c24;
+  --bg-tab: #1f232d;
+  --bg-tab-active: #12141a;
+  --fg: #d7dae2;
+  --fg-dim: #767d8d;
+  --accent: #4f8cff;
+  --ok: #4bbf73;
+  --warn: #d9a441;
+  --err: #e05561;
+  --border: #262b36;
+  --font-ui: 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 13px;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ---------- Tab-Leiste ---------- */
+
+#tabbar {
+  display: flex;
+  align-items: stretch;
+  height: 34px;
+  flex: 0 0 auto;
+  background: var(--bg-chrome);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  overflow: hidden;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 10px;
+  min-width: 110px;
+  max-width: 240px;
+  background: var(--bg-tab);
+  border-right: 1px solid var(--border);
+  cursor: default;
+  color: var(--fg-dim);
+}
+
+.tab.active {
+  background: var(--bg-tab-active);
+  color: var(--fg);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.tab .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fg-dim);
+  flex: 0 0 auto;
+}
+
+.tab .dot.running {
+  background: var(--ok);
+}
+.tab .dot.agent {
+  background: var(--accent);
+}
+.tab .dot.exited {
+  background: var(--err);
+}
+
+.tab .label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab .close {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  line-height: 17px;
+  text-align: center;
+  border-radius: 3px;
+  color: var(--fg-dim);
+  visibility: hidden;
+}
+
+.tab:hover .close,
+.tab.active .close {
+  visibility: visible;
+}
+
+.tab .close:hover {
+  background: #3a4150;
+  color: var(--fg);
+}
+
+.tab.dragging {
+  opacity: 0.4;
+}
+
+#newtab {
+  width: 34px;
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 17px;
+  cursor: default;
+}
+
+#newtab:hover {
+  color: var(--fg);
+  background: var(--bg-tab);
+}
+
+/* ---------- Panes ---------- */
+
+#panes {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.pane {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+}
+
+.pane.active {
+  display: flex;
+}
+
+.pane .term {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* xterm bringt seinen eigenen Innenabstand nicht mit — der Rahmen sitzt außen. */
+.pane .term .xterm {
+  padding: 4px 0 2px 6px;
+}
+
+.bar {
+  flex: 0 0 auto;
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--bg-chrome);
+  border-top: 1px solid var(--border);
+  color: var(--fg-dim);
+}
+
+.bar.visible {
+  display: flex;
+}
+
+.bar b {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.bar .action {
+  color: var(--accent);
+  cursor: default;
+}
+
+.bar .action:hover {
+  text-decoration: underline;
+}
+
+.bar .dismiss {
+  margin-left: auto;
+  color: var(--fg-dim);
+  padding: 0 4px;
+}
+
+.bar .key {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-tab);
+  color: var(--fg);
+}
+
+/* Platzhalter für noch nicht gestartete Tabs */
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--bg);
+  text-align: center;
+  padding: 20px;
+}
+
+.placeholder.visible {
+  display: flex;
+}
+
+.placeholder .title {
+  color: var(--fg);
+  font-size: 15px;
+  max-width: 70ch;
+}
+
+.placeholder .sub {
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* ---------- Menü / Overlays ---------- */
+
+.menu {
+  position: absolute;
+  z-index: 30;
+  min-width: 240px;
+  padding: 4px;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px #0008;
+}
+
+.menu .item {
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: default;
+}
+
+.menu .item:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ---------- Session-Picker ---------- */
+
+.picker {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: none;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 70px;
+  background: #0009;
+}
+
+.picker.visible {
+  display: flex;
+}
+
+.picker-box {
+  width: min(760px, 90vw);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 16px 48px #000a;
+  overflow: hidden;
+}
+
+.picker-box input {
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  padding: 11px 14px;
+  outline: none;
+}
+
+.picker-list {
+  overflow-y: auto;
+}
+
+.picker-group {
+  padding: 8px 14px 3px;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  position: sticky;
+  top: 0;
+  background: var(--bg-chrome);
+}
+
+.picker-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 14px;
+  cursor: default;
+}
+
+.picker-row.selected {
+  background: var(--accent);
+  color: #fff;
+}
+
+.picker-row.selected .picker-meta {
+  color: #dce8ff;
+}
+
+.picker-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-meta {
+  flex: 0 0 auto;
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+
+.picker-meta.is-open {
+  color: var(--ok);
+}
+
+.picker-empty {
+  padding: 18px 14px;
+  color: var(--fg-dim);
+}
+
+/* ---------- Suchleiste ---------- */
+
+.searchbar {
+  position: absolute;
+  top: 6px;
+  right: 18px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px #0007;
+}
+
+.searchbar input {
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  outline: none;
+  width: 220px;
+}
