@@ -73,6 +73,11 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   through `util/json.ts`; the shell profile writes without a BOM via `UTF8Encoding($false)`.
 - **Restore is lazy.** Restored tabs render as placeholders; the process starts on click or
   Enter, including the tab that was active last.
+- **The tab bar is the title bar.** The window uses `titleBarStyle: 'hidden'`, so Electron
+  overlays the native window controls on the right. `#tabbar` is the drag region and every
+  clickable child opts out again with `-webkit-app-region: no-drag`; the room left beside
+  the controls comes from `env(titlebar-area-width)`. `titleBarOverlay.height` in
+  `main/index.ts` and the `#tabbar` height in `theme.css` have to stay in step.
 - **Keyboard handling is one capture-phase listener on `document`.** What it handles never
   reaches xterm.js. `Alt+V` is forwarded as `ESC v` so Claude Code's own image paste runs,
   and `Shift+Enter` sends `ESC CR`. There is no Electron application menu, because its
