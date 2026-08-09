@@ -21,6 +21,12 @@ interface Pane {
   status: 'stopped' | 'running' | 'exited'
   exitCode?: number
   agentRunning: boolean
+  /**
+   * Pending request for a fresh git worktree. Deliberately not part of
+   * TabState: it describes the next start, not the tab, and must not survive a
+   * restart — a restored tab would otherwise branch off a second time.
+   */
+  worktree?: boolean
 }
 
 const api = window.aterm
@@ -38,7 +44,7 @@ let sessionTitles = new Map<string, string>()
 const tabBar = new TabBar(barRoot, {
   onSelect: (id) => activate(id, { start: true }),
   onClose: (id) => void closeTab(id),
-  onNew: (anchor) => openNewTabMenu(anchor),
+  onNew: (anchor) => void openNewTabMenu(anchor),
   onReorder: (dragged, before) => reorder(dragged, before)
 })
 
@@ -162,19 +168,25 @@ function addPane(tab: TabState): Pane {
 async function createTab(
   kind: TabKind,
   cwd: string,
-  opts: { claudeSessionId?: string; title?: string; resume?: boolean } = {}
+  opts: {
+    claudeSessionId?: string
+    title?: string
+    resume?: boolean
+    worktree?: boolean
+  } = {}
 ): Promise<void> {
   const tab: TabState = {
     id: crypto.randomUUID(),
     kind,
     cwd,
-    title: opts.title ?? defaultTitle(kind, cwd),
+    title: opts.title ?? defaultTitle(kind, cwd, opts.worktree),
     claudeSessionId: opts.claudeSessionId,
     // When resuming an existing session, the very first start must use --resume.
     everStarted: Boolean(opts.resume),
     order: order.length
   }
   const pane = addPane(tab)
+  pane.worktree = opts.worktree
   activate(tab.id, { start: false })
   await startPane(pane)
   render()
@@ -282,6 +294,7 @@ async function startPane(pane: Pane): Promise<void> {
     cwd: tab.cwd,
     claudeSessionId: tab.claudeSessionId,
     resume: tab.kind === 'claude' && tab.everStarted,
+    worktree: pane.worktree,
     cols: size.cols,
     rows: size.rows
   })
@@ -300,6 +313,8 @@ async function startPane(pane: Pane): Promise<void> {
   // everStarted means "a resumable conversation exists". Whether that holds is
   // decided by the main process from the transcript.
   tab.everStarted = Boolean(result.resumed)
+  // The worktree exists now; a later restart of this tab reuses it.
+  pane.worktree = false
   pane.status = 'running'
   pane.exitCode = undefined
   hideBar(pane)
@@ -496,26 +511,40 @@ setInterval(() => {
   if (pending) void refreshClaudeTitles()
 }, 5000)
 
-function defaultTitle(kind: TabKind, cwd: string): string {
+function defaultTitle(kind: TabKind, cwd: string, worktree?: boolean): string {
   const leaf = cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd
-  return kind === 'claude' ? `Claude · ${leaf}` : leaf
+  if (kind !== 'claude') return leaf
+  return worktree ? `Claude · ${leaf} · worktree` : `Claude · ${leaf}`
 }
 
 /* ----------------------------------------------------------- New tab */
 
-function openNewTabMenu(anchor: DOMRect): void {
+async function openNewTabMenu(anchor: DOMRect): Promise<void> {
+  const cwd = currentCwd()
+  // `claude --worktree` needs a git working tree; offering it anywhere else
+  // would just open a tab that dies with an error.
+  const canWorktree = await api.system.isGitRepo(cwd)
+
   const menu = document.createElement('div')
   menu.className = 'menu'
   menu.style.top = `${anchor.bottom + 2}px`
   menu.style.left = `${Math.max(4, anchor.left - 200)}px`
 
   const items: Array<[string, () => void]> = [
-    ['Claude Code — current folder', () => void createTab('claude', currentCwd())],
+    ['Claude Code — current folder', () => void createTab('claude', cwd)]
+  ]
+  if (canWorktree) {
+    items.push([
+      'Claude Code — current folder, new worktree',
+      () => void createTab('claude', cwd, { worktree: true })
+    ])
+  }
+  items.push(
     ['Claude Code — choose folder…', () => void createTabWithPicker('claude')],
-    ['PowerShell — current folder', () => void createTab('powershell', currentCwd())],
+    ['PowerShell — current folder', () => void createTab('powershell', cwd)],
     ['PowerShell — choose folder…', () => void createTabWithPicker('powershell')],
     ['Recently opened sessions…', () => void picker.show()]
-  ]
+  )
 
   for (const [label, action] of items) {
     const item = document.createElement('div')

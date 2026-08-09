@@ -44,7 +44,10 @@ export class PtyManager extends EventEmitter {
           ? claudeLaunch({
               tabId: spec.tabId,
               sessionId: spec.claudeSessionId!,
-              resume
+              resume,
+              // A resumed session already lives in its worktree; asking for
+              // another one would create a second, empty branch.
+              worktree: spec.worktree && !resume
             })
           : powershellLaunch(spec.tabId, this.runtimeDir, true)
     } catch (err) {

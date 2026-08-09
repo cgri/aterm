@@ -82,6 +82,7 @@ export function claudeLaunch(opts: {
   tabId: string
   sessionId: string
   resume: boolean
+  worktree?: boolean
 }): LaunchSpec {
   const exe = resolveClaudeExe()
   if (!exe) throw new Error('claude.exe not found (set PATH or ATERM_CLAUDE_PATH)')
@@ -89,6 +90,10 @@ export function claudeLaunch(opts: {
   const claudeArgs = opts.resume
     ? ['--resume', opts.sessionId]
     : ['--session-id', opts.sessionId]
+
+  // Last, because `--worktree` takes an optional name: anything after it that
+  // does not start with a dash would be swallowed as that name.
+  if (opts.worktree) claudeArgs.push('--worktree')
 
   const env: NodeJS.ProcessEnv = { ...baseEnv(), ATERM_TAB_ID: opts.tabId }
 
