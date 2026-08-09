@@ -54,7 +54,8 @@ export class TerminalView {
     fontSize: number,
     appearance: Appearance,
     private readonly onInput: (data: string) => void,
-    private readonly onResize: (cols: number, rows: number) => void
+    private readonly onResize: (cols: number, rows: number) => void,
+    private readonly onTitle: (title: string) => void
   ) {
     this.element = document.createElement('div')
     this.element.className = 'term'
@@ -78,6 +79,9 @@ export class TerminalView {
     this.term.unicode.activeVersion = '11'
 
     this.term.onData((data) => this.onInput(data))
+    // OSC 0 / OSC 2 — how a program names its own window. Claude Code keeps this
+    // up to date with whatever it is working on.
+    this.term.onTitleChange((title) => this.onTitle(title))
   }
 
   open(parent: HTMLElement): void {

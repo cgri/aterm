@@ -7,6 +7,8 @@ export interface TabViewModel {
   status: 'stopped' | 'running' | 'exited'
   /** A shell tab with a Claude process running inside it. */
   agentRunning: boolean
+  /** The program in this tab says it is waiting for input. */
+  awaitingInput: boolean
 }
 
 export interface TabBarHandlers {
@@ -104,5 +106,7 @@ export class TabBar {
 function dotClass(tab: TabViewModel): string {
   if (tab.status === 'exited') return 'exited'
   if (tab.status === 'stopped') return ''
+  // Waiting beats running: it is the one state that asks something of the user.
+  if (tab.awaitingInput) return 'awaiting'
   return tab.agentRunning || tab.kind === 'claude' ? 'agent' : 'running'
 }

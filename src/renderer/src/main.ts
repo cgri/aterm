@@ -31,7 +31,19 @@ interface Pane {
    * restart — a restored tab would otherwise branch off a second time.
    */
   worktree?: boolean
+  /**
+   * The title the running process set for itself. Deliberately not part of
+   * TabState: it belongs to the process, not to the tab, so it must neither be
+   * persisted nor overwrite the name the tab falls back to once the process is
+   * gone.
+   */
+  ptyTitle?: string
+  /** What the status marker in that title said, if there was one. */
+  ptyState?: PtyState
 }
+
+/** Claude Code says what it is up to in front of its window title. */
+type PtyState = 'working' | 'awaiting'
 
 const api = window.aterm
 const barRoot = document.getElementById('tabbar') as HTMLElement
@@ -226,7 +238,7 @@ async function closeTab(id: string): Promise<void> {
 
   if (pane.status === 'running') {
     const confirmed = await confirmDialog.ask({
-      message: `"${pane.tab.title}" is still running. Close it anyway?`,
+      message: `"${paneTitle(pane)}" is still running. Close it anyway?`,
       confirmLabel: 'Close tab'
     })
     if (!confirmed) return
@@ -302,12 +314,16 @@ async function startPane(pane: Pane): Promise<void> {
       fontSize,
       currentAppearance(),
       (data) => api.pty.write(tab.id, data),
-      (cols, rows) => api.pty.resize(tab.id, cols, rows)
+      (cols, rows) => api.pty.resize(tab.id, cols, rows),
+      (title) => setPtyTitle(pane, title)
     )
     pane.view = view
     view.open(pane.termHost)
   } else {
     pane.view.term.reset()
+    // The next process names itself; until then the tab is back to its own name.
+    pane.ptyTitle = undefined
+    pane.ptyState = undefined
   }
 
   if (tab.kind === 'claude' && !tab.claudeSessionId) {
@@ -361,6 +377,8 @@ function onExit(tabId: string, exitCode: number): void {
   pane.status = 'exited'
   pane.exitCode = exitCode
   pane.agentRunning = false
+  pane.ptyTitle = undefined
+  pane.ptyState = undefined
   showBar(pane, `Process exited (code ${exitCode})`, [{ key: 'Enter', label: 'start again' }])
   render()
 }
@@ -395,15 +413,17 @@ function render(): void {
     .filter((pane): pane is Pane => Boolean(pane))
     .map((pane) => ({
       id: pane.tab.id,
-      title: pane.tab.title,
+      title: paneTitle(pane),
       kind: pane.tab.kind,
       status: pane.status,
-      agentRunning: pane.agentRunning
+      agentRunning: pane.agentRunning,
+      awaitingInput: pane.ptyState === 'awaiting'
     }))
   tabBar.render(models, activeId)
 
   for (const pane of panes.values()) updatePlaceholder(pane)
-  document.title = activePane() ? `${activePane()!.tab.title} — aterm` : 'aterm'
+  const active = activePane()
+  document.title = active ? `${paneTitle(active)} — aterm` : 'aterm'
 }
 
 function updatePlaceholder(pane: Pane): void {
@@ -415,7 +435,7 @@ function updatePlaceholder(pane: Pane): void {
 
   const title = document.createElement('div')
   title.className = 'title'
-  title.textContent = pane.tab.title
+  title.textContent = paneTitle(pane)
 
   const sub = document.createElement('div')
   sub.className = 'sub'
@@ -504,6 +524,75 @@ function hideBar(pane: Pane): void {
 }
 
 /* ------------------------------------------------------------ Titles */
+
+/**
+ * What the tab is called right now. A running process that names itself wins,
+ * as it does in Windows Terminal; the tab's own name is what is left once the
+ * process is gone.
+ */
+function paneTitle(pane: Pane): string {
+  return pane.ptyTitle ?? pane.tab.title
+}
+
+/**
+ * Takes over the title a process set for itself. Titles arrive as often as the
+ * process cares to send them and rendering rebuilds the whole tab bar, so
+ * anything that does not actually change what is shown stops here.
+ */
+function setPtyTitle(pane: Pane, raw: string): void {
+  const next = readPtyTitle(raw)
+  if (next.title === pane.ptyTitle && next.state === pane.ptyState) return
+  pane.ptyTitle = next.title
+  pane.ptyState = next.state
+  // Nothing persisted changed — the title belongs to the process, not the tab.
+  render()
+}
+
+/**
+ * ConPTY announces the image it just started as the window title, so every tab
+ * would first be renamed to something like
+ * `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`. Nobody means that
+ * as a title, and it would replace the tab's own name until the program gets
+ * round to naming itself.
+ */
+const LAUNCHED_IMAGE = /^(?:[a-z]:[\\/]|\\\\)[^\r\n]*\.(?:exe|cmd|bat|com)$/i
+
+/**
+ * Claude Code puts its state in front of the title: a Braille spinner while it
+ * works, and ✳ while it waits for input. The dot in the tab says that better
+ * than a symbol glued to the text does — and dropping the spinner is what keeps
+ * a working tab from rebuilding the whole tab bar once a second, because every
+ * frame is a title change of its own.
+ */
+// Escaped rather than literal, because the Braille range starts at U+2800, which
+// is blank and would sit invisible in the source. `|$` because a marker can
+// arrive before there is any summary behind it: the trailing space is gone by
+// then, and the bare glyph must not end up as the tab's name.
+const SPINNER_MARKER = /^[\u2800-\u28ff](?:\s+|$)/
+const AWAITING_MARKER = /^\u2733(?:\s+|$)/
+
+function readPtyTitle(raw: string): { title?: string; state?: PtyState } {
+  const text = raw
+    .replace(/[\x00-\x1f\x7f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!text || LAUNCHED_IMAGE.test(text)) return {}
+
+  const marker = SPINNER_MARKER.test(text)
+    ? { state: 'working' as const, pattern: SPINNER_MARKER }
+    : AWAITING_MARKER.test(text)
+      ? { state: 'awaiting' as const, pattern: AWAITING_MARKER }
+      : undefined
+
+  const label = marker ? text.replace(marker.pattern, '') : text
+  if (!label) return { state: marker?.state }
+  // The tab bar ellipsises anyway; this is only a guard against a runaway
+  // sequence being carried around as a tooltip.
+  return {
+    title: label.length > 200 ? `${label.slice(0, 199)}…` : label,
+    state: marker?.state
+  }
+}
 
 async function refreshClaudeTitles(): Promise<void> {
   const sessions = await api.sessions.recent()
