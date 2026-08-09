@@ -306,8 +306,8 @@ async function startPane(pane: Pane): Promise<void> {
   if (!result.ok) {
     pane.status = 'exited'
     pane.exitCode = -1
-    showBar(pane, `Start fehlgeschlagen: ${result.error ?? 'unbekannter Fehler'}`, [
-      { key: 'Enter', label: 'erneut versuchen' }
+    showBar(pane, `Start failed: ${result.error ?? 'unknown error'}`, [
+      { key: 'Enter', label: 'try again' }
     ])
     render()
     return
@@ -338,7 +338,7 @@ function onExit(tabId: string, exitCode: number): void {
   pane.status = 'exited'
   pane.exitCode = exitCode
   pane.agentRunning = false
-  showBar(pane, `Prozess beendet (Code ${exitCode})`, [{ key: 'Enter', label: 'fortsetzen' }])
+  showBar(pane, `Process exited (code ${exitCode})`, [{ key: 'Enter', label: 'start again' }])
   render()
 }
 
@@ -444,7 +444,7 @@ function showBar(pane: Pane, message: string, actions: BarAction[]): void {
   const dismiss = document.createElement('span')
   dismiss.className = 'action dismiss'
   dismiss.textContent = '×'
-  dismiss.title = 'Ausblenden'
+  dismiss.title = 'Dismiss'
   dismiss.addEventListener('mousedown', (ev) => {
     ev.preventDefault()
     hideBar(pane)
