@@ -137,6 +137,28 @@ body {
 .tab .dot.awaiting {
   background: var(--warn);
   animation: dot-pulse 1.8s ease-out infinite;
+  position: relative;
+  cursor: pointer;
+}
+
+/* A 7px double-click target is unusable, so the dot takes clicks from the area
+   around it too. This has to be a pseudo-element and not padding: dot-pulse
+   draws its ring off the border box, so padding would blow the pulse up with
+   the target. Events on it arrive with the dot itself as their target. */
+.tab .dot.awaiting::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+}
+
+/* Dismissed: still waiting, still amber, but no longer asking. */
+.tab .dot.awaiting.acked {
+  animation: none;
+  cursor: default;
+}
+.tab .dot.awaiting.acked::before {
+  inset: 0;
 }
 
 @keyframes dot-pulse {

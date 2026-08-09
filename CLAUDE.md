@@ -90,6 +90,12 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   ConPTY also announces the launched image (`…\powershell.exe`) as a title at startup;
   `LAUNCHED_IMAGE` drops it. The marker set was read off the wire, not from documentation —
   `[Console]::Title` in a tab reports what Claude Code currently set.
+- **The waiting dot can be dismissed, and the dismissal expires by itself.** Double-clicking
+  the pulsing amber dot sets `Pane.awaitingAcked`; the dot stays amber — the tab really is
+  still waiting — but stops moving. `setPtyTitle` clears the flag on every state that is not
+  `awaiting`, so the next wait pulses again. That is why it must not be persisted: it
+  answers one wait of one process, like `ptyState` itself. Switching to the tab deliberately
+  does not dismiss anything — a quick look must not cost the reminder.
 - **The tab bar is the title bar.** The window uses `titleBarStyle: 'hidden'`, so Electron
   overlays the native window controls on the right. `#tabbar` is the drag region and every
   clickable child opts out again with `-webkit-app-region: no-drag`; the room left beside
