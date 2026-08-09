@@ -40,6 +40,13 @@ interface Pane {
   ptyTitle?: string
   /** What the status marker in that title said, if there was one. */
   ptyState?: PtyState
+  /**
+   * The user has seen this tab waiting and asked for quiet. Deliberately not
+   * part of TabState, for the same reason as ptyState: it answers one wait of
+   * one process. Leaving the waiting state retires it, so the next wait is news
+   * again.
+   */
+  awaitingAcked: boolean
 }
 
 /** Claude Code says what it is up to in front of its window title. */
@@ -65,7 +72,8 @@ const tabBar = new TabBar(
     onSelect: (id) => activate(id, { start: true }),
     onClose: (id) => void closeTab(id),
     onNew: () => void openNewTabMenu(),
-    onReorder: (dragged, before) => reorder(dragged, before)
+    onReorder: (dragged, before) => reorder(dragged, before),
+    onDismissAwaiting: (id) => dismissAwaiting(id)
   },
   [themeToggle.element]
 )
@@ -188,7 +196,8 @@ function addPane(tab: TabState): Pane {
     bar,
     placeholder,
     status: 'stopped',
-    agentRunning: false
+    agentRunning: false,
+    awaitingAcked: false
   }
   panes.set(tab.id, pane)
   if (!order.includes(tab.id)) order.push(tab.id)
@@ -324,6 +333,7 @@ async function startPane(pane: Pane): Promise<void> {
     // The next process names itself; until then the tab is back to its own name.
     pane.ptyTitle = undefined
     pane.ptyState = undefined
+    pane.awaitingAcked = false
   }
 
   if (tab.kind === 'claude' && !tab.claudeSessionId) {
@@ -379,6 +389,7 @@ function onExit(tabId: string, exitCode: number): void {
   pane.agentRunning = false
   pane.ptyTitle = undefined
   pane.ptyState = undefined
+  pane.awaitingAcked = false
   showBar(pane, `Process exited (code ${exitCode})`, [{ key: 'Enter', label: 'start again' }])
   render()
 }
@@ -405,6 +416,18 @@ function onAgentActivity(running: Record<string, boolean>): void {
   if (changed) render()
 }
 
+/**
+ * The user has seen that this tab is waiting and wants it to stop pulsing. The
+ * tab keeps its amber dot — it really is still waiting — it just stops moving.
+ */
+function dismissAwaiting(id: string): void {
+  const pane = panes.get(id)
+  if (!pane || pane.ptyState !== 'awaiting' || pane.awaitingAcked) return
+  pane.awaitingAcked = true
+  // Nothing persisted changed, same as for the title this state came from.
+  render()
+}
+
 /* ------------------------------------------------------------ Rendering */
 
 function render(): void {
@@ -417,7 +440,8 @@ function render(): void {
       kind: pane.tab.kind,
       status: pane.status,
       agentRunning: pane.agentRunning,
-      awaitingInput: pane.ptyState === 'awaiting'
+      awaitingInput: pane.ptyState === 'awaiting',
+      awaitingAcked: pane.awaitingAcked
     }))
   tabBar.render(models, activeId)
 
@@ -542,6 +566,9 @@ function paneTitle(pane: Pane): string {
 function setPtyTitle(pane: Pane, raw: string): void {
   const next = readPtyTitle(raw)
   if (next.title === pane.ptyTitle && next.state === pane.ptyState) return
+  // Leaving the waiting state retires the acknowledgement: whatever the user
+  // dismissed is over, so the next wait gets to ask for attention again.
+  if (next.state !== 'awaiting') pane.awaitingAcked = false
   pane.ptyTitle = next.title
   pane.ptyState = next.state
   // Nothing persisted changed — the title belongs to the process, not the tab.

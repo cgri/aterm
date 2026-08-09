@@ -9,6 +9,8 @@ export interface TabViewModel {
   agentRunning: boolean
   /** The program in this tab says it is waiting for input. */
   awaitingInput: boolean
+  /** The user has seen it waiting and asked for quiet. */
+  awaitingAcked: boolean
 }
 
 export interface TabBarHandlers {
@@ -16,6 +18,7 @@ export interface TabBarHandlers {
   onClose: (id: string) => void
   onNew: () => void
   onReorder: (draggedId: string, beforeId: string | undefined) => void
+  onDismissAwaiting: (id: string) => void
 }
 
 export class TabBar {
@@ -57,6 +60,23 @@ export class TabBar {
 
     const dot = document.createElement('span')
     dot.className = `dot ${dotClass(tab)}`
+    if (tab.awaitingInput && tab.awaitingAcked) {
+      dot.title = 'Waiting for input'
+    } else if (tab.awaitingInput) {
+      dot.title = 'Waiting for input — double-click to dismiss'
+      // Dismissing on mousedown for the same reason the close button does: the
+      // first press selects the tab and re-renders the bar, so this node is gone
+      // before any click or dblclick could be delivered to it. `detail` counts
+      // the press within the click sequence, which the browser derives from time
+      // and position rather than from the node, so the dot rendered in between
+      // still sees the second press as detail 2.
+      dot.addEventListener('mousedown', (ev) => {
+        if (ev.button !== 0 || ev.detail !== 2) return
+        ev.preventDefault()
+        ev.stopPropagation()
+        this.handlers.onDismissAwaiting(tab.id)
+      })
+    }
     el.appendChild(dot)
 
     const label = document.createElement('span')
@@ -107,6 +127,6 @@ function dotClass(tab: TabViewModel): string {
   if (tab.status === 'exited') return 'exited'
   if (tab.status === 'stopped') return ''
   // Waiting beats running: it is the one state that asks something of the user.
-  if (tab.awaitingInput) return 'awaiting'
+  if (tab.awaitingInput) return tab.awaitingAcked ? 'awaiting acked' : 'awaiting'
   return tab.agentRunning || tab.kind === 'claude' ? 'agent' : 'running'
 }
