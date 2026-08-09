@@ -235,30 +235,6 @@ body {
   font-size: 12px;
 }
 
-/* ---------- Menu / overlays ---------- */
-
-.menu {
-  position: absolute;
-  z-index: 30;
-  min-width: 240px;
-  padding: 4px;
-  background: var(--bg-chrome);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 8px 24px #0008;
-}
-
-.menu .item {
-  padding: 6px 10px;
-  border-radius: 4px;
-  cursor: default;
-}
-
-.menu .item:hover {
-  background: var(--accent);
-  color: #fff;
-}
-
 /* ---------- Session picker ---------- */
 
 .picker {
@@ -350,6 +326,22 @@ body {
 .picker-empty {
   padding: 18px 14px;
   color: var(--fg-dim);
+}
+
+/* ---------- New tab overlay ---------- */
+
+/* Same overlay as the session picker, only narrower — the labels are short. */
+.menu-box {
+  width: min(520px, 90vw);
+  padding-bottom: 6px;
+}
+
+.menu-box:focus {
+  outline: none;
+}
+
+.menu .picker-row {
+  padding: 7px 14px;
 }
 
 /* ---------- Search bar ---------- */

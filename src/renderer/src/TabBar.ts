@@ -12,7 +12,7 @@ export interface TabViewModel {
 export interface TabBarHandlers {
   onSelect: (id: string) => void
   onClose: (id: string) => void
-  onNew: (anchor: DOMRect) => void
+  onNew: () => void
   onReorder: (draggedId: string, beforeId: string | undefined) => void
 }
 
@@ -35,7 +35,7 @@ export class TabBar {
     plus.id = 'newtab'
     plus.textContent = '+'
     plus.title = 'New tab (Ctrl+T)'
-    plus.addEventListener('click', () => this.handlers.onNew(plus.getBoundingClientRect()))
+    plus.addEventListener('click', () => this.handlers.onNew())
     this.root.appendChild(plus)
   }
 
