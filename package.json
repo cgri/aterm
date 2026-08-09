@@ -39,12 +39,17 @@
       {
         "from": "resources/aterm-profile.ps1",
         "to": "aterm-profile.ps1"
+      },
+      {
+        "from": "resources/icon.png",
+        "to": "icon.png"
       }
     ],
     "asarUnpack": [
       "**/node_modules/node-pty/**"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
