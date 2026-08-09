@@ -279,14 +279,22 @@ body {
   overflow-y: auto;
 }
 
+/* The gap above the folder is much larger than the one below it, so the header
+   clearly belongs to the sessions that follow. The space above is a margin, not
+   padding, to keep the header compact once it sticks to the top. */
 .picker-group {
-  padding: 8px 14px 3px;
+  margin-top: 18px;
+  padding: 4px 14px 1px;
   color: var(--fg-dim);
   font-family: var(--font-mono);
   font-size: 11px;
   position: sticky;
   top: 0;
   background: var(--bg-chrome);
+}
+
+.picker-group:first-child {
+  margin-top: 6px;
 }
 
 .picker-row {
