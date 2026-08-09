@@ -1,10 +1,11 @@
-import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
   AgentActivityEvent,
+  Appearance,
   ClipboardPayload,
   PersistedState,
   PtyDataEvent,
@@ -34,6 +35,19 @@ let agentRunning: Record<string, boolean> = {}
 const TITLE_BAR_HEIGHT = 34
 
 /**
+ * The window controls are drawn by Windows, not by CSS, so their colours have to
+ * be repeated here. They mirror --bg-chrome, --fg and --bg of the two palettes in
+ * theme.css and have to be changed together with them.
+ */
+const CHROME_COLORS: Record<Appearance, { chrome: string; symbol: string; backdrop: string }> = {
+  dark: { chrome: '#191c24', symbol: '#d7dae2', backdrop: '#12141a' },
+  light: { chrome: '#f2f3f5', symbol: '#1f2430', backdrop: '#ffffff' }
+}
+
+/** Kept for the next start, so the window opens in the colours it closed in. */
+let appearance: Appearance = 'dark'
+
+/**
  * Window and taskbar icon. The packaged exe carries the .ico of its own, but the
  * window itself is only given an icon here — without it a dev run shows the
  * Electron default.
@@ -44,6 +58,11 @@ const ICON = app.isPackaged
 
 function createWindow(state: PersistedState): void {
   const bounds = state.window
+  // Only a first guess: the renderer reports the appearance it really applied as
+  // soon as it boots. Without it the window would flash in the wrong colours.
+  appearance = state.appearance ?? (nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
+  const colors = CHROME_COLORS[appearance]
+
   win = new BrowserWindow({
     width: bounds?.width ?? 1100,
     height: bounds?.height ?? 720,
@@ -51,7 +70,7 @@ function createWindow(state: PersistedState): void {
     y: bounds?.y,
     minWidth: 640,
     minHeight: 400,
-    backgroundColor: '#12141a',
+    backgroundColor: colors.backdrop,
     title: 'aterm',
     icon: ICON,
     // The tab bar is the title bar. Electron keeps drawing the native window
@@ -59,8 +78,8 @@ function createWindow(state: PersistedState): void {
     // left through the `titlebar-area-*` CSS environment variables.
     titleBarStyle: 'hidden',
     titleBarOverlay: {
-      color: '#191c24',
-      symbolColor: '#d7dae2',
+      color: colors.chrome,
+      symbolColor: colors.symbol,
       height: TITLE_BAR_HEIGHT
     },
     webPreferences: {
@@ -148,9 +167,19 @@ function registerIpc(): void {
   )
 
   ipcMain.handle(IPC.stateLoad, () => store.load())
+  // Window bounds and appearance are known here, not in the renderer, so they are
+  // filled in rather than taken from what the renderer sent.
   ipcMain.handle(IPC.stateSave, (_e, state: PersistedState) =>
-    store.save({ ...state, window: windowBounds() })
+    store.save({ ...state, window: windowBounds(), appearance })
   )
+
+  ipcMain.on(IPC.setAppearance, (_e, next: Appearance) => {
+    appearance = next
+    const colors = CHROME_COLORS[next]
+    if (!win || win.isDestroyed()) return
+    win.setBackgroundColor(colors.backdrop)
+    win.setTitleBarOverlay({ color: colors.chrome, symbolColor: colors.symbol })
+  })
 
   ipcMain.handle(IPC.sessionsRecent, () => history.recent())
   ipcMain.handle(IPC.sessionResumable, (_e, cwd: string, sessionId: string) =>
@@ -219,7 +248,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
-  store?.save({ ...store.current(), window: windowBounds() })
+  store?.save({ ...store.current(), window: windowBounds(), appearance })
   store?.flush()
   history.dispose()
   detector?.stop()

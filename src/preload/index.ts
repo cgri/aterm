@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AgentActivityEvent,
+  Appearance,
   ClipboardPayload,
   PersistedState,
   PtyDataEvent,
@@ -49,6 +50,9 @@ const api = {
       ipcRenderer.invoke(IPC.pickFolder, startIn),
     isGitRepo: (cwd: string): Promise<boolean> => ipcRenderer.invoke(IPC.isGitRepo, cwd),
     readClipboard: (): Promise<ClipboardPayload> => ipcRenderer.invoke(IPC.clipboardRead),
+    /** Repaints the parts Electron draws itself: window controls and backdrop. */
+    setAppearance: (appearance: Appearance): void =>
+      ipcRenderer.send(IPC.setAppearance, appearance),
     writeClipboard: (text: string): Promise<void> =>
       ipcRenderer.invoke(IPC.clipboardWrite, text)
   }

@@ -44,6 +44,7 @@ preload/index.ts           contextBridge → window.aterm
 renderer/src/main.ts       tab lifecycle, panes, persistence — the controller
   keymap.ts                data-driven bindings, one capture-phase listener
   TerminalView.ts          one xterm.js instance per running tab
+  appearance.ts            light/dark/system, applied while the module is imported
 ```
 
 `shared/types.ts` is imported by all three via the `@shared` alias (configured in both
@@ -78,6 +79,17 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   clickable child opts out again with `-webkit-app-region: no-drag`; the room left beside
   the controls comes from `env(titlebar-area-width)`. `titleBarOverlay.height` in
   `main/index.ts` and the `#tabbar` height in `theme.css` have to stay in step.
+- **The palette exists three times over.** `theme.css` holds both palettes, keyed by
+  `data-theme` on `<html>`; `TerminalView` holds the xterm.js themes, because xterm draws
+  into a canvas and reads no CSS; `CHROME_COLORS` in `main/index.ts` holds the window
+  controls and the window background, which Windows draws. They have to be changed
+  together. The mode lives in localStorage so it can be applied synchronously while
+  `appearance.ts` is imported — reading it from state.json would flash the wrong theme;
+  `PersistedState.appearance` is written by the main process alone, only so the next
+  window opens in the right colours.
+- **Native dialogs are out.** `confirm()` and `alert()` draw Chromium's own dialog, which
+  matches nothing else here. Ask through `ConfirmDialog`, and register any new overlay in
+  `overlayOpen()` and the focus guard, or the keymap will eat its keys.
 - **Keyboard handling is one capture-phase listener on `document`.** What it handles never
   reaches xterm.js. `Alt+V` is forwarded as `ESC v` so Claude Code's own image paste runs,
   and `Shift+Enter` sends `ESC CR`. There is no Electron application menu, because its

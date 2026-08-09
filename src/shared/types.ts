@@ -1,5 +1,11 @@
 export type TabKind = 'claude' | 'powershell'
 
+/** What the user picked; 'system' follows the Windows setting. */
+export type ThemeMode = 'system' | 'light' | 'dark'
+
+/** What 'system' resolves to — the palette actually in use. */
+export type Appearance = 'light' | 'dark'
+
 /** What aterm remembers about a tab. This is what ends up in state.json. */
 export interface TabState {
   id: string
@@ -27,6 +33,12 @@ export interface PersistedState {
   window?: { x?: number; y?: number; width: number; height: number; maximized?: boolean }
   tabs: TabState[]
   activeTabId?: string
+  /**
+   * Last resolved appearance, written by the main process. It only exists so the
+   * next window can be created in the right colours — the mode itself belongs to
+   * the renderer, which applies it before anything is drawn.
+   */
+  appearance?: Appearance
 }
 
 export interface RecentSession {

@@ -18,6 +18,7 @@ export const IPC = {
   // Renderer → main (send, high frequency)
   ptyWrite: 'pty:write',
   ptyResize: 'pty:resize',
+  setAppearance: 'app:set-appearance',
 
   // Main → Renderer
   ptyData: 'pty:data',

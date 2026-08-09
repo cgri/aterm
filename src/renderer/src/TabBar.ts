@@ -19,9 +19,14 @@ export interface TabBarHandlers {
 export class TabBar {
   private dragging?: string
 
+  /**
+   * `trailing` is put at the right end of the bar and survives every re-render —
+   * rendering replaces the whole bar, so nothing may be appended from outside.
+   */
   constructor(
     private readonly root: HTMLElement,
-    private readonly handlers: TabBarHandlers
+    private readonly handlers: TabBarHandlers,
+    private readonly trailing: HTMLElement[] = []
   ) {}
 
   render(tabs: TabViewModel[], activeId: string | undefined): void {
@@ -37,6 +42,8 @@ export class TabBar {
     plus.title = 'New tab (Ctrl+T)'
     plus.addEventListener('click', () => this.handlers.onNew())
     this.root.appendChild(plus)
+
+    this.root.append(...this.trailing)
   }
 
   private renderTab(tab: TabViewModel, active: boolean): HTMLElement {
