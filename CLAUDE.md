@@ -97,12 +97,15 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `renderer/src/main.ts` composes both; `TabBar` draws them as two elements so the folder
   can be stepped back, and a tab whose folder is its whole name keeps it at full strength
   (`.folder:not(:only-child)` in `theme.css`).
-- **A worktree tab is named after the project, not the worktree.** `claude --worktree`
-  creates `<project>\.claude\worktrees\<name>`, and a session reopened from the picker
-  carries *that* as its `cwd`, because `RecentSession.cwd` comes from `history.jsonl` —
-  which records where Claude Code ran, not where aterm started it. `projectDir` strips the
-  segment back off, so the same session is recognisable however it was opened. It is a
-  string rule on purpose: it runs on every render and must not touch the disk.
+- **A worktree belongs to its project, in the tab name and in the session list.**
+  `claude --worktree` creates `<project>\.claude\worktrees\<name>`, and a session reopened
+  from the picker carries *that* as its `cwd`, because `RecentSession.cwd` comes from
+  `history.jsonl` — which records where Claude Code ran, not where aterm started it.
+  `renderer/src/paths.ts` splits the two apart: `projectDir` is what a tab is named after
+  and what the picker groups by, `worktreeName` is what the picker puts on the row to tell
+  two sessions of one project apart. Both are string rules on purpose — they are used while
+  rendering and must not touch the disk, so a worktree added by hand somewhere else counts
+  as its own project.
 - **The terminal title carries a state marker.** A program naming itself through OSC 0/2
   names its tab (`term.onTitleChange`). Claude Code
   puts its state in front: a Braille spinner (`U+2800`–`U+28FF`) while it works, changing

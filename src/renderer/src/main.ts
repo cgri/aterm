@@ -11,6 +11,7 @@ import { ZoomIndicator } from './ZoomIndicator'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ThemeToggle } from './ThemeToggle'
 import { currentAppearance, onThemeChange } from './appearance'
+import { folderName, projectDir } from './paths'
 
 /** Font size the zoom percentage is relative to, and the target of a reset. */
 const BASE_FONT_SIZE = 14
@@ -577,7 +578,10 @@ function paneTitle(pane: Pane): string {
 /**
  * The directory part of the name. A running process that names itself wins for
  * the summary, as it does in Windows Terminal, but never for the folder — where
- * a tab works is the one thing about it that does not change.
+ * a tab works is the one thing about it that does not change. A worktree tab is
+ * named after its project, so the same session is recognisable whether it was
+ * started fresh (cwd is the project) or reopened from the picker (cwd is the
+ * worktree).
  */
 function tabFolder(pane: Pane): string {
   return folderName(projectDir(pane.tab.cwd))
@@ -589,29 +593,6 @@ function tabFolder(pane: Pane): string {
  */
 function tabSummary(pane: Pane): string | undefined {
   return pane.ptyTitle ?? pane.tab.summary
-}
-
-function folderName(cwd: string): string {
-  const leaf = cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop()
-  return leaf || cwd
-}
-
-/**
- * The project a directory belongs to. `claude --worktree` puts its worktree in
- * `<project>\.claude\worktrees\<name>`, and a tab opened for such a session
- * carries that path as its cwd — `RecentSession.cwd` comes from history.jsonl,
- * which records where Claude Code ran, not where aterm started it. The tab is
- * named after the project either way, so that the same session is recognisable
- * whether it was started fresh (cwd is the project) or reopened from the picker
- * (cwd is the worktree).
- *
- * Deliberately a string rule and not a git question: this runs on every render,
- * so it must not touch the disk. A worktree somewhere else, added by hand rather
- * than by Claude Code, therefore keeps naming its own folder.
- */
-function projectDir(cwd: string): string {
-  const worktree = /[\\/]\.claude[\\/]worktrees[\\/][^\\/]+[\\/]*$/
-  return worktree.test(cwd) ? cwd.replace(worktree, '') : cwd
 }
 
 /**

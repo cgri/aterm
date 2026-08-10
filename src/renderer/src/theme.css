@@ -489,6 +489,20 @@ body {
   white-space: nowrap;
 }
 
+/* The worktree a session ran in. The header names the project now, so this is
+   what tells two sessions of one project apart — same weight as the meta, and it
+   sits between the two so it reads as part of the session's address. */
+.picker-worktree {
+  flex: 0 0 auto;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.picker-row.selected .picker-worktree {
+  color: var(--on-accent-dim);
+}
+
 .picker-meta {
   flex: 0 0 auto;
   color: var(--fg-dim);
