@@ -10,7 +10,12 @@ export type Appearance = 'light' | 'dark'
 export interface TabState {
   id: string
   kind: TabKind
-  title: string
+  /**
+   * What the session is about — its first prompt, once there is one. The tab is
+   * named after its directory, so this is only the part behind that; a tab
+   * without a summary is named by the folder alone.
+   */
+  summary?: string
   cwd: string
   /**
    * The Claude conversation this tab was last in — what a restart resumes. For

@@ -1,4 +1,5 @@
 import type { RecentSession } from '@shared/types'
+import { projectDir, worktreeName } from './paths'
 
 export interface SessionPickerHandlers {
   /** Resume the session in a new tab. */
@@ -89,13 +90,19 @@ export class SessionPicker {
       return
     }
 
-    let lastCwd = ''
+    // Grouped by repository, not by the directory Claude Code ran in: a worktree
+    // session belongs to its project, and filing it under the worktree path would
+    // scatter one project's sessions over as many headers as it has worktrees.
+    // The list stays in recency order, so a header repeats when a project comes up
+    // again later — the header separates runs, it does not reorder them.
+    let lastGroup = ''
     this.filtered.slice(0, 200).forEach((session, index) => {
-      if (session.cwd !== lastCwd) {
-        lastCwd = session.cwd
+      const repo = projectDir(session.cwd)
+      if (repo !== lastGroup) {
+        lastGroup = repo
         const group = document.createElement('div')
         group.className = 'picker-group'
-        group.textContent = session.cwd
+        group.textContent = repo
         this.list.appendChild(group)
       }
 
@@ -114,7 +121,18 @@ export class SessionPicker {
         : `${formatWhen(session.lastUsed)} · ${session.promptCount} prompts`
       if (openTab) meta.classList.add('is-open')
 
-      row.append(title, meta)
+      row.append(title)
+      // Which worktree, now that the header no longer says so. Its own element
+      // and not part of the meta, which an already open session takes over.
+      const worktree = worktreeName(session.cwd)
+      if (worktree) {
+        const inWorktree = document.createElement('span')
+        inWorktree.className = 'picker-worktree'
+        inWorktree.textContent = worktree
+        row.append(inWorktree)
+      }
+      row.append(meta)
+
       row.addEventListener('mousedown', (ev) => {
         ev.preventDefault()
         this.choose(index)

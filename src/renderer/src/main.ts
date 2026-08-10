@@ -11,6 +11,7 @@ import { ZoomIndicator } from './ZoomIndicator'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ThemeToggle } from './ThemeToggle'
 import { currentAppearance, onThemeChange } from './appearance'
+import { folderName, projectDir } from './paths'
 
 /** Font size the zoom percentage is relative to, and the target of a reset. */
 const BASE_FONT_SIZE = 14
@@ -210,7 +211,7 @@ async function createTab(
   cwd: string,
   opts: {
     claudeSessionId?: string
-    title?: string
+    summary?: string
     resume?: boolean
     worktree?: boolean
   } = {}
@@ -219,7 +220,7 @@ async function createTab(
     id: crypto.randomUUID(),
     kind,
     cwd,
-    title: opts.title ?? defaultTitle(kind, cwd, opts.worktree),
+    summary: opts.summary,
     claudeSessionId: opts.claudeSessionId,
     // When resuming an existing session, the very first start must use --resume.
     everStarted: Boolean(opts.resume),
@@ -236,7 +237,7 @@ async function createTab(
 async function openSession(session: RecentSession): Promise<void> {
   await createTab('claude', session.cwd, {
     claudeSessionId: session.sessionId,
-    title: session.title,
+    summary: session.title,
     resume: true
   })
 }
@@ -446,7 +447,11 @@ function render(): void {
     .filter((pane): pane is Pane => Boolean(pane))
     .map((pane) => ({
       id: pane.tab.id,
+      // The two halves are drawn apart so the folder can step back visually;
+      // `title` is the whole name, for the tooltip.
       title: paneTitle(pane),
+      folder: tabFolder(pane),
+      summary: tabSummary(pane),
       kind: pane.tab.kind,
       status: pane.status,
       agentRunning: pane.agentRunning,
@@ -560,12 +565,34 @@ function hideBar(pane: Pane): void {
 /* ------------------------------------------------------------ Titles */
 
 /**
- * What the tab is called right now. A running process that names itself wins,
- * as it does in Windows Terminal; the tab's own name is what is left once the
- * process is gone.
+ * What the tab is called right now: the folder it works in, then what the
+ * session is about. The folder alone is left while nothing is known about the
+ * session yet, which is also all a shell tab ever gets.
  */
 function paneTitle(pane: Pane): string {
-  return pane.ptyTitle ?? pane.tab.title
+  const folder = tabFolder(pane)
+  const summary = tabSummary(pane)
+  return summary ? `${folder} - ${summary}` : folder
+}
+
+/**
+ * The directory part of the name. A running process that names itself wins for
+ * the summary, as it does in Windows Terminal, but never for the folder — where
+ * a tab works is the one thing about it that does not change. A worktree tab is
+ * named after its project, so the same session is recognisable whether it was
+ * started fresh (cwd is the project) or reopened from the picker (cwd is the
+ * worktree).
+ */
+function tabFolder(pane: Pane): string {
+  return folderName(projectDir(pane.tab.cwd))
+}
+
+/**
+ * A running process that names itself wins; the tab's own summary is what is
+ * left once the process is gone.
+ */
+function tabSummary(pane: Pane): string | undefined {
+  return pane.ptyTitle ?? pane.tab.summary
 }
 
 /**
@@ -637,14 +664,14 @@ async function refreshClaudeTitles(): Promise<void> {
   let changed = false
 
   for (const pane of panes.values()) {
-    // Only agent tabs take the prompt as their title. A shell tab keeps being
-    // named after its directory — its session shows up in the inline bar.
+    // Only agent tabs take the prompt as their summary. A shell tab stays named
+    // after its directory alone — its session shows up in the inline bar.
     if (pane.tab.kind !== 'claude') continue
     const title = pane.tab.claudeSessionId
       ? sessionTitles.get(pane.tab.claudeSessionId)
       : undefined
-    if (title && title !== pane.tab.title) {
-      pane.tab.title = title
+    if (title && title !== pane.tab.summary) {
+      pane.tab.summary = title
       changed = true
     }
   }
@@ -663,12 +690,6 @@ setInterval(() => {
   )
   if (pending) void refreshClaudeTitles()
 }, 5000)
-
-function defaultTitle(kind: TabKind, cwd: string, worktree?: boolean): string {
-  const leaf = cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd
-  if (kind !== 'claude') return leaf
-  return worktree ? `Claude · ${leaf} · worktree` : `Claude · ${leaf}`
-}
 
 /* ----------------------------------------------------------- New tab */
 

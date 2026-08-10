@@ -2,7 +2,12 @@ import type { TabKind } from '@shared/types'
 
 export interface TabViewModel {
   id: string
+  /** The whole name, folder and summary together — what the tooltip shows. */
   title: string
+  /** The directory the tab works in, drawn in front and stepped back. */
+  folder: string
+  /** What the session is about, if anything is known about it yet. */
+  summary?: string
   kind: TabKind
   status: 'stopped' | 'running' | 'exited'
   /** A shell tab with a Claude process running inside it. */
@@ -79,10 +84,28 @@ export class TabBar {
     }
     el.appendChild(dot)
 
-    const label = document.createElement('span')
-    label.className = 'label'
-    label.textContent = tab.title
-    el.appendChild(label)
+    // Folder and summary are wrapped together so the tab's own gap stays between
+    // dot, name and close button — inside the name, the separator does the
+    // spacing. The separator belongs to the folder: it steps back with it, and it
+    // is gone with it when there is no summary to separate from.
+    const name = document.createElement('span')
+    name.className = 'name'
+
+    const folder = document.createElement('span')
+    folder.className = 'folder'
+    // The space after the dash has to be a non-breaking one: the folder is a flex
+    // item of its own, and a trailing ordinary space at the end of a line box is
+    // dropped, which would glue the summary to the dash.
+    folder.textContent = tab.summary ? `${tab.folder} -\u00a0` : tab.folder
+    name.appendChild(folder)
+
+    if (tab.summary) {
+      const label = document.createElement('span')
+      label.className = 'label'
+      label.textContent = tab.summary
+      name.appendChild(label)
+    }
+    el.appendChild(name)
 
     const close = document.createElement('span')
     close.className = 'close'

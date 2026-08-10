@@ -90,11 +90,27 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   through `util/json.ts`; the shell profile writes without a BOM via `UTF8Encoding($false)`.
 - **Restore is lazy.** Restored tabs render as placeholders; the process starts on click or
   Enter, including the tab that was active last.
-- **The tab label follows the terminal title, and the title carries a state marker.** A
-  program naming itself through OSC 0/2 names its tab (`term.onTitleChange`). Claude Code
+- **A tab is called `<folder> - <summary>`, and only the summary changes.** The folder comes
+  from the tab's `cwd` at render time, the summary from `TabState.summary` — or, while a
+  process is running, from the title it set for itself. A tab without a summary is named by
+  the folder alone, which is all a shell tab ever gets. `paneTitle` in
+  `renderer/src/main.ts` composes both; `TabBar` draws them as two elements so the folder
+  can be stepped back, and a tab whose folder is its whole name keeps it at full strength
+  (`.folder:not(:only-child)` in `theme.css`).
+- **A worktree belongs to its project, in the tab name and in the session list.**
+  `claude --worktree` creates `<project>\.claude\worktrees\<name>`, and a session reopened
+  from the picker carries *that* as its `cwd`, because `RecentSession.cwd` comes from
+  `history.jsonl` — which records where Claude Code ran, not where aterm started it.
+  `renderer/src/paths.ts` splits the two apart: `projectDir` is what a tab is named after
+  and what the picker groups by, `worktreeName` is what the picker puts on the row to tell
+  two sessions of one project apart. Both are string rules on purpose — they are used while
+  rendering and must not touch the disk, so a worktree added by hand somewhere else counts
+  as its own project.
+- **The terminal title carries a state marker.** A program naming itself through OSC 0/2
+  names its tab (`term.onTitleChange`). Claude Code
   puts its state in front: a Braille spinner (`U+2800`–`U+28FF`) while it works, changing
   about once a second, and `✳` (`U+2733`) while it waits for input. `readPtyTitle` in
-  `renderer/src/main.ts` splits the two apart — the text becomes the label, the marker
+  `renderer/src/main.ts` splits the two apart — the text becomes the summary, the marker
   becomes the colour of the tab's dot (amber while waiting). Stripping the spinner is not
   cosmetic: every frame is a title change, and `TabBar.render` rebuilds the whole bar, so
   keeping the frame in the label would re-render the tab bar once a second per tab.
