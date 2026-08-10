@@ -69,17 +69,29 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `claude --session-id <uuid>`, so the id is known before the process exists.
 - **Claude Code writes no transcript until a conversation happens.** A session that was
   merely opened cannot be resumed; `--resume` fails with "No conversation found with
-  session ID". `hasConversation()` requires a `type:"user"` line, not just the file.
+  session ID". `hasConversation()` requires a `type:"user"` line, not just the file. The
+  file itself may well exist — a session opens it with a `type:"mode"` line — so an id
+  that owns a transcript but no conversation must not be handed to `--session-id` either.
+  `PtyManager.start` swaps in a fresh UUID for that case and reports it back through
+  `StartResult.claudeSessionId`; that is why the renderer must not assume it gets back the
+  id it asked for.
 - **A tab's conversation is not the session it was started with.** `/clear` opens a new
   transcript and `/resume` continues an existing one, while the process keeps the id it
   was launched with. Every transcript line names both: `sessionId` is the conversation the
   file holds, `session_id` is the session the writing process was started with. Trusting
   the assigned id alone is what once cost an afternoon of work — the tab was resumed to
   the state from before the `/clear`. `TabState.claudeSessionId` therefore tracks the
-  *conversation* (see level 3 below), while the *launched* id lives only in
+  *conversation* (see levels 3 and 4 below), while the *launched* id lives only in
   `PtyManager`'s `Running` for as long as the process does. A new file is read from the
   front (`transcriptOrigin` — which session forked it off), an existing one from the back
   (`transcriptTail` — who is writing now).
+- **`session_id` only appears once the model has answered.** The lines a fresh transcript
+  starts with — `mode`, `file-history-snapshot`, the `user` prompt, `system` — name the
+  conversation in `sessionId` and nothing else; the first line carrying `session_id` too is
+  the first `assistant` line. So the transcript cannot say which tab a `/clear` belongs to
+  until a reply exists, and a `/clear` the user never followed up on stays invisible there
+  for good. That is what layer 4 is for. Measured off the wire, not documented — check with
+  a fresh transcript before trusting any line type here.
 - **Inherited session markers must be stripped.** When aterm is launched from inside a
   Claude Code session it inherits `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`,
   `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_PID`. Passing them to tabs
@@ -150,20 +162,37 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
 
 ### Session detection
 
-Three layers. The first two exist because the user may type `claude` themselves in a shell
+Four layers. The first two exist because the user may type `claude` themselves in a shell
 tab. Layer 1: shell tabs run `resources/aterm-profile.ps1`, which wraps `claude`, assigns a
 UUID and reports it to `userData/runtime/<tabId>.json`. Layer 2: a watcher on
 `~/.claude/projects` reads the first user line of any new transcript, which names
 `sessionId` and `cwd`. When several candidates match equally well, nothing is assigned — do
 not add guessing here.
 
-Layer 3 answers a different question — a *Claude* tab whose conversation moved on under it.
-Here nothing has to be guessed at all: the file names the launched session in `session_id`,
+Layers 3 and 4 answer a different question — a *Claude* tab whose conversation moved on
+under it — and neither of them guesses.
+
+Layer 3 reads it from the transcript: the file names the launched session in `session_id`,
 and `PtyManager.claudeTabs()` says which tab was launched with it, so even several tabs in
 one directory stay apart. Two cheap filters keep the watcher quiet: a file that a tab is
 already known to be in is skipped (it fires an event per written line), and anything else is
 re-read at most every two seconds. Do not match on `cwd` here — a `--worktree` tab writes
 its transcript under the worktree, not under the tab's directory.
+
+Layer 4 asks Claude Code, and it is the one that arrives in time. `~/.claude/sessions/`
+holds one file per running session, named after its pid and rewritten as the session goes
+on: `{pid, sessionId, cwd, status, …}`. `sessionId` is the conversation the process is in
+*now*, so a `/clear` shows up there the moment it happens — which is what layer 3 cannot do
+(see the `session_id` note above). `sessionRegistry.ts` reads it, `applyLiveSession` matches
+it to a tab: by the pty's own pid, which is `claude.exe` itself unless it had to be started
+through `cmd.exe`; otherwise by the launched session, which is how that tab's `claude` pid
+gets learned and keeps answering afterwards. A learned pid is dropped when the tab's pty
+changes, because Windows hands pids out again. Not by `cwd`, for the same reason as layer 3.
+
+Whatever any layer detects is written to `state.json` by the main process itself
+(`rememberConversation`), not only through the renderer — the renderer is told too, but its
+answer comes back through `state:save`, and an event arriving while the window is going away
+would never get one.
 
 ### Processes that outlive aterm
 

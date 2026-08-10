@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import * as pty from 'node-pty'
 import type { StartSpec, StartResult } from '@shared/types'
+import { transcriptPath } from '../claude/paths'
 import { hasConversation } from '../claude/transcripts'
 import { claudeLaunch, powershellLaunch } from './launchers'
 
@@ -43,13 +45,25 @@ export class PtyManager extends EventEmitter {
       Boolean(spec.claudeSessionId) &&
       hasConversation(cwd, spec.claudeSessionId!)
 
+    // An id can own a transcript without owning a conversation: `/clear` creates the
+    // file, only the first prompt fills it. Handing that id to `--session-id` asks
+    // Claude Code for a session it already has a file for, so the tab gets a fresh one
+    // instead — the renderer learns from the result which id was really used.
+    let sessionId = spec.claudeSessionId
+    const taken =
+      spec.kind === 'claude' &&
+      !resume &&
+      Boolean(sessionId) &&
+      existsSync(transcriptPath(cwd, sessionId!))
+    if (taken) sessionId = randomUUID()
+
     let launch
     try {
       launch =
         spec.kind === 'claude'
           ? claudeLaunch({
               tabId: spec.tabId,
-              sessionId: spec.claudeSessionId!,
+              sessionId: sessionId!,
               resume,
               // A resumed session already lives in its worktree; asking for
               // another one would create a second, empty branch.
@@ -79,7 +93,7 @@ export class PtyManager extends EventEmitter {
       pid: proc.pid,
       cwd,
       kind: spec.kind,
-      sessionId: spec.claudeSessionId
+      sessionId
     }
     this.running.set(spec.tabId, entry)
 
@@ -91,7 +105,7 @@ export class PtyManager extends EventEmitter {
       this.emit('exit', { tabId: spec.tabId, exitCode })
     })
 
-    return { ok: true, claudeSessionId: spec.claudeSessionId, resumed: resume }
+    return { ok: true, claudeSessionId: sessionId, resumed: resume }
   }
 
   write(tabId: string, data: string): void {
@@ -141,11 +155,11 @@ export class PtyManager extends EventEmitter {
   }
 
   /** The running Claude tabs with the session each of them was launched with. */
-  claudeTabs(): { tabId: string; cwd: string; sessionId: string }[] {
-    const out: { tabId: string; cwd: string; sessionId: string }[] = []
+  claudeTabs(): { tabId: string; cwd: string; pid: number; sessionId: string }[] {
+    const out: { tabId: string; cwd: string; pid: number; sessionId: string }[] = []
     for (const [tabId, entry] of this.running) {
       if (entry.kind === 'claude' && entry.sessionId) {
-        out.push({ tabId, cwd: entry.cwd, sessionId: entry.sessionId })
+        out.push({ tabId, cwd: entry.cwd, pid: entry.pid, sessionId: entry.sessionId })
       }
     }
     return out

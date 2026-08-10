@@ -341,6 +341,7 @@ async function startPane(pane: Pane): Promise<void> {
     tab.claudeSessionId = await api.sessions.newId()
   }
 
+  const requested = tab.claudeSessionId
   const size = pane.view.size()
   const result = await api.pty.start({
     tabId: tab.id,
@@ -363,10 +364,15 @@ async function startPane(pane: Pane): Promise<void> {
     return
   }
 
-  if (result.claudeSessionId) tab.claudeSessionId = result.claudeSessionId
-  // everStarted means "a resumable conversation exists". Whether that holds is
-  // decided by the main process from the transcript.
-  tab.everStarted = Boolean(result.resumed)
+  // The answer to this request only applies while nothing newer has arrived: a session
+  // detected while the process was starting names the conversation it is really in, and
+  // overwriting that with the id we asked for would resume the wrong one.
+  if (tab.claudeSessionId === requested) {
+    if (result.claudeSessionId) tab.claudeSessionId = result.claudeSessionId
+    // everStarted means "a resumable conversation exists". Whether that holds is
+    // decided by the main process from the transcript.
+    tab.everStarted = Boolean(result.resumed)
+  }
   // The worktree exists now; a later restart of this tab reuses it.
   pane.worktree = false
   pane.status = 'running'

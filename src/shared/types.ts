@@ -70,12 +70,14 @@ export interface PtyExitEvent {
 /**
  * The main process worked out which Claude conversation a tab is in: one started
  * inside a shell tab ('wrapper', 'transcript'), or one a running Claude tab moved
- * to by itself ('switch' — `/clear` and `/resume` leave the old id behind).
+ * to by itself when the user ran `/clear` or `/resume`, which leave the old id
+ * behind — read from the transcript ('switch') or from Claude Code's own registry
+ * of running sessions ('registry', which knows it first).
  */
 export interface SessionDetectedEvent {
   tabId: string
   sessionId: string
-  source: 'wrapper' | 'transcript' | 'switch'
+  source: 'wrapper' | 'transcript' | 'switch' | 'registry'
 }
 
 export interface AgentActivityEvent {
