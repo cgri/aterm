@@ -98,7 +98,8 @@ body {
   gap: 6px;
   padding: 0 8px 0 10px;
   min-width: 110px;
-  max-width: 240px;
+  /* Room for a folder and a summary side by side. */
+  max-width: 320px;
   background: var(--bg-tab);
   border-right: 1px solid var(--border);
   cursor: default;
@@ -179,8 +180,39 @@ body {
   }
 }
 
+/* The name is one flex line of its own so that the tab's gap stays between dot,
+   name and close button, and so that the two halves share what is left over. */
+.tab .name {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* `flex: 0 0 auto`, so the ellipsis falls on the summary and not on the folder:
+   the folder is the shorter and the more identifying half, and half a directory
+   name says nothing. */
+.tab .folder {
+  flex: 0 0 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Where the tab works is the constant, so it steps back and lets the summary
+   have the room — but only while there is a summary to step back for: on its own
+   the folder is the whole name and has to read as such. `opacity` and not a
+   colour: the label is --fg on the active tab and --fg-dim on every other one,
+   and only a relative shading works in both. The cap is what shrink would
+   otherwise do — without it a long directory name would leave nothing over. */
+.tab .folder:not(:only-child) {
+  opacity: 0.72;
+  max-width: 55%;
+}
+
 .tab .label {
   flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
