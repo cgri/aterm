@@ -149,14 +149,35 @@ function syncTabs(): void {
   // with from the PtyManager. After a `/clear` those two differ, and telling them
   // apart is the whole point.
   detector.updateClaudeTabs(
-    ptys.claudeTabs().map(({ tabId, cwd, sessionId }) => ({
+    ptys.claudeTabs().map(({ tabId, cwd, pid, sessionId }) => ({
       tabId,
       cwd,
+      pid,
       processSessionId: sessionId,
       conversationId: persisted.get(tabId)?.claudeSessionId
     }))
   )
   processTree.setRoots(new Map([...ptys.pids()].filter(([tabId]) => ptys.shellTabIds().includes(tabId))))
+}
+
+/**
+ * Writes a detected conversation into the store straight away. The renderer is told
+ * as well and keeps its own tab in step, but it must not be the only route: its
+ * answer only arrives back here through `state:save`, and an event that lands while
+ * the window is going away never gets one. A `/clear` seconds before the app is
+ * killed has to survive — that is the whole point of noticing it.
+ *
+ * `everStarted` stays untouched: whether the conversation can be resumed is decided
+ * from the transcript, at every start and again at boot.
+ */
+function rememberConversation(e: SessionDetectedEvent): void {
+  const state = store.current()
+  const tab = state.tabs.find((t) => t.id === e.tabId)
+  if (!tab || tab.claudeSessionId === e.sessionId) return
+  store.save({
+    ...state,
+    tabs: state.tabs.map((t) => (t.id === e.tabId ? { ...t, claudeSessionId: e.sessionId } : t))
+  })
 }
 
 function registerIpc(): void {
@@ -172,7 +193,10 @@ function registerIpc(): void {
     syncTabs()
   })
 
-  detector.on('detected', (e: SessionDetectedEvent) => send(IPC.sessionDetected, e))
+  detector.on('detected', (e: SessionDetectedEvent) => {
+    rememberConversation(e)
+    send(IPC.sessionDetected, e)
+  })
 
   ipcMain.handle(IPC.ptyStart, (_e, spec: StartSpec) => {
     const result = ptys.start(spec)

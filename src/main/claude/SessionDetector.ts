@@ -11,7 +11,13 @@ import {
 import { basename, join } from 'node:path'
 import type { SessionDetectedEvent } from '@shared/types'
 import { readJsonFile } from '../util/json'
-import { projectsDir } from './paths'
+import { projectsDir, sessionsDir } from './paths'
+import {
+  listLiveSessions,
+  pidOfRegistryFile,
+  readLiveSession,
+  type LiveSession
+} from './sessionRegistry'
 import { firstUserEntry, transcriptOrigin, transcriptTail } from './transcripts'
 
 /** What the detector needs to know about a running shell tab. */
@@ -26,6 +32,8 @@ export interface ShellTabInfo {
 export interface ClaudeTabInfo {
   tabId: string
   cwd: string
+  /** The pty's own process — `claude.exe` itself, unless it had to go through cmd. */
+  pid: number
   /** The session the process was launched with — it never changes while it runs. */
   processSessionId: string
   /** The conversation the tab is currently believed to be in. */
@@ -48,15 +56,20 @@ const RECHECK_MS = 2000
  * wrapper was bypassed. When several candidates match equally well, nothing is
  * guessed.
  * Level 3 — a Claude tab whose conversation moved on under it (see `inspectSwitch`).
+ * Level 4 — the same question answered by Claude Code's own session registry, which
+ * knows it before a transcript can tell (see `applyLiveSession`).
  */
 export class SessionDetector extends EventEmitter {
   private readonly runtimeDir: string
   private runtimeWatcher?: FSWatcher
   private transcriptWatcher?: FSWatcher
+  private registryWatcher?: FSWatcher
   private knownTranscripts = new Set<string>()
   private shellTabs: ShellTabInfo[] = []
   private claudeTabs: ClaudeTabInfo[] = []
   private lastSwitchCheck = new Map<string, number>()
+  /** tabId → the `claude` pid that answers for it, and the pty it was learned from. */
+  private registryPids = new Map<string, { ptyPid: number; claudePid: number }>()
   private startedAt = Date.now()
 
   constructor(userDataDir: string) {
@@ -74,13 +87,16 @@ export class SessionDetector extends EventEmitter {
     this.seedTranscripts()
     this.watchRuntime()
     this.watchTranscripts()
+    this.watchRegistry()
   }
 
   stop(): void {
     this.runtimeWatcher?.close()
     this.transcriptWatcher?.close()
+    this.registryWatcher?.close()
     this.runtimeWatcher = undefined
     this.transcriptWatcher = undefined
+    this.registryWatcher = undefined
   }
 
   /** The main process reports the current picture after every tab change. */
@@ -90,10 +106,18 @@ export class SessionDetector extends EventEmitter {
 
   updateClaudeTabs(tabs: ClaudeTabInfo[]): void {
     this.claudeTabs = tabs
+    // A learned pid only answers for the process it was learned from. Windows hands
+    // pids out again, so a tab that has been restarted has to learn its own anew.
+    for (const [tabId, record] of this.registryPids) {
+      const tab = tabs.find((t) => t.tabId === tabId)
+      if (!tab || tab.pid !== record.ptyPid) this.registryPids.delete(tabId)
+    }
+    this.sweepRegistry()
   }
 
   /** Clean up when a tab goes away. */
   forgetTab(tabId: string): void {
+    this.registryPids.delete(tabId)
     const file = join(this.runtimeDir, `${tabId}.json`)
     try {
       rmSync(file, { force: true })
@@ -245,6 +269,81 @@ export class SessionDetector extends EventEmitter {
       sessionId: origin.sessionId,
       source: 'switch'
     } satisfies SessionDetectedEvent)
+  }
+
+  // ------------------------------------------------------------ Level 4
+
+  private watchRegistry(): void {
+    const dir = sessionsDir()
+    if (!existsSync(dir)) return
+    try {
+      this.registryWatcher = watch(dir, (_event, filename) => {
+        if (!filename) return
+        const pid = pidOfRegistryFile(String(filename))
+        if (pid === undefined) return
+        const entry = readLiveSession(pid)
+        if (entry) this.applyLiveSession(entry)
+      })
+    } catch {
+      // Without a watcher, level 3 still applies once the model has answered.
+    }
+  }
+
+  /**
+   * Reads the whole registry — for tabs whose process has not been identified yet.
+   * Cheap, and it stops happening as soon as every Claude tab knows its pid: the
+   * watcher only reports *changes*, so a tab started before the file appeared would
+   * otherwise wait for the next one.
+   */
+  private sweepRegistry(): void {
+    if (this.claudeTabs.every((tab) => this.registryPids.has(tab.tabId))) return
+    // The directory only exists once Claude Code has run at least once, which on a
+    // fresh machine may be after aterm started.
+    if (!this.registryWatcher) this.watchRegistry()
+    for (const entry of listLiveSessions()) this.applyLiveSession(entry)
+  }
+
+  /**
+   * A Claude tab whose conversation moved on, answered by Claude Code itself. Level 3
+   * has to wait for a transcript line that names both ids, and `session_id` first
+   * appears on the first *assistant* line — so a `/clear` that is never followed by a
+   * reply stays invisible there, and the tab would resume the conversation from before
+   * it. The registry names the conversation the moment it changes.
+   */
+  private applyLiveSession(entry: LiveSession): void {
+    const target = this.claudeTabFor(entry)
+    if (!target) return
+
+    this.registryPids.set(target.tabId, { ptyPid: target.pid, claudePid: entry.pid })
+    if (target.conversationId === entry.sessionId) return
+
+    target.conversationId = entry.sessionId
+    this.emit('detected', {
+      tabId: target.tabId,
+      sessionId: entry.sessionId,
+      source: 'registry'
+    } satisfies SessionDetectedEvent)
+  }
+
+  /**
+   * Which tab a registered session belongs to. Never by cwd — a `--worktree` tab runs
+   * in the worktree, not in the directory the tab was started in.
+   */
+  private claudeTabFor(entry: LiveSession): ClaudeTabInfo | undefined {
+    // The pty's own child: the normal case, where `claude.exe` was started directly.
+    const direct = this.claudeTabs.find((tab) => tab.pid === entry.pid)
+    if (direct) return direct
+
+    // Learned before, and it keeps answering after the conversation has moved on.
+    const learned = this.claudeTabs.find(
+      (tab) => this.registryPids.get(tab.tabId)?.claudePid === entry.pid
+    )
+    if (learned) return learned
+
+    // Still in the session it was launched with — which is how a pid gets learned in
+    // the first place. This is the route for a `claude` reached through cmd.exe, whose
+    // pid the pty never sees.
+    return this.claudeTabs.find((tab) => tab.processSessionId === entry.sessionId)
   }
 
   private emitDetected(event: SessionDetectedEvent): void {
