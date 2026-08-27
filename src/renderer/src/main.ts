@@ -90,6 +90,7 @@ const zoomIndicator = new ZoomIndicator(document.body)
 
 const picker = new SessionPicker({
   onOpen: (session) => void openSession(session),
+  onNew: (cwd) => void createTab('claude', cwd),
   onFocus: (tabId) => activate(tabId, { start: true }),
   openTabFor: (sessionId) =>
     [...panes.values()].find((p) => p.tab.claudeSessionId === sessionId)?.tab.id
