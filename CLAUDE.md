@@ -120,15 +120,23 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   as its own project.
 - **The terminal title carries a state marker.** A program naming itself through OSC 0/2
   names its tab (`term.onTitleChange`). Claude Code
-  puts its state in front: a Braille spinner (`U+2800`–`U+28FF`) while it works, changing
-  about once a second, and `✳` (`U+2733`) while it waits for input. `readPtyTitle` in
-  `renderer/src/main.ts` splits the two apart — the text becomes the summary, the marker
-  becomes the colour of the tab's dot (amber while waiting). Stripping the spinner is not
+  puts its state in front: a spinner while it works, changing about once a second, and
+  `✳` (`U+2733`) while it waits for input. `readPtyTitle` in `renderer/src/main.ts` splits
+  the two apart — the text becomes the summary, the marker becomes the tab's dot (amber
+  and pulsing while waiting, breathing while working). Stripping the spinner is not
   cosmetic: every frame is a title change, and `TabBar.render` rebuilds the whole bar, so
-  keeping the frame in the label would re-render the tab bar once a second per tab.
+  keeping the frame in the label would re-render the tab bar once a second per tab — which
+  is also why the working dot is a CSS animation and not a glyph.
+  **The spinner glyphs are not stable across Claude Code versions.** They were `U+2800`–
+  `U+28FF` (Braille) up to some version before 2.1.247, and are `◐`/`◑` (`U+25D0`/`U+25D1`,
+  alternating every 960 ms) in 2.1.247. `SPINNER_MARKER` matches both, so an older `claude`
+  on PATH keeps working; the waiting `✳` has not changed. Claude Code sets the title through
+  `process.title`, which ConPTY turns into OSC 0, and it can be switched off entirely with
+  `CLAUDE_CODE_DISABLE_TERMINAL_TITLE`.
   ConPTY also announces the launched image (`…\powershell.exe`) as a title at startup;
   `LAUNCHED_IMAGE` drops it. The marker set was read off the wire, not from documentation —
-  `[Console]::Title` in a tab reports what Claude Code currently set.
+  `[Console]::Title` in a tab reports what Claude Code currently set, and the frame list
+  itself is greppable in the `claude` binary. Re-measure it before trusting this paragraph.
 - **The waiting dot can be dismissed, and the dismissal expires by itself.** Double-clicking
   the pulsing amber dot sets `Pane.awaitingAcked`; the dot stays amber — the tab really is
   still waiting — but stops moving. `setPtyTitle` clears the flag on every state that is not

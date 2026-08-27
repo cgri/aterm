@@ -129,12 +129,32 @@ body {
 .tab .dot.exited {
   background: var(--err);
 }
-/* The program is waiting for input — the one state that wants to be noticed, so
-   it is the only one that moves. The ring is a box-shadow: it costs no layout,
-   so nothing in the tab shifts while it pulses. Note that TabBar.render replaces
-   the whole bar, so any re-render restarts the pulse from the beginning — that
-   only happens when some other tab changes state, but it is visible when it
-   does. Keeping it in phase needs the dot elements to survive a render. */
+/* The program is working. It keeps its colour — the state is news about the tab,
+   not a different kind of tab — and only breathes, so it stays clearly apart from
+   the amber pulse that asks for something. This is a CSS animation and not a
+   redrawn glyph on purpose: the marker it comes from changes about once a second,
+   and the whole point of reading it out of the title is that the tab bar is not
+   rebuilt at that rate. */
+.tab .dot.working {
+  animation: dot-working 1.6s ease-in-out infinite;
+}
+
+@keyframes dot-working {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+/* The program is waiting for input — the state that asks something of the user,
+   so it moves more insistently than working does. The ring is a box-shadow: it
+   costs no layout, so nothing in the tab shifts while it pulses. Note that
+   TabBar.render replaces the whole bar, so any re-render restarts the pulse from
+   the beginning — that only happens when some other tab changes state, but it is
+   visible when it does. Keeping it in phase needs the dot elements to survive a
+   render. */
 .tab .dot.awaiting {
   background: var(--warn);
   animation: dot-pulse 1.8s ease-out infinite;
@@ -175,7 +195,8 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tab .dot.awaiting {
+  .tab .dot.awaiting,
+  .tab .dot.working {
     animation: none;
   }
 }
