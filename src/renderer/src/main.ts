@@ -462,6 +462,7 @@ function render(): void {
       kind: pane.tab.kind,
       status: pane.status,
       agentRunning: pane.agentRunning,
+      working: pane.ptyState === 'working',
       awaitingInput: pane.ptyState === 'awaiting',
       awaitingAcked: pane.awaitingAcked
     }))
@@ -629,17 +630,20 @@ function setPtyTitle(pane: Pane, raw: string): void {
 const LAUNCHED_IMAGE = /^(?:[a-z]:[\\/]|\\\\)[^\r\n]*\.(?:exe|cmd|bat|com)$/i
 
 /**
- * Claude Code puts its state in front of the title: a Braille spinner while it
- * works, and ✳ while it waits for input. The dot in the tab says that better
- * than a symbol glued to the text does — and dropping the spinner is what keeps
- * a working tab from rebuilding the whole tab bar once a second, because every
+ * Claude Code puts its state in front of the title: a spinner while it works,
+ * and ✳ while it waits for input. The dot in the tab says that better than a
+ * symbol glued to the text does — and dropping the spinner is what keeps a
+ * working tab from rebuilding the whole tab bar once a second, because every
  * frame is a title change of its own.
  */
-// Escaped rather than literal, because the Braille range starts at U+2800, which
-// is blank and would sit invisible in the source. `|$` because a marker can
-// arrive before there is any summary behind it: the trailing space is gone by
-// then, and the bare glyph must not end up as the tab's name.
-const SPINNER_MARKER = /^[\u2800-\u28ff](?:\s+|$)/
+// Two spinners, because the glyphs changed under us: current Claude Code
+// alternates ◐ and ◑ about once a second, older versions sent a Braille frame.
+// Both are matched, so an older `claude` on PATH keeps working. Escaped rather
+// than literal, because the Braille range starts at U+2800, which is blank and
+// would sit invisible in the source. `|$` because a marker can arrive before
+// there is any summary behind it: the trailing space is gone by then, and the
+// bare glyph must not end up as the tab's name.
+const SPINNER_MARKER = /^[\u2800-\u28ff\u25d0\u25d1](?:\s+|$)/
 const AWAITING_MARKER = /^\u2733(?:\s+|$)/
 
 function readPtyTitle(raw: string): { title?: string; state?: PtyState } {

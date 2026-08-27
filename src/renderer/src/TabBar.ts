@@ -12,6 +12,8 @@ export interface TabViewModel {
   status: 'stopped' | 'running' | 'exited'
   /** A shell tab with a Claude process running inside it. */
   agentRunning: boolean
+  /** The program in this tab says it is working on something. */
+  working: boolean
   /** The program in this tab says it is waiting for input. */
   awaitingInput: boolean
   /** The user has seen it waiting and asked for quiet. */
@@ -81,6 +83,8 @@ export class TabBar {
         ev.stopPropagation()
         this.handlers.onDismissAwaiting(tab.id)
       })
+    } else if (tab.working) {
+      dot.title = 'Working'
     }
     el.appendChild(dot)
 
@@ -149,7 +153,11 @@ export class TabBar {
 function dotClass(tab: TabViewModel): string {
   if (tab.status === 'exited') return 'exited'
   if (tab.status === 'stopped') return ''
-  // Waiting beats running: it is the one state that asks something of the user.
+  // Waiting beats working: it is the one state that asks something of the user.
   if (tab.awaitingInput) return tab.awaitingAcked ? 'awaiting acked' : 'awaiting'
-  return tab.agentRunning || tab.kind === 'claude' ? 'agent' : 'running'
+  // Working is a modifier on the running dot, not a colour of its own: what the
+  // colour says about the tab does not change just because something is going on
+  // in it.
+  const base = tab.agentRunning || tab.kind === 'claude' ? 'agent' : 'running'
+  return tab.working ? `${base} working` : base
 }
