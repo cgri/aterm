@@ -503,6 +503,17 @@ body {
   color: var(--on-accent-dim);
 }
 
+/* The row that starts a fresh session in the project its block is headed by. It
+   offers something rather than reporting something, so it reads at the weight of
+   the meta instead of a session title. */
+.picker-new .picker-title {
+  color: var(--fg-dim);
+}
+
+.picker-new.selected .picker-title {
+  color: var(--on-accent);
+}
+
 .picker-meta {
   flex: 0 0 auto;
   color: var(--fg-dim);

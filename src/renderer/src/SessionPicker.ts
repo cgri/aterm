@@ -4,11 +4,24 @@ import { projectDir, worktreeName } from './paths'
 export interface SessionPickerHandlers {
   /** Resume the session in a new tab. */
   onOpen: (session: RecentSession) => void
+  /** Start a fresh session in the project the row belongs to. */
+  onNew: (cwd: string) => void
   /** The session is already open → switch to it. */
   onFocus: (tabId: string) => void
   /** tabId of the already open session, if there is one. */
   openTabFor: (sessionId: string) => string | undefined
 }
+
+/**
+ * One row of the list. The cursor indexes these rather than the sessions,
+ * because not every row is a session.
+ */
+type PickerItem =
+  | { kind: 'session'; session: RecentSession }
+  | { kind: 'new'; project: string }
+
+/** At most this many sessions are listed — counted before the rows are built. */
+const MAX_SESSIONS = 200
 
 /** The "recently opened sessions" overlay (Ctrl+Shift+O). */
 export class SessionPicker {
@@ -16,7 +29,7 @@ export class SessionPicker {
   private readonly input: HTMLInputElement
   private readonly list: HTMLDivElement
   private sessions: RecentSession[] = []
-  private filtered: RecentSession[] = []
+  private items: PickerItem[] = []
   private cursor = 0
   private open = false
 
@@ -68,19 +81,43 @@ export class SessionPicker {
 
   private applyFilter(): void {
     const needle = this.input.value.trim().toLowerCase()
-    this.filtered = needle
+    const matches = needle
       ? this.sessions.filter(
           (s) =>
             s.title.toLowerCase().includes(needle) || s.cwd.toLowerCase().includes(needle)
         )
       : this.sessions
+
+    // Grouped by repository, not by the directory Claude Code ran in: a worktree
+    // session belongs to its project, and filing it under the worktree path would
+    // scatter one project's sessions over as many headers as it has worktrees.
+    // A project gets one block, so that starting a new session there has one place
+    // to live. The sessions arrive in recency order and keep it inside a block, and
+    // a Map keeps the order its keys were first seen in — so the blocks end up
+    // sorted by their most recent session without being sorted again.
+    const groups = new Map<string, RecentSession[]>()
+    for (const session of matches.slice(0, MAX_SESSIONS)) {
+      const project = projectDir(session.cwd)
+      const group = groups.get(project)
+      if (group) group.push(session)
+      else groups.set(project, [session])
+    }
+
+    this.items = []
+    for (const [project, sessions] of groups) {
+      for (const session of sessions) this.items.push({ kind: 'session', session })
+      // Last in the block, not first: it belongs to the project rather than to any
+      // one session, and a past session is the more common reason to open the list.
+      this.items.push({ kind: 'new', project })
+    }
+
     this.renderList()
   }
 
   private renderList(): void {
     this.list.replaceChildren()
 
-    if (this.filtered.length === 0) {
+    if (this.items.length === 0) {
       const empty = document.createElement('div')
       empty.className = 'picker-empty'
       empty.textContent = this.sessions.length
@@ -90,48 +127,21 @@ export class SessionPicker {
       return
     }
 
-    // Grouped by repository, not by the directory Claude Code ran in: a worktree
-    // session belongs to its project, and filing it under the worktree path would
-    // scatter one project's sessions over as many headers as it has worktrees.
-    // The list stays in recency order, so a header repeats when a project comes up
-    // again later — the header separates runs, it does not reorder them.
     let lastGroup = ''
-    this.filtered.slice(0, 200).forEach((session, index) => {
-      const repo = projectDir(session.cwd)
-      if (repo !== lastGroup) {
-        lastGroup = repo
+    this.items.forEach((item, index) => {
+      // The new-session row carries the same key as the sessions above it, so it
+      // closes the block instead of opening a second one.
+      const project = item.kind === 'new' ? item.project : projectDir(item.session.cwd)
+      if (project !== lastGroup) {
+        lastGroup = project
         const group = document.createElement('div')
         group.className = 'picker-group'
-        group.textContent = repo
+        group.textContent = project
         this.list.appendChild(group)
       }
 
-      const row = document.createElement('div')
-      row.className = `picker-row${index === this.cursor ? ' selected' : ''}`
-
-      const title = document.createElement('span')
-      title.className = 'picker-title'
-      title.textContent = session.title
-
-      const meta = document.createElement('span')
-      meta.className = 'picker-meta'
-      const openTab = this.handlers.openTabFor(session.sessionId)
-      meta.textContent = openTab
-        ? 'open'
-        : `${formatWhen(session.lastUsed)} · ${session.promptCount} prompts`
-      if (openTab) meta.classList.add('is-open')
-
-      row.append(title)
-      // Which worktree, now that the header no longer says so. Its own element
-      // and not part of the meta, which an already open session takes over.
-      const worktree = worktreeName(session.cwd)
-      if (worktree) {
-        const inWorktree = document.createElement('span')
-        inWorktree.className = 'picker-worktree'
-        inWorktree.textContent = worktree
-        row.append(inWorktree)
-      }
-      row.append(meta)
+      const row = item.kind === 'new' ? newRow() : this.sessionRow(item.session)
+      if (index === this.cursor) row.classList.add('selected')
 
       row.addEventListener('mousedown', (ev) => {
         ev.preventDefault()
@@ -143,11 +153,41 @@ export class SessionPicker {
     })
   }
 
+  private sessionRow(session: RecentSession): HTMLDivElement {
+    const row = document.createElement('div')
+    row.className = 'picker-row'
+
+    const title = document.createElement('span')
+    title.className = 'picker-title'
+    title.textContent = session.title
+
+    const meta = document.createElement('span')
+    meta.className = 'picker-meta'
+    const openTab = this.handlers.openTabFor(session.sessionId)
+    meta.textContent = openTab
+      ? 'open'
+      : `${formatWhen(session.lastUsed)} · ${session.promptCount} prompts`
+    if (openTab) meta.classList.add('is-open')
+
+    row.append(title)
+    // Which worktree, now that the header no longer says so. Its own element
+    // and not part of the meta, which an already open session takes over.
+    const worktree = worktreeName(session.cwd)
+    if (worktree) {
+      const inWorktree = document.createElement('span')
+      inWorktree.className = 'picker-worktree'
+      inWorktree.textContent = worktree
+      row.append(inWorktree)
+    }
+    row.append(meta)
+    return row
+  }
+
   private onKey(ev: KeyboardEvent): void {
     if (ev.key === 'Escape') {
       this.close()
     } else if (ev.key === 'ArrowDown') {
-      this.cursor = Math.min(this.cursor + 1, this.filtered.length - 1)
+      this.cursor = Math.min(this.cursor + 1, this.items.length - 1)
       this.renderList()
     } else if (ev.key === 'ArrowUp') {
       this.cursor = Math.max(this.cursor - 1, 0)
@@ -162,13 +202,32 @@ export class SessionPicker {
   }
 
   private choose(index: number): void {
-    const session = this.filtered[index]
-    if (!session) return
+    const item = this.items[index]
+    if (!item) return
     this.close()
-    const openTab = this.handlers.openTabFor(session.sessionId)
+
+    if (item.kind === 'new') {
+      this.handlers.onNew(item.project)
+      return
+    }
+
+    const openTab = this.handlers.openTabFor(item.session.sessionId)
     if (openTab) this.handlers.onFocus(openTab)
-    else this.handlers.onOpen(session)
+    else this.handlers.onOpen(item.session)
   }
+}
+
+/** Starts a conversation instead of continuing one — the header names where. */
+function newRow(): HTMLDivElement {
+  const row = document.createElement('div')
+  row.className = 'picker-row picker-new'
+
+  const title = document.createElement('span')
+  title.className = 'picker-title'
+  title.textContent = 'New session'
+
+  row.append(title)
+  return row
 }
 
 function formatWhen(ts: number): string {
