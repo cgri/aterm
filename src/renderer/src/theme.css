@@ -68,7 +68,7 @@ body {
 
 /* ---------- Tab bar ---------- */
 
-/* The tab bar is the window's title bar: the strip itself drags the window and
+/* The tab bar is the window's title bar: the bar itself drags the window and
    the padding keeps the tabs clear of the native window controls, which Electron
    overlays on the right. `titlebar-area-width` is what is left beside them; the
    fallbacks apply when the window controls overlay is unavailable. */
@@ -85,11 +85,33 @@ body {
   -webkit-app-region: drag;
 }
 
-/* Everything clickable has to opt out of dragging again. */
+/* Everything clickable has to opt out of dragging again. `#tabstrip` and
+   `#draghandle` deliberately do not: they are the free space that drags. */
 #tabbar .tab,
 #tabbar #newtab,
 #tabbar #theme-toggle {
   -webkit-app-region: no-drag;
+}
+
+/* The tabs are the only thing that may be cut off when the bar runs out of
+   room, so they are the only thing that clips: `0 1 auto` lets the strip shrink
+   as far as it has to, and the tabs inside keep their own width and are clipped
+   at its edge. Nothing after the strip can be pushed out of the window. */
+#tabstrip {
+  display: flex;
+  align-items: stretch;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The leftover width, and never less than a grabbable strip of it — this is what
+   guarantees the title bar can still be dragged with the tabs filling it. It
+   also puts the trailing buttons at the right end, which is why the theme toggle
+   needs no `margin-left: auto` of its own. */
+#draghandle {
+  flex: 1 1 auto;
+  min-width: 44px;
 }
 
 .tab {
@@ -279,9 +301,9 @@ body {
   background: var(--bg-tab);
 }
 
-/* Sits at the right end, right next to the native window controls. */
+/* Sits at the right end, right next to the native window controls — pushed
+   there by `#draghandle`. */
 #theme-toggle {
-  margin-left: auto;
   width: 34px;
   flex: 0 0 auto;
   background: transparent;

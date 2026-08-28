@@ -42,10 +42,15 @@ export class TabBar {
   ) {}
 
   render(tabs: TabViewModel[], activeId: string | undefined): void {
-    this.root.replaceChildren()
-
+    // Only the tabs go into the strip, and only the strip clips: everything
+    // after it — the new-tab button, the drag handle, the trailing buttons —
+    // keeps its room however many tabs there are. Putting the tabs straight into
+    // the bar pushed all of that out of the window once they filled it, which
+    // left the title bar with no free space to drag it by.
+    const strip = document.createElement('div')
+    strip.id = 'tabstrip'
     for (const tab of tabs) {
-      this.root.appendChild(this.renderTab(tab, tab.id === activeId))
+      strip.appendChild(this.renderTab(tab, tab.id === activeId))
     }
 
     const plus = document.createElement('button')
@@ -53,9 +58,13 @@ export class TabBar {
     plus.textContent = '+'
     plus.title = 'New tab (Ctrl+T)'
     plus.addEventListener('click', () => this.handlers.onNew())
-    this.root.appendChild(plus)
 
-    this.root.append(...this.trailing)
+    // The handle is what is left over, down to a minimum the tabs cannot eat
+    // into — the one stretch of the title bar that is always there to grab.
+    const handle = document.createElement('div')
+    handle.id = 'draghandle'
+
+    this.root.replaceChildren(strip, plus, handle, ...this.trailing)
   }
 
   private renderTab(tab: TabViewModel, active: boolean): HTMLElement {

@@ -148,6 +148,11 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   clickable child opts out again with `-webkit-app-region: no-drag`; the room left beside
   the controls comes from `env(titlebar-area-width)`. `titleBarOverlay.height` in
   `main/index.ts` and the `#tabbar` height in `theme.css` have to stay in step.
+  **Some of the bar has to stay free, or the window cannot be moved at all.** Only
+  `#tabstrip` clips, and `#draghandle` after it keeps a minimum width the tabs cannot
+  shrink into, so there is always a stretch left to grab — and `#newtab` and the trailing
+  buttons can no longer be pushed out of the window either. Anything added to the bar
+  belongs before the handle or into `TabBar`'s `trailing`, never in the handle's place.
 - **The palette exists three times over.** `theme.css` holds both palettes, keyed by
   `data-theme` on `<html>`; `TerminalView` holds the xterm.js themes, because xterm draws
   into a canvas and reads no CSS; `CHROME_COLORS` in `main/index.ts` holds the window
