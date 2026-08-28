@@ -229,6 +229,35 @@ missing Spectre-mitigated MSVC libraries trigger MSB8040, and electron-builder's
 sets `electronDist` and `npmRebuild: false` so electron-builder neither re-downloads
 Electron nor recompiles node-pty.
 
+## Releases
+
+A release is a commit on `main` that changes nothing but the version, a tag, and a GitHub
+release with both binaries attached. There is no changelog file in the repository — the
+notes on the GitHub release are the only place they live, so they have to be written there.
+
+```powershell
+npm version 1.4.0 --no-git-tag-version    # package.json and package-lock.json together
+git commit -am "Release 1.4.0"
+git tag v1.4.0
+git push origin main --follow-tags
+npm run build                             # ~5 min, writes both .exe into dist/
+gh release create v1.4.0 --title "aterm 1.4.0" --notes-file <notes.md> `
+  "dist/aterm Setup 1.4.0.exe" "dist/aterm 1.4.0.exe"
+```
+
+- **Cut from `main` after the PRs are merged.** Patch for a fix, minor for anything a user
+  would notice as new; `npm version` alone, never an edit by hand, because the version sits
+  in `package-lock.json` twice as well.
+- **The tag carries the `v`, the release title does not**: `v1.4.0` and `aterm 1.4.0`.
+- **`npm run build` produces two artifacts**, both unsigned: `aterm Setup <version>.exe`
+  (NSIS, per user, directory selectable) and `aterm <version>.exe` (portable). It also
+  leaves a `.blockmap` next to the installer, which is not part of the release. `dist/`
+  keeps every version ever built and is not cleaned.
+- **The notes follow the shape of the previous releases**: one sentence saying what the
+  release is about, then `## Added` / `## Changed` / `## Fixed` with a bolded lead sentence
+  per entry, then a `## Downloads` block naming both binaries and closing with the note that
+  they are unsigned, so SmartScreen warns on first start.
+
 ## Renaming caveat
 
 The directory is still `clerminal` while the app is `aterm`; only the folder name lags.
