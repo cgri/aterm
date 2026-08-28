@@ -60,6 +60,13 @@ const CHROME_COLORS: Record<Appearance, { chrome: string; symbol: string; backdr
 let appearance: Appearance = 'dark'
 
 /**
+ * Some tab is waiting for input and has not been looked at yet — the renderer
+ * decides that, because it is the only side that knows which tab is on screen.
+ * Deliberately not persisted: it describes what is running right now.
+ */
+let attentionWanted = false
+
+/**
  * Window and taskbar icon. The packaged exe carries the .ico of its own, but the
  * window itself is only given an icon here — without it a dev run shows the
  * Electron default.
@@ -116,9 +123,26 @@ function createWindow(state: PersistedState): void {
   if (devUrl) void win.loadURL(devUrl)
   else void win.loadFile(join(__dirname, '../renderer/index.html'))
 
+  // Windows stops a flashing taskbar button by itself the moment the window comes
+  // to the foreground, whether or not the tab that asked for attention was ever
+  // looked at. So the flash is re-armed on every blur for as long as one is still
+  // unseen, and only the renderer clearing `attentionWanted` ends it for good.
+  win.on('focus', () => updateFlash())
+  win.on('blur', () => updateFlash())
+
   win.on('closed', () => {
     win = undefined
   })
+}
+
+/**
+ * Flashes the taskbar button while a tab waits for input that nobody has seen.
+ * Never while the window is in the foreground: the user is already here, and the
+ * pulsing dot in the tab bar says the rest.
+ */
+function updateFlash(): void {
+  if (!win || win.isDestroyed()) return
+  win.flashFrame(attentionWanted && !win.isFocused())
 }
 
 function windowBounds(): PersistedState['window'] {
@@ -226,6 +250,11 @@ function registerIpc(): void {
     if (!win || win.isDestroyed()) return
     win.setBackgroundColor(colors.backdrop)
     win.setTitleBarOverlay({ color: colors.chrome, symbolColor: colors.symbol })
+  })
+
+  ipcMain.on(IPC.setAttention, (_e, wanted: boolean) => {
+    attentionWanted = wanted
+    updateFlash()
   })
 
   ipcMain.handle(IPC.sessionsRecent, () => history.recent())

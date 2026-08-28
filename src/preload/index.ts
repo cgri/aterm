@@ -53,6 +53,8 @@ const api = {
     /** Repaints the parts Electron draws itself: window controls and backdrop. */
     setAppearance: (appearance: Appearance): void =>
       ipcRenderer.send(IPC.setAppearance, appearance),
+    /** A tab is waiting for input that the user has not looked at yet. */
+    setAttention: (wanted: boolean): void => ipcRenderer.send(IPC.setAttention, wanted),
     writeClipboard: (text: string): Promise<void> =>
       ipcRenderer.invoke(IPC.clipboardWrite, text)
   }
