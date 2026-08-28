@@ -137,12 +137,22 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `LAUNCHED_IMAGE` drops it. The marker set was read off the wire, not from documentation —
   `[Console]::Title` in a tab reports what Claude Code currently set, and the frame list
   itself is greppable in the `claude` binary. Re-measure it before trusting this paragraph.
-- **The waiting dot can be dismissed, and the dismissal expires by itself.** Double-clicking
-  the pulsing amber dot sets `Pane.awaitingAcked`; the dot stays amber — the tab really is
-  still waiting — but stops moving. `setPtyTitle` clears the flag on every state that is not
-  `awaiting`, so the next wait pulses again. That is why it must not be persisted: it
-  answers one wait of one process, like `ptyState` itself. Switching to the tab deliberately
-  does not dismiss anything — a quick look must not cost the reminder.
+- **A wait is answered by looking at it, and the answer expires by itself.** `Pane.awaitingSeen`
+  says the user has had that tab on screen since it started waiting — active tab *and* window
+  focused, which is what `isOnScreen` checks; a tab switched to while aterm sits behind
+  something else answers nothing. It is set from `activate`, from the window's `focus` event,
+  and at the moment the wait begins if the tab is already in front. `setPtyTitle` only touches
+  it on the way into and out of `awaiting`: leaving clears it, so the next wait is news again.
+  Re-deciding it on every title would be wrong — Claude Code keeps rewriting the text while it
+  waits, which would un-see a tab the user has meanwhile left. Not persisted: it answers one
+  wait of one process, like `ptyState` itself.
+- **An unseen wait flashes the taskbar button.** `updateAttention` (renderer) sends
+  `app:set-attention` whenever *any* tab is waiting unseen, deduplicated because a working tab
+  re-renders about once a second; `main/index.ts` turns it into `win.flashFrame`. Two rules
+  there: never flash while the window is in the foreground — the user is already here and the
+  pulsing dot says the rest — and re-evaluate on `focus` *and* `blur`, because Windows stops a
+  flash by itself the moment the window comes forward, whether or not the tab that asked was
+  ever looked at. So the flash comes back on the next blur until the last unseen wait is seen.
 - **The tab bar is the title bar.** The window uses `titleBarStyle: 'hidden'`, so Electron
   overlays the native window controls on the right. `#tabbar` is the drag region and every
   clickable child opts out again with `-webkit-app-region: no-drag`; the room left beside

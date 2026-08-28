@@ -42,12 +42,13 @@ interface Pane {
   /** What the status marker in that title said, if there was one. */
   ptyState?: PtyState
   /**
-   * The user has seen this tab waiting and asked for quiet. Deliberately not
-   * part of TabState, for the same reason as ptyState: it answers one wait of
-   * one process. Leaving the waiting state retires it, so the next wait is news
-   * again.
+   * The user has had this tab on screen since it started waiting — active tab,
+   * window in the foreground. Until then the wait is news: the dot pulses and
+   * the taskbar button flashes. Deliberately not part of TabState, for the same
+   * reason as ptyState: it answers one wait of one process, and leaving the
+   * waiting state retires it, so the next wait asks again.
    */
-  awaitingAcked: boolean
+  awaitingSeen: boolean
 }
 
 /** Claude Code says what it is up to in front of its window title. */
@@ -64,6 +65,12 @@ let homeDir = ''
 let fontSize = Number(localStorage.getItem('fontSize') ?? BASE_FONT_SIZE)
 /** sessionId → first prompt, used for titles and the "last here" bar. */
 let sessionTitles = new Map<string, string>()
+/**
+ * Whether aterm is the window the user is looking at. A tab only counts as seen
+ * while it is: switching tabs in a window that is behind something else does not
+ * answer a wait.
+ */
+let windowFocused = document.hasFocus()
 
 const themeToggle = new ThemeToggle()
 
@@ -73,8 +80,7 @@ const tabBar = new TabBar(
     onSelect: (id) => activate(id, { start: true }),
     onClose: (id) => void closeTab(id),
     onNew: () => void openNewTabMenu(),
-    onReorder: (dragged, before) => reorder(dragged, before),
-    onDismissAwaiting: (id) => dismissAwaiting(id)
+    onReorder: (dragged, before) => reorder(dragged, before)
   },
   [themeToggle.element]
 )
@@ -143,6 +149,7 @@ async function boot(): Promise<void> {
   )
   installWheelZoom((delta) => changeFontSize(delta))
   installFocusGuard()
+  installAttentionTracking()
 
   const state = await api.state.load()
   if (state.tabs.length === 0) {
@@ -199,7 +206,7 @@ function addPane(tab: TabState): Pane {
     placeholder,
     status: 'stopped',
     agentRunning: false,
-    awaitingAcked: false
+    awaitingSeen: false
   }
   panes.set(tab.id, pane)
   if (!order.includes(tab.id)) order.push(tab.id)
@@ -289,6 +296,7 @@ function activate(id: string | undefined, opts: { start: boolean }): void {
     pane.view?.focus()
   }
   searchBar.detach()
+  noteSeen()
   render()
   persist()
 }
@@ -335,7 +343,7 @@ async function startPane(pane: Pane): Promise<void> {
     // The next process names itself; until then the tab is back to its own name.
     pane.ptyTitle = undefined
     pane.ptyState = undefined
-    pane.awaitingAcked = false
+    pane.awaitingSeen = false
   }
 
   if (tab.kind === 'claude' && !tab.claudeSessionId) {
@@ -397,7 +405,7 @@ function onExit(tabId: string, exitCode: number): void {
   pane.agentRunning = false
   pane.ptyTitle = undefined
   pane.ptyState = undefined
-  pane.awaitingAcked = false
+  pane.awaitingSeen = false
   showBar(pane, `Process exited (code ${exitCode})`, [{ key: 'Enter', label: 'start again' }])
   render()
 }
@@ -434,16 +442,60 @@ function onAgentActivity(running: Record<string, boolean>): void {
   if (changed) render()
 }
 
+/* ------------------------------------------------------- Attention */
+
 /**
- * The user has seen that this tab is waiting and wants it to stop pulsing. The
- * tab keeps its amber dot — it really is still waiting — it just stops moving.
+ * Is this tab in front of the user right now? Being the active tab is not enough
+ * — the window has to be the one they are looking at, or a tab switched to while
+ * aterm sits behind something else would answer a wait nobody saw.
  */
-function dismissAwaiting(id: string): void {
-  const pane = panes.get(id)
-  if (!pane || pane.ptyState !== 'awaiting' || pane.awaitingAcked) return
-  pane.awaitingAcked = true
-  // Nothing persisted changed, same as for the title this state came from.
-  render()
+function isOnScreen(pane: Pane): boolean {
+  return windowFocused && pane === activePane()
+}
+
+/**
+ * The active tab has been in front of the user, so whatever it was waiting for
+ * is no longer news. Answers only that one tab — the taskbar keeps flashing
+ * while another tab is still waiting unseen.
+ *
+ * Does not render: every caller does, and one of them is `render` itself by way
+ * of `activate`.
+ */
+function noteSeen(): void {
+  const pane = activePane()
+  if (pane && windowFocused && pane.ptyState === 'awaiting') pane.awaitingSeen = true
+}
+
+/**
+ * Tells the main process whether the taskbar button should ask for attention.
+ * Sent only on change: `render` runs on every title a process sets, and a tab
+ * that is working sets one about once a second.
+ */
+let attentionSent = false
+
+function updateAttention(): void {
+  const wanted = [...panes.values()].some(
+    (pane) => pane.ptyState === 'awaiting' && !pane.awaitingSeen
+  )
+  if (wanted === attentionSent) return
+  attentionSent = wanted
+  api.system.setAttention(wanted)
+}
+
+/**
+ * The window changing hands is what turns a wait into something the user has
+ * seen — and what re-arms the flash, because Windows stops it as soon as the
+ * window comes to the foreground, seen or not.
+ */
+function installAttentionTracking(): void {
+  window.addEventListener('focus', () => {
+    windowFocused = true
+    noteSeen()
+    render()
+  })
+  window.addEventListener('blur', () => {
+    windowFocused = false
+  })
 }
 
 /* ------------------------------------------------------------ Rendering */
@@ -464,13 +516,14 @@ function render(): void {
       agentRunning: pane.agentRunning,
       working: pane.ptyState === 'working',
       awaitingInput: pane.ptyState === 'awaiting',
-      awaitingAcked: pane.awaitingAcked
+      awaitingSeen: pane.awaitingSeen
     }))
   tabBar.render(models, activeId)
 
   for (const pane of panes.values()) updatePlaceholder(pane)
   const active = activePane()
   document.title = active ? `${paneTitle(active)} — aterm` : 'aterm'
+  updateAttention()
 }
 
 function updatePlaceholder(pane: Pane): void {
@@ -611,9 +664,12 @@ function tabSummary(pane: Pane): string | undefined {
 function setPtyTitle(pane: Pane, raw: string): void {
   const next = readPtyTitle(raw)
   if (next.title === pane.ptyTitle && next.state === pane.ptyState) return
-  // Leaving the waiting state retires the acknowledgement: whatever the user
-  // dismissed is over, so the next wait gets to ask for attention again.
-  if (next.state !== 'awaiting') pane.awaitingAcked = false
+  // Only the move into and out of waiting touches this. Leaving retires it, so
+  // the next wait is news again; entering it is already answered if the user is
+  // looking at the tab. Re-deciding it on every title would undo a tab the user
+  // has since left, because Claude Code keeps rewriting the text while it waits.
+  if (next.state !== 'awaiting') pane.awaitingSeen = false
+  else if (pane.ptyState !== 'awaiting') pane.awaitingSeen = isOnScreen(pane)
   pane.ptyTitle = next.title
   pane.ptyState = next.state
   // Nothing persisted changed — the title belongs to the process, not the tab.
