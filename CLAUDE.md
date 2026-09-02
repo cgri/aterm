@@ -102,6 +102,21 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   through `util/json.ts`; the shell profile writes without a BOM via `UTF8Encoding($false)`.
 - **Restore is lazy.** Restored tabs render as placeholders; the process starts on click or
   Enter, including the tab that was active last.
+- **A tab that ends cleanly closes itself, and the exit code alone cannot decide that.**
+  `exit` or `/exit` should not leave a dead tab behind, so `onExit` calls `removeTab` when
+  the process ended with code 0 — `closeTab` keeps the confirmation dialog, `removeTab` is
+  the teardown both share. Any other code keeps the tab with its "Process exited" bar, so
+  the error stays readable. But a *killed* process reports an exit code too, and it is not
+  ours to predict: `kill()` closes the pseudoconsole *and* terminates the console process
+  list, so what the program reports is a race. PowerShell was measured at `0xC000013A`
+  (`-1073741510`, `STATUS_CONTROL_C_EXIT`), but a program that shuts down cleanly when its
+  console goes away reports 0 — and the one place that must never be wrong is
+  `before-quit` → `killAll()`: auto-closing every tab while aterm is going down would let
+  `persist()` write an empty tab list, and the whole session would be gone on the next
+  start. So the decision does not rest on the code at all: `PtyManager.kill` marks the
+  process (`Running.killed`) and the exit event carries `PtyExitEvent.killed`. The flag
+  lives on the record of one process, so the defensive `kill` at the top of `start()`
+  marks only the process being replaced, never its successor.
 - **A tab is called `<folder> - <summary>`, and only the summary changes.** The folder comes
   from the tab's `cwd` at render time, the summary from `TabState.summary` — or, while a
   process is running, from the title it set for itself. A tab without a summary is named by
