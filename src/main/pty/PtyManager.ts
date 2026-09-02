@@ -19,6 +19,14 @@ interface Running {
    * switches are matched against this and not against state.json.
    */
   sessionId?: string
+  /**
+   * aterm asked this process to end, so its exit code says nothing about how the program
+   * fared: killing a ConPTY closes the pseudoconsole *and* terminates the console process
+   * list, and what the program makes of that is its own business — a clean shutdown on a
+   * closed console reports 0. The flag rides on the record of this one process, so marking
+   * the old one before a restart cannot affect its successor.
+   */
+  killed?: boolean
 }
 
 /**
@@ -102,7 +110,7 @@ export class PtyManager extends EventEmitter {
       // Only clean up while the same process is still registered — a restart
       // that happened in between must not be torn down.
       if (this.running.get(spec.tabId)?.proc === proc) this.running.delete(spec.tabId)
-      this.emit('exit', { tabId: spec.tabId, exitCode })
+      this.emit('exit', { tabId: spec.tabId, exitCode, killed: Boolean(entry.killed) })
     })
 
     return { ok: true, claudeSessionId: sessionId, resumed: resume }
@@ -125,6 +133,7 @@ export class PtyManager extends EventEmitter {
   kill(tabId: string): void {
     const entry = this.running.get(tabId)
     if (!entry) return
+    entry.killed = true
     this.running.delete(tabId)
     try {
       entry.proc.kill()

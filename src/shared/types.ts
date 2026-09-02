@@ -65,6 +65,12 @@ export interface PtyDataEvent {
 export interface PtyExitEvent {
   tabId: string
   exitCode: number
+  /**
+   * aterm ended this process — the tab was closed, restarted, or the app is quitting —
+   * rather than the program finishing on its own. A killed process can report exit code
+   * 0 as well, so the code alone says nothing about who ended it.
+   */
+  killed: boolean
 }
 
 /**

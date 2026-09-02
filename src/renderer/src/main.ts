@@ -110,7 +110,7 @@ async function boot(): Promise<void> {
   homeDir = await api.system.homeDir()
 
   api.pty.onData(({ tabId, data }) => panes.get(tabId)?.view?.write(data))
-  api.pty.onExit(({ tabId, exitCode }) => onExit(tabId, exitCode))
+  api.pty.onExit(({ tabId, exitCode, killed }) => onExit(tabId, exitCode, killed))
   api.sessions.onDetected(({ tabId, sessionId }) => onSessionDetected(tabId, sessionId))
   api.sessions.onAgentActivity(({ running }) => onAgentActivity(running))
 
@@ -264,7 +264,20 @@ async function closeTab(id: string): Promise<void> {
     if (!panes.has(id)) return
   }
 
+  await removeTab(id)
+}
+
+/**
+ * Takes the tab away without asking anything. The question belongs to `closeTab`; a tab
+ * whose process ended on its own has nothing left to confirm.
+ */
+async function removeTab(id: string): Promise<void> {
+  const pane = panes.get(id)
+  if (!pane) return
+
   await api.pty.kill(id)
+  // Two tabs can end in the same moment, and the kill above is a turn of the event loop.
+  if (!panes.has(id)) return
   pane.view?.dispose()
   pane.el.remove()
   panes.delete(id)
@@ -397,7 +410,7 @@ async function startPane(pane: Pane): Promise<void> {
   if (tab.kind === 'claude') void refreshClaudeTitles()
 }
 
-function onExit(tabId: string, exitCode: number): void {
+function onExit(tabId: string, exitCode: number, killed: boolean): void {
   const pane = panes.get(tabId)
   if (!pane) return
   pane.status = 'exited'
@@ -406,6 +419,15 @@ function onExit(tabId: string, exitCode: number): void {
   pane.ptyTitle = undefined
   pane.ptyState = undefined
   pane.awaitingSeen = false
+
+  // A program that finished cleanly takes its tab with it — that is the whole point of
+  // typing `exit`. Not when aterm ended the process itself: a kill can report 0 too, and
+  // on quit that would empty the tab list on the way out.
+  if (!killed && exitCode === 0) {
+    void removeTab(tabId)
+    return
+  }
+
   showBar(pane, `Process exited (code ${exitCode})`, [{ key: 'Enter', label: 'start again' }])
   render()
 }
