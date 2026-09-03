@@ -5,10 +5,12 @@
 * text=auto eol=lf
 
 # Windows scripts are executed by cmd.exe and PowerShell, which are happiest
-# with CRLF — .bat and .cmd in particular break without it.
+# with CRLF — .bat and .cmd in particular break without it. The NSIS include is
+# read by makensis, which is happier with CRLF as well.
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
+*.nsh text eol=crlf
 
 # Binary assets must never be converted.
 *.png binary
