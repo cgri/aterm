@@ -27,8 +27,22 @@ const electronDir = join(root, 'node_modules', 'electron')
 const env = { ...process.env }
 delete env.NoDefaultCurrentDirectoryInExePath
 
+/**
+ * Everything here runs through `shell: true`, because node-gyp is a `.cmd` and
+ * Node refuses to spawn one without a shell. cmd.exe then splits the line on
+ * whitespace and eats its own metacharacters, so each part has to arrive quoted —
+ * the command itself included. That is not a corner case: `process.execPath` is
+ * `C:\Program Files\nodejs\node.exe` on a default install, and unquoted it becomes
+ * the command `C:\Program`, which cmd cannot find.
+ */
+const NEEDS_QUOTES = /[\s&|<>^()]/
+
+function quote(part) {
+  return NEEDS_QUOTES.test(part) ? `"${part}"` : part
+}
+
 function run(file, args, opts = {}) {
-  const result = spawnSync(file, args, {
+  const result = spawnSync(quote(file), args.map(quote), {
     stdio: 'inherit',
     shell: true,
     env,
@@ -41,6 +55,17 @@ function electronVersion() {
   return JSON.parse(readFileSync(join(electronDir, 'package.json'), 'utf8')).version
 }
 
+/**
+ * Windows' own tar, by full path rather than by name. Git for Windows puts GNU
+ * tar 1.32 on the PATH, which reads the colon in `C:\…` as a remote host and
+ * fails with "Cannot connect to C: resolve failed" — so whether the extraction
+ * works would depend on which shell `npm install` happened to run from.
+ */
+function bsdtar() {
+  const system32 = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe')
+  return existsSync(system32) ? system32 : 'tar'
+}
+
 function ensureElectronBinary(version) {
   if (existsSync(join(electronDir, 'dist', 'electron.exe'))) return true
 
@@ -51,12 +76,12 @@ function ensureElectronBinary(version) {
   console.log('[setup-native] direct download failed, trying curl …')
   const zip = join(tmpdir(), `electron-v${version}-win32-x64.zip`)
   const url = `https://github.com/electron/electron/releases/download/v${version}/electron-v${version}-win32-x64.zip`
-  if (!run('curl', ['-L', '--fail', '--silent', '--show-error', '-o', `"${zip}"`, url])) return false
+  if (!run('curl', ['-L', '--fail', '--silent', '--show-error', '-o', zip, url])) return false
 
   const dist = join(electronDir, 'dist')
   rmSync(dist, { recursive: true, force: true })
   mkdirSync(dist, { recursive: true })
-  if (!run('tar', ['-xf', `"${zip}"`, '-C', `"${dist}"`])) return false
+  if (!run(bsdtar(), ['-xf', zip, '-C', dist])) return false
   writeFileSync(join(electronDir, 'path.txt'), 'electron.exe')
   return existsSync(join(dist, 'electron.exe'))
 }
@@ -106,8 +131,8 @@ function buildPty(version) {
         '               "MSVC v143 – VS 2022 C++ x64/x86 Spectre-mitigated libs"\n' +
         '               in the Visual Studio Installer.'
     )
-    return run(`"${msbuild}"`, [
-      `"${join(ptyDir, 'build', 'binding.sln')}"`,
+    return run(msbuild, [
+      join(ptyDir, 'build', 'binding.sln'),
       '/p:Configuration=Release',
       '/p:Platform=x64',
       '/p:SpectreMitigation=false',
