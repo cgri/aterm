@@ -49,6 +49,12 @@ const api = {
     pickFolder: (startIn?: string): Promise<string | undefined> =>
       ipcRenderer.invoke(IPC.pickFolder, startIn),
     isGitRepo: (cwd: string): Promise<boolean> => ipcRenderer.invoke(IPC.isGitRepo, cwd),
+    /** Directories this launch named — asked once while booting, then empty. */
+    takePendingDirs: (): Promise<string[]> => ipcRenderer.invoke(IPC.takePendingDirs),
+    /** A later launch — the Explorer entry — named a directory to open a tab in. */
+    onOpenDirectory: (cb: (dir: string) => void): void => {
+      ipcRenderer.on(IPC.openDirectory, (_e, dir: string) => cb(dir))
+    },
     readClipboard: (): Promise<ClipboardPayload> => ipcRenderer.invoke(IPC.clipboardRead),
     /** Repaints the parts Electron draws itself: window controls and backdrop. */
     setAppearance: (appearance: Appearance): void =>

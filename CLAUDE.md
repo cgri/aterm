@@ -45,6 +45,7 @@ main/                      Node side: owns all processes, files and Claude Code 
   claude/SessionDetector.ts which conversation is a tab in? (shell tabs, and switches)
   proc/ProcessTree.ts      one long-lived PowerShell that polls Win32_Process
   proc/orphans.ts          ends tab processes that outlived the aterm that spawned them
+  cli.ts                   the directory a launch names (--open-dir), Explorer's entry
   ipc.ts                   every channel name, shared with preload
 preload/index.ts           contextBridge → window.aterm
 renderer/src/main.ts       tab lifecycle, panes, persistence — the controller
@@ -101,7 +102,35 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `JSON.parse` chokes on it while the file looks fine in any editor. All JSON reading goes
   through `util/json.ts`; the shell profile writes without a BOM via `UTF8Encoding($false)`.
 - **Restore is lazy.** Restored tabs render as placeholders; the process starts on click or
-  Enter, including the tab that was active last.
+  Enter, including the tab that was active last. The one exception is a directory the
+  launch itself named — that tab is started and made active, because that is what
+  clicking the Explorer entry asked for.
+- **There is one aterm per userData directory.** The Explorer context menu runs the exe
+  again for every click, and a second aterm on the same `state.json` is the disaster the
+  dev-userData comment describes: it restores the tabs that are already open and starts a
+  second `claude` on a session id that is in use. So `app.requestSingleInstanceLock()`
+  guards it — *after* the `userData` redirect, never before, because the lock is keyed by
+  that path and it is what lets a `npm run dev` window and the installed app hold one
+  each. A launch that loses the lock quits, and its command line arrives in the first
+  instance as `second-instance`.
+- **A launch can name a directory, and only in the `=` form.** `--open-dir=<path>` opens a
+  Claude Code tab there; `cli.ts` reads it. The attached form is not cosmetic: the argv a
+  `second-instance` event carries is Chromium's *re-serialised* command line, which sorts
+  every switch ahead of the bare arguments — `--open-dir <path>` arrives with some other
+  switch where the path used to be, and the cold start (which reads the untouched
+  `process.argv`) would keep working while the hand-over silently did nothing. Measured,
+  not documented. The separate form is still accepted for a launch by hand, but never
+  reads a value that starts with `-`.
+- **Explorer mangles a drive root.** `%V` expands inside quotes, so `--open-dir="C:\"`
+  reaches `CommandLineToArgvW` with `\"` looking like an escaped quote and the value
+  arrives as `C:"`. `repairDriveRoot` turns a trailing `"` back into `\`. Only a root ends
+  in a backslash, so nothing else is affected.
+- **A directory is handed to the renderer, not turned into a tab.** Tabs belong to the
+  renderer, so main only ever passes the path along — but `send` drops anything the
+  renderer has not subscribed to yet, and a cold start from Explorer is exactly that.
+  So it is buffered in `pendingOpenDirs` until the renderer asks once
+  (`app:take-pending-dirs`, which is also what marks it ready), and sent straight through
+  after that. There is no other ready handshake in the app.
 - **A tab that ends cleanly closes itself, and the exit code alone cannot decide that.**
   `exit` or `/exit` should not leave a dead tab behind, so `onExit` calls `removeTab` when
   the process ended with code 0 — `closeTab` keeps the confirmation dialog, `removeTab` is
@@ -258,6 +287,13 @@ missing Spectre-mitigated MSVC libraries trigger MSB8040, and electron-builder's
 `winCodeSign` archive contains macOS symlinks Windows refuses to create. The build config
 sets `electronDist` and `npmRebuild: false` so electron-builder neither re-downloads
 Electron nor recompiles node-pty.
+
+`build/installer.nsh` is pulled in through `nsis.include` and writes the Explorer
+context-menu entry. It uses `SHCTX`, electron-builder's hive macro, which is HKCU here
+because `perMachine: false` means the installer never elevates and an HKLM write would
+fail; and `$INSTDIR`, because the install directory is the user's to choose. Only the
+NSIS target runs it — the portable exe registers nothing. `build:dir` does not build an
+installer, so a change here has to be checked with the full `npm run build`.
 
 ## Releases
 

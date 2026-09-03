@@ -14,6 +14,7 @@ import type {
   StartSpec
 } from '@shared/types'
 import { IPC } from './ipc'
+import { directoryFromArgv } from './cli'
 import { PtyManager } from './pty/PtyManager'
 import { SessionStore } from './state/SessionStore'
 import { HistoryReader } from './claude/HistoryReader'
@@ -34,6 +35,17 @@ import { reapOrphanTabs } from './proc/orphans'
 if (!app.isPackaged) {
   app.setPath('userData', join(app.getPath('appData'), 'aterm-dev'))
 }
+
+/**
+ * One instance per userData directory. The Explorer context menu launches the exe
+ * again for every click, and a second aterm on the same state.json is the failure
+ * described just above — it restores the tabs that are already open and starts a
+ * second `claude` on a session id that is in use. The redirect has to come first:
+ * the lock is keyed by the userData path, and that is what lets a dev run and the
+ * installed app hold one each.
+ */
+const isFirstInstance = app.requestSingleInstanceLock()
+if (!isFirstInstance) app.quit()
 
 const history = new HistoryReader()
 const processTree = new ProcessTree()
@@ -65,6 +77,16 @@ let appearance: Appearance = 'dark'
  * Deliberately not persisted: it describes what is running right now.
  */
 let attentionWanted = false
+
+/**
+ * Directories a launch named that the renderer has not taken yet. Tabs belong to
+ * the renderer, so a directory is only ever handed over — but `send` drops
+ * anything that arrives before the renderer subscribed, and a cold start from the
+ * Explorer entry is exactly that case. So it is buffered until the renderer asks
+ * for it once, and sent straight through afterwards.
+ */
+let pendingOpenDirs: string[] = []
+let rendererReady = false
 
 /**
  * Window and taskbar icon. The packaged exe carries the .ico of its own, but the
@@ -153,6 +175,20 @@ function windowBounds(): PersistedState['window'] {
 
 function send(channel: string, payload: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload)
+}
+
+/** Asks the renderer for a Claude Code tab in `dir` — see `pendingOpenDirs`. */
+function openDirectory(dir: string): void {
+  if (rendererReady) send(IPC.openDirectory, dir)
+  else pendingOpenDirs.push(dir)
+}
+
+/** Brings the existing window forward for a launch that was handed to it. */
+function revealWindow(): void {
+  if (!win || win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
 }
 
 /**
@@ -271,6 +307,14 @@ function registerIpc(): void {
     return existsSync(file) ? (readJsonFile<Record<string, string[]>>(file) ?? {}) : {}
   })
 
+  // Asked once while the renderer boots, which is also what marks it subscribed.
+  ipcMain.handle(IPC.takePendingDirs, () => {
+    rendererReady = true
+    const dirs = pendingOpenDirs
+    pendingOpenDirs = []
+    return dirs
+  })
+
   ipcMain.handle(IPC.pickFolder, async (_e, startIn?: string) => {
     if (!win) return undefined
     const result = await dialog.showOpenDialog(win, {
@@ -299,10 +343,23 @@ function registerIpc(): void {
   })
 }
 
+// A second launch — the Explorer entry, with aterm already running — never gets a
+// window of its own; it hands its directory to this one and goes away.
+app.on('second-instance', (_e, argv) => {
+  revealWindow()
+  const dir = directoryFromArgv(argv)
+  if (dir) openDirectory(dir)
+})
+
 app.whenReady().then(() => {
+  if (!isFirstInstance) return
+
   // Matches `build.appId`, so the taskbar entry keeps the app's identity and icon
   // instead of Electron's.
   app.setAppUserModelId('de.aterm.app')
+
+  const launchDir = directoryFromArgv(process.argv)
+  if (launchDir) pendingOpenDirs.push(launchDir)
 
   // Anything a previous run left behind goes before the first tab can start. Not
   // awaited: tabs restore lazily, so the first start is a click away at the earliest.

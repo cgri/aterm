@@ -55,6 +55,16 @@ meant for something else entirely.
 
 `Ctrl+Shift+T` skips the menu for a PowerShell tab.
 
+### Straight from Explorer
+
+Right-click into the background of a folder window and pick **Open in aterm** —
+Claude Code starts in that folder. On Windows 11 the entry lives under *Show more
+options*. If aterm is already open it gets a new tab there rather than a second
+window, and the window comes forward.
+
+The installer registers the entry and the uninstaller removes it again; the
+portable exe leaves the registry alone and so has no entry.
+
 ### Comfort
 
 Light, dark or follow-the-system, on the button at the right end of the tab bar —

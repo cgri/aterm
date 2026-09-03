@@ -113,6 +113,7 @@ async function boot(): Promise<void> {
   api.pty.onExit(({ tabId, exitCode, killed }) => onExit(tabId, exitCode, killed))
   api.sessions.onDetected(({ tabId, sessionId }) => onSessionDetected(tabId, sessionId))
   api.sessions.onAgentActivity(({ running }) => onAgentActivity(running))
+  api.system.onOpenDirectory((dir) => void createTab('claude', dir))
 
   const overrides = (await api.system.keymap()) as Partial<Record<Action, string[]>>
 
@@ -151,9 +152,14 @@ async function boot(): Promise<void> {
   installFocusGuard()
   installAttentionTracking()
 
+  // What the launch asked for — the Explorer context menu, most of the time.
+  // Taken before the tabs are restored, so the answer is there for both branches.
+  const launchDirs = await api.system.takePendingDirs()
+
   const state = await api.state.load()
   if (state.tabs.length === 0) {
-    await createTab('powershell', homeDir)
+    if (launchDirs.length === 0) await createTab('powershell', homeDir)
+    else for (const dir of launchDirs) await createTab('claude', dir)
     return
   }
 
@@ -174,6 +180,10 @@ async function boot(): Promise<void> {
   activate(state.activeTabId ?? order[0], { start: false })
   render()
   void refreshClaudeTitles()
+
+  // The launch's own directory is the exception — it is started and made active,
+  // because that is what clicking the entry in Explorer asked for.
+  for (const dir of launchDirs) await createTab('claude', dir)
 }
 
 /* -------------------------------------------------------- Tab handling */
