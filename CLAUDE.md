@@ -197,6 +197,21 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   pulsing dot says the rest — and re-evaluate on `focus` *and* `blur`, because Windows stops a
   flash by itself the moment the window comes forward, whether or not the tab that asked was
   ever looked at. So the flash comes back on the next blur until the last unseen wait is seen.
+  A `setOverlayIcon` badge was tried as a second marker, for the stretch the flash cannot cover
+  — while aterm itself is in the foreground — and taken out again because it could not be made
+  unobtrusive. Windows normalises an overlay icon to a slot of its own: discs of 9, 13, 15, 18,
+  22 and 26 in the canvas all rendered at exactly 11px on a 24px taskbar button, and transparent
+  padding does not shrink it because the crop goes to the *opaque* bounds. Only a visibly opaque
+  ring around the dot makes the coloured part smaller, and no ring colour works both over the
+  icon and over the taskbar it overhangs. Measured off screenshots, not documented anywhere.
+- **The pulse ring must not fade while it grows.** The amber dot's `dot-pulse` interpolated
+  from `var(--warn)` straight to `transparent`, which couples the alpha to the radius: measured
+  off the computed style, it was down to 20% at 4px and gone at 5px, so all that ever reached
+  the screen was a 1px shimmer on a 7px dot and the pulse read as broken. The alpha lives in
+  `--warn-ring` and holds until 55% of the cycle. Both palettes carry the token. Worth
+  re-measuring rather than eyeballing: `getComputedStyle(dot).boxShadow` sampled across one
+  cycle says exactly what is drawn, and a static ring of the target size next to it says what
+  is visible.
 - **The tab bar is the title bar.** The window uses `titleBarStyle: 'hidden'`, so Electron
   overlays the native window controls on the right. `#tabbar` is the drag region and every
   clickable child opts out again with `-webkit-app-region: no-drag`; the room left beside
