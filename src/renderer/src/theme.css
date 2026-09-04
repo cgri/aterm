@@ -13,6 +13,9 @@
   --accent: #4f8cff;
   --ok: #4bbf73;
   --warn: #d9a441;
+  /* The pulse ring around a waiting tab's dot. A colour of its own because the
+     ring has to keep this alpha for as long as it is growing — see dot-pulse. */
+  --warn-ring: #d9a44190;
   --err: #e05561;
   --border: #262b36;
   --hover: #3a4150;
@@ -35,6 +38,7 @@
   --accent: #1a6fe0;
   --ok: #1f8a4c;
   --warn: #a86a08;
+  --warn-ring: #a86a0899;
   --err: #c02a37;
   --border: #d3d7de;
   --hover: #cdd2da;
@@ -188,15 +192,21 @@ body {
   animation: none;
 }
 
+/* The ring holds its colour while it grows and only fades once it is out. Fading
+   it from the first frame instead — interpolating straight from the dot's own
+   colour to `transparent` — is what made the pulse invisible: measured off the
+   computed style, the ring was down to 20% alpha by the time it was 4px wide and
+   fully gone at 5px, so all that ever reached the screen was a 1px shimmer on a
+   7px dot. The alpha therefore lives in --warn-ring and stays put until 55%. */
 @keyframes dot-pulse {
   0% {
-    box-shadow: 0 0 0 0 var(--warn);
+    box-shadow: 0 0 0 0 var(--warn-ring);
   }
-  70% {
-    box-shadow: 0 0 0 5px transparent;
+  55% {
+    box-shadow: 0 0 0 5px var(--warn-ring);
   }
   100% {
-    box-shadow: 0 0 0 0 transparent;
+    box-shadow: 0 0 0 6px transparent;
   }
 }
 
