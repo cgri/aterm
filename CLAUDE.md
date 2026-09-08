@@ -179,8 +179,18 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `CLAUDE_CODE_DISABLE_TERMINAL_TITLE`.
   ConPTY also announces the launched image (`…\powershell.exe`) as a title at startup;
   `LAUNCHED_IMAGE` drops it. The marker set was read off the wire, not from documentation —
-  `[Console]::Title` in a tab reports what Claude Code currently set, and the frame list
-  itself is greppable in the `claude` binary. Re-measure it before trusting this paragraph.
+  spawn `claude` through `node-pty` and log every `OSC 0;` it writes. `[Console]::Title` is
+  not the way to read it: the sequence is passed through ConPTY to the terminal without the
+  console's own title ever changing, so a tab reports whatever last called
+  `SetConsoleTitle` there. Re-measure it before trusting this paragraph.
+  **A title that names Claude Code itself is not a title.** Until a conversation has a
+  summary the app sits at `Claude Code`, and the launcher announces `claude` a second before
+  that. Both replaced the name the tab already had - the session title that
+  `refreshClaudeTitles` reads out of history.jsonl - with a word that says nothing about the
+  tab, and a long-running session can stay on the placeholder indefinitely (measured in
+  2.1.263: a tab that had been working for hours was still called `Claude Code`).
+  `APP_TITLES` counts both as no title at all, while the state marker in front of them still
+  counts.
 - **A wait is answered by looking at it, and the answer expires by itself.** `Pane.awaitingSeen`
   says the user has had that tab on screen since it started waiting — active tab *and* window
   focused, which is what `isOnScreen` checks; a tab switched to while aterm sits behind

@@ -734,6 +734,16 @@ const LAUNCHED_IMAGE = /^(?:[a-z]:[\\/]|\\\\)[^\r\n]*\.(?:exe|cmd|bat|com)$/i
 const SPINNER_MARKER = /^[\u2800-\u28ff\u25d0\u25d1](?:\s+|$)/
 const AWAITING_MARKER = /^\u2733(?:\s+|$)/
 
+/**
+ * What Claude Code calls itself when it has no summary to show: `claude` from
+ * the launcher before the app is up, and `Claude Code` from the app itself for a
+ * conversation it has not summarised. Neither names the tab, and taking one as a
+ * title costs the tab the name it already had - the session's own title, which
+ * `refreshClaudeTitles` reads out of history.jsonl. So they count as no title at
+ * all, while the state marker in front of them still counts.
+ */
+const APP_TITLES = new Set(['claude', 'claude code'])
+
 function readPtyTitle(raw: string): { title?: string; state?: PtyState } {
   const text = raw
     .replace(/[\x00-\x1f\x7f]/g, ' ')
@@ -748,7 +758,7 @@ function readPtyTitle(raw: string): { title?: string; state?: PtyState } {
       : undefined
 
   const label = marker ? text.replace(marker.pattern, '') : text
-  if (!label) return { state: marker?.state }
+  if (!label || APP_TITLES.has(label.toLowerCase())) return { state: marker?.state }
   // The tab bar ellipsises anyway; this is only a guard against a runaway
   // sequence being carried around as a tooltip.
   return {
