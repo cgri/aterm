@@ -115,6 +115,15 @@ export class SessionDetector extends EventEmitter {
     this.sweepRegistry()
   }
 
+  /**
+   * The `claude` pid learned for a tab, if one was. It differs from the pty's own pid
+   * when `claude` had to be started through cmd.exe — and then the pty ending does
+   * not yet say that `claude` has.
+   */
+  claudePidOf(tabId: string): number | undefined {
+    return this.registryPids.get(tabId)?.claudePid
+  }
+
   /** Clean up when a tab goes away. */
   forgetTab(tabId: string): void {
     this.registryPids.delete(tabId)

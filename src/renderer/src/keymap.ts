@@ -9,6 +9,8 @@ export interface KeymapContext {
   /** The overlay behind "+". */
   openNewTabMenu(): void
   closeActiveTab(): void
+  /** Ends the active tab's process and starts it again — Claude resumes its session. */
+  restartActiveTab(): void
   cycleTab(delta: number): void
   selectTabByIndex(index: number): void
   openSessionPicker(): void
@@ -25,6 +27,7 @@ export type Action =
   | 'newClaudeTab'
   | 'newShellTab'
   | 'closeTab'
+  | 'restartTab'
   | 'nextTab'
   | 'previousTab'
   | 'sessionPicker'
@@ -43,6 +46,7 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   newClaudeTab: [],
   newShellTab: ['Ctrl+Shift+T'],
   closeTab: ['Ctrl+W'],
+  restartTab: ['Ctrl+Shift+R'],
   nextTab: ['Ctrl+Tab', 'Ctrl+PageDown'],
   previousTab: ['Ctrl+Shift+Tab', 'Ctrl+PageUp'],
   sessionPicker: ['Ctrl+Shift+O'],
@@ -202,6 +206,9 @@ function dispatch(action: Action, ctx: KeymapContext, ev: KeyboardEvent): boolea
       return true
     case 'closeTab':
       ctx.closeActiveTab()
+      return true
+    case 'restartTab':
+      ctx.restartActiveTab()
       return true
     case 'nextTab':
       ctx.cycleTab(1)

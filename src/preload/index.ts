@@ -16,7 +16,8 @@ import { IPC } from '../main/ipc'
 const api = {
   pty: {
     start: (spec: StartSpec): Promise<StartResult> => ipcRenderer.invoke(IPC.ptyStart, spec),
-    kill: (tabId: string): Promise<void> => ipcRenderer.invoke(IPC.ptyKill, tabId),
+    /** Settles once the process is gone: `true`, or `false` if it would not end. */
+    kill: (tabId: string): Promise<boolean> => ipcRenderer.invoke(IPC.ptyKill, tabId),
     write: (tabId: string, data: string): void => ipcRenderer.send(IPC.ptyWrite, tabId, data),
     resize: (tabId: string, cols: number, rows: number): void =>
       ipcRenderer.send(IPC.ptyResize, tabId, cols, rows),

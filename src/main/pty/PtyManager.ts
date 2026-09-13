@@ -27,7 +27,15 @@ interface Running {
    * the old one before a restart cannot affect its successor.
    */
   killed?: boolean
+  /** Settles when this process has ended — what a restart has to wait for. */
+  exited: Promise<void>
 }
+
+/**
+ * How long `kill` waits for a process to be gone. Ending a ConPTY takes a few dozen
+ * milliseconds; anything past this is a process that is not going to end on its own.
+ */
+const EXIT_TIMEOUT_MS = 5000
 
 /**
  * Holds at most one PTY process per tab. Tabs without an entry are pure records
@@ -41,7 +49,7 @@ export class PtyManager extends EventEmitter {
   }
 
   start(spec: StartSpec): StartResult {
-    this.kill(spec.tabId)
+    void this.kill(spec.tabId)
 
     const cwd = existsSync(spec.cwd) ? spec.cwd : homedir()
 
@@ -96,12 +104,14 @@ export class PtyManager extends EventEmitter {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
 
+    let settleExit!: () => void
     const entry: Running = {
       proc,
       pid: proc.pid,
       cwd,
       kind: spec.kind,
-      sessionId
+      sessionId,
+      exited: new Promise((resolve) => (settleExit = resolve))
     }
     this.running.set(spec.tabId, entry)
 
@@ -111,6 +121,7 @@ export class PtyManager extends EventEmitter {
       // that happened in between must not be torn down.
       if (this.running.get(spec.tabId)?.proc === proc) this.running.delete(spec.tabId)
       this.emit('exit', { tabId: spec.tabId, exitCode, killed: Boolean(entry.killed) })
+      settleExit()
     })
 
     return { ok: true, claudeSessionId: sessionId, resumed: resume }
@@ -130,9 +141,15 @@ export class PtyManager extends EventEmitter {
     }
   }
 
-  kill(tabId: string): void {
+  /**
+   * Ends the tab's process. The tab is free for a new start straight away, but the
+   * promise only settles once the old process has really exited — `true` — or has
+   * outlasted the timeout — `false`. Resuming a session while its previous `claude`
+   * still holds it destroys the conversation, so a restart waits for this.
+   */
+  kill(tabId: string): Promise<boolean> {
     const entry = this.running.get(tabId)
-    if (!entry) return
+    if (!entry) return Promise.resolve(true)
     entry.killed = true
     this.running.delete(tabId)
     try {
@@ -140,10 +157,12 @@ export class PtyManager extends EventEmitter {
     } catch {
       // already gone
     }
+    return settlesWithin(entry.exited, EXIT_TIMEOUT_MS)
   }
 
+  /** Nothing is waited for: this runs while aterm quits. */
   killAll(): void {
-    for (const tabId of [...this.running.keys()]) this.kill(tabId)
+    for (const tabId of [...this.running.keys()]) void this.kill(tabId)
   }
 
   isRunning(tabId: string): boolean {
@@ -177,4 +196,15 @@ export class PtyManager extends EventEmitter {
   cwdOf(tabId: string): string | undefined {
     return this.running.get(tabId)?.cwd
   }
+}
+
+/** `true` once `promise` settles, `false` if `ms` pass first. */
+function settlesWithin(promise: Promise<void>, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms)
+    void promise.then(() => {
+      clearTimeout(timer)
+      resolve(true)
+    })
+  })
 }
