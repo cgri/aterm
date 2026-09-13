@@ -162,6 +162,15 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   two sessions of one project apart. Both are string rules on purpose — they are used while
   rendering and must not touch the disk, so a worktree added by hand somewhere else counts
   as its own project.
+  A tab started with a fresh worktree is the other way round: its `cwd` stays the project,
+  while its transcript is filed under the worktree. So "is there a conversation, and where
+  does `claude` resume it" is `findConversation` in `transcripts.ts`, which also looks under
+  `<cwd>\.claude\worktrees\*` and returns the worktree's own `cwd` (read from the
+  transcript, because the encoded directory name is lossy) for `PtyManager.start` to spawn
+  in. Looking only under the project took the tab for one without a conversation and
+  started it with `--session-id` on its own id, in the project, with an empty conversation.
+  A worktree that has since been removed does not count; its id is still taken
+  (`hasTranscript`), so the tab gets a fresh one.
 - **The terminal title carries a state marker.** A program naming itself through OSC 0/2
   names its tab (`term.onTitleChange`). Claude Code
   puts its state in front: a spinner while it works, changing about once a second, and

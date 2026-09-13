@@ -4,8 +4,7 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import * as pty from 'node-pty'
 import type { StartSpec, StartResult } from '@shared/types'
-import { transcriptPath } from '../claude/paths'
-import { hasConversation } from '../claude/transcripts'
+import { findConversation, hasTranscript } from '../claude/transcripts'
 import { claudeLaunch, powershellLaunch } from './launchers'
 
 interface Running {
@@ -47,11 +46,14 @@ export class PtyManager extends EventEmitter {
 
     // Only resume when a conversation really exists, otherwise `--resume` fails
     // with "No conversation found with session ID". What the renderer asked for
-    // does not decide this — Claude Code's own storage does.
-    const resume =
-      spec.kind === 'claude' &&
-      Boolean(spec.claudeSessionId) &&
-      hasConversation(cwd, spec.claudeSessionId!)
+    // does not decide this — Claude Code's own storage does. A worktree tab's
+    // conversation lives under its worktree, and it has to be resumed from there.
+    const conversation =
+      spec.kind === 'claude' && spec.claudeSessionId
+        ? findConversation(cwd, spec.claudeSessionId)
+        : undefined
+    const resume = conversation !== undefined
+    const launchCwd = conversation?.cwd ?? cwd
 
     // An id can own a transcript without owning a conversation: `/clear` creates the
     // file, only the first prompt fills it. Handing that id to `--session-id` asks
@@ -62,7 +64,7 @@ export class PtyManager extends EventEmitter {
       spec.kind === 'claude' &&
       !resume &&
       Boolean(sessionId) &&
-      existsSync(transcriptPath(cwd, sessionId!))
+      hasTranscript(cwd, sessionId!)
     if (taken) sessionId = randomUUID()
 
     let launch
@@ -88,7 +90,7 @@ export class PtyManager extends EventEmitter {
         name: 'xterm-256color',
         cols: Math.max(spec.cols, 20),
         rows: Math.max(spec.rows, 5),
-        cwd,
+        cwd: launchCwd,
         env: launch.env as Record<string, string>,
         useConpty: true
       })
@@ -99,7 +101,7 @@ export class PtyManager extends EventEmitter {
     const entry: Running = {
       proc,
       pid: proc.pid,
-      cwd,
+      cwd: launchCwd,
       kind: spec.kind,
       sessionId
     }
