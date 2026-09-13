@@ -45,6 +45,8 @@ main/                      Node side: owns all processes, files and Claude Code 
   claude/SessionDetector.ts which conversation is a tab in? (shell tabs, and switches)
   proc/ProcessTree.ts      one long-lived PowerShell that polls Win32_Process
   proc/orphans.ts          ends tab processes that outlived the aterm that spawned them
+  update/releases.ts       newer GitHub releases than the running version
+  update/installer.ts      downloads, verifies and silently runs the NSIS installer
   cli.ts                   the directory a launch names (--open-dir), Explorer's entry
   ipc.ts                   every channel name, shared with preload
 preload/index.ts           contextBridge → window.aterm
@@ -52,6 +54,7 @@ renderer/src/main.ts       tab lifecycle, panes, persistence — the controller
   keymap.ts                data-driven bindings, one capture-phase listener
   TerminalView.ts          one xterm.js instance per running tab
   appearance.ts            light/dark/system, applied while the module is imported
+  updates.ts               update check, tab-bar button and UpdateDialog
 ```
 
 `shared/types.ts` is imported by all three via the `@shared` alias (configured in both
@@ -261,6 +264,26 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
 - **Native dialogs are out.** `confirm()` and `alert()` draw Chromium's own dialog, which
   matches nothing else here. Ask through `ConfirmDialog`, and register any new overlay in
   `overlayOpen()` and the focus guard, or the keymap will eat its keys.
+- **An update is the NSIS installer, run silently, and nothing else.** No
+  electron-updater: it needs a `latest.yml` and a blockmap on every release, and the
+  release process uploads only the two exes. `update/releases.ts` asks the public
+  releases API through `net.fetch`, because that is Chromium's network stack and honours
+  the system proxy; Node's fetch does not. The installer is run with
+  `--updated /S --force-run`, the flags electron-builder's own updater passes, read out of
+  `app-builder-lib/templates/nsis`: silent, into the previous `InstallLocation` (so a
+  directory the user picked is kept), `customInstall` runs again (the Explorer entry
+  stays), and aterm is started once it is done. Before that the installer `taskkill`s
+  every `aterm.exe` of this user — a portable one that happens to run included — so
+  aterm quits by itself first, the normal way through `before-quit`, and only once the
+  installer process exists: a failed spawn must not take aterm down with nothing to
+  replace it.
+  Nothing is run that does not match the SHA-256 GitHub lists as the asset's `digest`; a
+  release without one is refused. The renderer never names a URL or a file — main
+  downloads the newest release of its own last check and runs only what it verified.
+  The portable exe is recognised by `PORTABLE_EXECUTABLE_FILE`, which electron-builder's
+  portable launcher sets, and gets the release page instead, as does a dev run.
+  `ATERM_UPDATE_FROM=1.7.0` makes aterm compare as that version, which is the only way to
+  see the flow against a real release; a dev run still stops at the release page.
 - **Keyboard handling is one capture-phase listener on `document`.** What it handles never
   reaches xterm.js. `Alt+V` is forwarded as `ESC v` so Claude Code's own image paste runs,
   and `Shift+Enter` sends `ESC CR`. There is no Electron application menu, because its
@@ -365,6 +388,12 @@ gh release create v1.4.0 --title "aterm 1.4.0" --notes-file <notes.md> `
   (NSIS, per user, directory selectable) and `aterm <version>.exe` (portable). It also
   leaves a `.blockmap` next to the installer, which is not part of the release. `dist/`
   keeps every version ever built and is not cleaned.
+- **The app reads the release, so its shape is load-bearing.** The update check takes
+  the tag as `v<x.y.z>`, skips drafts and prereleases, and finds the installer by the
+  name `aterm Setup <version>.exe` (GitHub lists it as `aterm.Setup.<version>.exe`).
+  The notes are shown in aterm's update dialog as written — headings, `-` lists,
+  bold, emphasis, code and links are rendered, anything else arrives as plain text, and
+  the `## Downloads` section is left out.
 - **The notes follow the shape of the previous releases**: one sentence saying what the
   release is about, then `## Added` / `## Changed` / `## Fixed` with a bolded lead sentence
   per entry, then a `## Downloads` block naming both binaries and closing with the note that

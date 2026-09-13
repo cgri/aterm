@@ -9,7 +9,10 @@ import type {
   RecentSession,
   SessionDetectedEvent,
   StartSpec,
-  StartResult
+  StartResult,
+  UpdateCheck,
+  UpdateProgress,
+  UpdateResult
 } from '@shared/types'
 import { IPC } from '../main/ipc'
 
@@ -64,6 +67,17 @@ const api = {
     setAttention: (wanted: boolean): void => ipcRenderer.send(IPC.setAttention, wanted),
     writeClipboard: (text: string): Promise<void> =>
       ipcRenderer.invoke(IPC.clipboardWrite, text)
+  },
+  update: {
+    /** Newer releases on GitHub; `undefined` when GitHub could not be asked. */
+    check: (): Promise<UpdateCheck | undefined> => ipcRenderer.invoke(IPC.updateCheck),
+    /** Downloads and verifies the newest installer; progress arrives through `onProgress`. */
+    download: (): Promise<UpdateResult> => ipcRenderer.invoke(IPC.updateDownload),
+    /** Runs the verified installer and quits aterm, which comes back updated. */
+    install: (): Promise<UpdateResult> => ipcRenderer.invoke(IPC.updateInstall),
+    onProgress: (cb: (p: UpdateProgress) => void): void => {
+      ipcRenderer.on(IPC.updateProgress, (_e, payload: UpdateProgress) => cb(payload))
+    }
   }
 }
 
