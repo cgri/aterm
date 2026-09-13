@@ -7,11 +7,13 @@ export interface MenuItem {
  * The "new tab" overlay behind "+" and Ctrl+T — same shape as the session
  * picker. It takes the focus while it is open, so the arrow keys navigate the
  * list instead of reaching the terminal; the keymap lets plain keys through to
- * it because it counts as an open overlay.
+ * it because it counts as an open overlay. The menu behind a right-click on a
+ * tab is the same overlay under a different heading.
  */
 export class NewTabMenu {
   private readonly root: HTMLDivElement
   private readonly box: HTMLDivElement
+  private readonly title: HTMLDivElement
   private readonly list: HTMLDivElement
   private items: MenuItem[] = []
   private cursor = 0
@@ -27,14 +29,13 @@ export class NewTabMenu {
     // Focusable without being a tab stop — the overlay is opened, not tabbed into.
     this.box.tabIndex = -1
 
-    const title = document.createElement('div')
-    title.className = 'picker-group'
-    title.textContent = 'New tab'
+    this.title = document.createElement('div')
+    this.title.className = 'picker-group'
 
     this.list = document.createElement('div')
     this.list.className = 'picker-list'
 
-    this.box.append(title, this.list)
+    this.box.append(this.title, this.list)
     this.root.appendChild(this.box)
     document.body.appendChild(this.root)
 
@@ -48,8 +49,9 @@ export class NewTabMenu {
     return this.open
   }
 
-  show(items: MenuItem[]): void {
+  show(items: MenuItem[], title = 'New tab'): void {
     if (items.length === 0) return
+    this.title.textContent = title
     this.items = items
     this.cursor = 0
     this.renderList()

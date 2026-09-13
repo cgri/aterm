@@ -49,6 +49,11 @@ interface Pane {
    * waiting state retires it, so the next wait asks again.
    */
   awaitingSeen: boolean
+  /**
+   * The process is being ended so the tab can start again. Its exit is expected
+   * then, and must not put up the "Process exited" bar between the two.
+   */
+  restarting: boolean
 }
 
 /** Claude Code says what it is up to in front of its window title. */
@@ -79,6 +84,7 @@ const tabBar = new TabBar(
   {
     onSelect: (id) => activate(id, { start: true }),
     onClose: (id) => void closeTab(id),
+    onMenu: (id) => openTabMenu(id),
     onNew: () => void openNewTabMenu(),
     onReorder: (dragged, before) => reorder(dragged, before)
   },
@@ -128,6 +134,9 @@ async function boot(): Promise<void> {
       openNewTabMenu: () => void openNewTabMenu(),
       closeActiveTab: () => {
         if (activeId) void closeTab(activeId)
+      },
+      restartActiveTab: () => {
+        if (activeId) void restartTab(activeId)
       },
       cycleTab: (delta) => cycleTab(delta),
       selectTabByIndex: (index) => {
@@ -216,7 +225,8 @@ function addPane(tab: TabState): Pane {
     placeholder,
     status: 'stopped',
     agentRunning: false,
-    awaitingSeen: false
+    awaitingSeen: false,
+    restarting: false
   }
   panes.set(tab.id, pane)
   if (!order.includes(tab.id)) order.push(tab.id)
@@ -303,6 +313,66 @@ async function removeTab(id: string): Promise<void> {
   persist()
 }
 
+/**
+ * Ends the tab's process and starts it again in the same tab — a Claude tab resumes
+ * its conversation, a shell tab gets a fresh shell. The new process only starts once
+ * the old one is gone: resuming a session that the previous `claude` still holds
+ * destroys the conversation, and starting over a running process would do exactly
+ * that, because `PtyManager.start` does not wait for the kill it makes itself.
+ */
+async function restartTab(id: string): Promise<void> {
+  const pane = panes.get(id)
+  if (!pane || pane.restarting) return
+
+  if (pane.status !== 'running') {
+    activate(id, { start: true })
+    return
+  }
+
+  // Only a tab in the middle of something is asked about: a restart then cuts off
+  // whatever it was doing. Waiting for input, it loses nothing.
+  if (pane.ptyState === 'working') {
+    const confirmed = await confirmDialog.ask({
+      message: `"${paneTitle(pane)}" is working. Restart it anyway?`,
+      confirmLabel: 'Restart'
+    })
+    if (!confirmed) return
+    // The dialog is no guard against the tab closing, or ending, meanwhile.
+    if (!panes.has(id) || pane.restarting) return
+    if (pane.status !== 'running') {
+      activate(id, { start: true })
+      return
+    }
+  }
+
+  pane.restarting = true
+  activate(id, { start: false })
+  const gone = await api.pty.kill(id)
+  pane.restarting = false
+  if (!panes.has(id)) return
+
+  if (!gone) {
+    pane.status = 'exited'
+    showBar(pane, 'Restart failed: the process did not end', [
+      { key: 'Enter', label: 'start again' }
+    ])
+    render()
+    return
+  }
+  await startPane(pane)
+}
+
+function openTabMenu(id: string): void {
+  if (!panes.has(id)) return
+  newTabMenu.show(
+    [
+      { label: 'Restart tab', run: () => void restartTab(id) },
+      { label: 'Close tab', run: () => void closeTab(id) }
+    ],
+    'Tab'
+  )
+}
+
 function activate(id: string | undefined, opts: { start: boolean }): void {
   if (!id || !panes.has(id)) return
   activeId = id
@@ -349,6 +419,9 @@ function reorder(draggedId: string, beforeId: string | undefined): void {
 
 async function startPane(pane: Pane): Promise<void> {
   const { tab } = pane
+  // Between the kill and the start of a restart the tab looks exited, and Enter or
+  // switching to it would start it while the old process may still hold the session.
+  if (pane.restarting) return
 
   if (!pane.view) {
     const view = new TerminalView(
@@ -429,6 +502,12 @@ function onExit(tabId: string, exitCode: number, killed: boolean): void {
   pane.ptyTitle = undefined
   pane.ptyState = undefined
   pane.awaitingSeen = false
+
+  // A restart asked for this exit and starts the tab again once it is through.
+  if (pane.restarting) {
+    render()
+    return
+  }
 
   // A program that finished cleanly takes its tab with it — that is the whole point of
   // typing `exit`. Not when aterm ended the process itself: a kill can report 0 too, and

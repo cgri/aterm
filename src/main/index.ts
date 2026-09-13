@@ -173,6 +173,27 @@ function windowBounds(): PersistedState['window'] {
   return { x: b.x, y: b.y, width: b.width, height: b.height, maximized: win.isMaximized() }
 }
 
+/** How long closing a tab waits for its `claude` to be gone. Matches PtyManager's own. */
+const EXIT_WAIT_MS = 5000
+
+/**
+ * Waits until `pid` no longer exists, or `deadline` passes. The pty ending is not
+ * enough when `claude` was started through cmd.exe: the pty's process is cmd, and
+ * the `claude` behind it is terminated separately, a moment later.
+ */
+async function pidGone(pid: number, deadline: number): Promise<boolean> {
+  for (;;) {
+    try {
+      process.kill(pid, 0)
+    } catch (err) {
+      // EPERM means the process exists but may not be signalled — still there.
+      if ((err as NodeJS.ErrnoException).code !== 'EPERM') return true
+    }
+    if (Date.now() >= deadline) return false
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+}
+
 function send(channel: string, payload: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload)
 }
@@ -263,10 +284,17 @@ function registerIpc(): void {
     syncTabs()
     return result
   })
-  ipcMain.handle(IPC.ptyKill, (_e, tabId: string) => {
-    ptys.kill(tabId)
+  // Settles once the process is really gone, so the renderer can start the same
+  // session again without two `claude` holding it at once.
+  ipcMain.handle(IPC.ptyKill, async (_e, tabId: string) => {
+    // Read before `forgetTab` drops it.
+    const claudePid = detector.claudePidOf(tabId)
+    const deadline = Date.now() + EXIT_WAIT_MS
+    const exited = ptys.kill(tabId)
     detector.forgetTab(tabId)
     syncTabs()
+    if (!(await exited)) return false
+    return claudePid === undefined || (await pidGone(claudePid, deadline))
   })
   ipcMain.on(IPC.ptyWrite, (_e, tabId: string, data: string) => ptys.write(tabId, data))
   ipcMain.on(IPC.ptyResize, (_e, tabId: string, cols: number, rows: number) =>

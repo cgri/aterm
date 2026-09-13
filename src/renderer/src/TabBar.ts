@@ -23,6 +23,8 @@ export interface TabViewModel {
 export interface TabBarHandlers {
   onSelect: (id: string) => void
   onClose: (id: string) => void
+  /** Right-click on a tab. The tab is not selected by it. */
+  onMenu: (id: string) => void
   onNew: () => void
   onReorder: (draggedId: string, beforeId: string | undefined) => void
 }
@@ -122,6 +124,10 @@ export class TabBar {
     el.addEventListener('mousedown', (ev) => {
       if (ev.button === 0) this.handlers.onSelect(tab.id)
       if (ev.button === 1) this.handlers.onClose(tab.id)
+    })
+    el.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault()
+      this.handlers.onMenu(tab.id)
     })
 
     el.addEventListener('dragstart', () => {

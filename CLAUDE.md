@@ -146,6 +146,15 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   process (`Running.killed`) and the exit event carries `PtyExitEvent.killed`. The flag
   lives on the record of one process, so the defensive `kill` at the top of `start()`
   marks only the process being replaced, never its successor.
+- **A restart waits for the old process to be gone.** `restartTab` (renderer) kills, waits,
+  and only then calls `startPane` — never `startPane` over a running process. `PtyManager.start`
+  kills what it replaces without waiting, so the new `claude --resume` would open the session
+  while the old one still holds it, and the old process's late exit event would flip the fresh
+  tab to "Process exited". `PtyManager.kill` therefore returns a promise that settles on that
+  process's exit (or `false` after a timeout), and `pty:kill` also polls the `claude` pid
+  layer 4 learned, because behind `cmd.exe` the pty ending is not `claude` ending. While
+  `Pane.restarting` is set, `onExit` puts up no bar and `startPane` refuses to run, so Enter
+  in that gap cannot start the tab twice.
 - **A tab is called `<folder> - <summary>`, and only the summary changes.** The folder comes
   from the tab's `cwd` at render time, the summary from `TabState.summary` — or, while a
   process is running, from the title it set for itself. A tab without a summary is named by

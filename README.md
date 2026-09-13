@@ -35,6 +35,11 @@ somebody remembered to set — and aterm keeps up when a conversation moves out 
 under a tab, so a `/clear` or a `/resume` does not cost you the thread on the next
 restart.
 
+A single tab can be restarted without touching the others — after a Claude Code
+update, say. `Ctrl+Shift+R`, or **Restart tab** from the tab's right-click menu, ends
+its process and resumes the same conversation in the same tab. A tab in the middle of
+an answer asks first.
+
 ### `claude` typed by hand counts too
 
 Run `claude` yourself in a PowerShell tab and aterm quietly notes which session that
@@ -80,6 +85,7 @@ behind them.
 | `Ctrl+T` | New tab menu |
 | `Ctrl+Shift+T` | New PowerShell tab, straight away |
 | `Ctrl+W` | Close tab |
+| `Ctrl+Shift+R` | Restart tab — a Claude tab resumes its conversation |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab (also `Ctrl+PageDown` / `Ctrl+PageUp`) |
 | `Ctrl+1…9` | Jump to a tab |
 | `Enter` | On a tab that has not started yet: open it |
@@ -104,10 +110,10 @@ action entirely; an empty array disables it:
 }
 ```
 
-Actions: `newTabMenu`, `newClaudeTab`, `newShellTab`, `closeTab`, `nextTab`,
-`previousTab`, `sessionPicker`, `search`, `paste`, `copy`, `pasteImage`, `newline`,
-`fontLarger`, `fontSmaller`, `fontReset`. `newClaudeTab` has no default — `Ctrl+T`
-opens the menu instead — so bind it if you want a Claude tab in a single key.
+Actions: `newTabMenu`, `newClaudeTab`, `newShellTab`, `closeTab`, `restartTab`,
+`nextTab`, `previousTab`, `sessionPicker`, `search`, `paste`, `copy`, `pasteImage`,
+`newline`, `fontLarger`, `fontSmaller`, `fontReset`. `newClaudeTab` has no default —
+`Ctrl+T` opens the menu instead — so bind it if you want a Claude tab in a single key.
 `Ctrl+C`, `Ctrl+1…9` and `Ctrl+Wheel` are fixed.
 
 ## Configuration
