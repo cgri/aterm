@@ -10,6 +10,7 @@ import { SearchBar } from './SearchBar'
 import { ZoomIndicator } from './ZoomIndicator'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ThemeToggle } from './ThemeToggle'
+import { Updates } from './updates'
 import { currentAppearance, onThemeChange } from './appearance'
 import { folderName, projectDir } from './paths'
 
@@ -78,6 +79,10 @@ let sessionTitles = new Map<string, string>()
 let windowFocused = document.hasFocus()
 
 const themeToggle = new ThemeToggle()
+const updates = new Updates({
+  confirmInstall: (version) => confirmUpdateInstall(version),
+  onClosed: () => activePane()?.view?.focus()
+})
 
 const tabBar = new TabBar(
   barRoot,
@@ -88,7 +93,7 @@ const tabBar = new TabBar(
     onNew: () => void openNewTabMenu(),
     onReorder: (dragged, before) => reorder(dragged, before)
   },
-  [themeToggle.element]
+  [updates.button, themeToggle.element]
 )
 
 onThemeChange(() => {
@@ -153,13 +158,19 @@ async function boot(): Promise<void> {
         return true
       },
       overlayOpen: () =>
-        picker.isOpen() || searchBar.isOpen() || newTabMenu.isOpen() || confirmDialog.isOpen()
+        picker.isOpen() ||
+        searchBar.isOpen() ||
+        newTabMenu.isOpen() ||
+        confirmDialog.isOpen() ||
+        updates.isOpen()
     },
     buildBindings(overrides)
   )
   installWheelZoom((delta) => changeFontSize(delta))
   installFocusGuard()
   installAttentionTracking()
+  // Independent of the tabs, and nothing waits for it.
+  updates.start()
 
   // What the launch asked for — the Explorer context menu, most of the time.
   // Taken before the tabs are restored, so the answer is there for both branches.
@@ -285,6 +296,26 @@ async function closeTab(id: string): Promise<void> {
   }
 
   await removeTab(id)
+}
+
+/**
+ * Installing an update quits aterm, which ends every running tab. They come back as
+ * placeholders like after any restart of aterm, so nothing is asked when none is
+ * running — but whatever a working tab is in the middle of is cut off, and that is
+ * named.
+ */
+async function confirmUpdateInstall(version: string): Promise<boolean> {
+  const running = [...panes.values()].filter((p) => p.status === 'running')
+  if (running.length === 0) return true
+  const working = running.filter((p) => p.ptyState === 'working')
+
+  const ended =
+    running.length === 1 ? 'The running tab is ended' : `The ${running.length} running tabs are ended`
+  let message = `aterm restarts to install ${version}. ${ended} and can be started again afterwards.`
+  if (working.length === 1) message += ` "${paneTitle(working[0])}" is still working.`
+  else if (working.length > 1) message += ` ${working.length} of them are still working.`
+
+  return confirmDialog.ask({ message, confirmLabel: 'Restart and install' })
 }
 
 /**
@@ -947,7 +978,7 @@ function installFocusGuard(): void {
       // switched to, and overlays bring their own focus handling.
       if (!document.hasFocus()) return
       if (picker.isOpen() || searchBar.isOpen() || newTabMenu.isOpen()) return
-      if (confirmDialog.isOpen()) return
+      if (confirmDialog.isOpen() || updates.isOpen()) return
       activePane()?.view?.focus()
     })
   })

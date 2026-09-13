@@ -15,6 +15,9 @@ export const IPC = {
   isGitRepo: 'git:is-repo',
   keymapLoad: 'keymap:load',
   takePendingDirs: 'app:take-pending-dirs',
+  updateCheck: 'update:check',
+  updateDownload: 'update:download',
+  updateInstall: 'update:install',
 
   // Renderer → main (send, high frequency)
   ptyWrite: 'pty:write',
@@ -27,5 +30,6 @@ export const IPC = {
   ptyExit: 'pty:exit',
   sessionDetected: 'session:detected',
   agentActivity: 'agent:activity',
-  openDirectory: 'app:open-directory'
+  openDirectory: 'app:open-directory',
+  updateProgress: 'update:progress'
 } as const
