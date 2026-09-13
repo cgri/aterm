@@ -1,6 +1,7 @@
-import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync } from 'node:fs'
+import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs'
+import { join } from 'node:path'
 import { parseJson } from '../util/json'
-import { transcriptPath } from './paths'
+import { encodeProjectDir, projectsDir, transcriptPath } from './paths'
 
 export interface TranscriptHead {
   sessionId: string
@@ -104,8 +105,61 @@ export function transcriptTail(file: string): TranscriptOrigin | undefined {
  * That is why this looks at the file rather than at a flag in state.json.
  */
 export function hasConversation(cwd: string, sessionId: string): boolean {
-  const file = transcriptPath(cwd, sessionId)
-  if (!existsSync(file)) return false
+  return findConversation(cwd, sessionId) !== undefined
+}
+
+/** Where a conversation lives, and the directory `claude` has to run in to resume it. */
+export interface ConversationLocation {
+  file: string
+  cwd: string
+}
+
+/**
+ * Finds the conversation a tab in `cwd` can resume — in `cwd` itself, or in one of its
+ * worktrees. A tab started with `claude --worktree` keeps the project as its directory,
+ * while Claude Code runs in `<project>\.claude\worktrees\<name>` and files the transcript
+ * under *that*. Looking only under the project took such a tab for one without a
+ * conversation, and the next start opened an empty session in the project instead.
+ *
+ * A worktree's own `cwd` is taken from the transcript rather than decoded from the
+ * directory name, which loses every character that is not a letter or digit. A worktree
+ * that has since been removed has nothing left to resume in, so it does not count.
+ */
+export function findConversation(cwd: string, sessionId: string): ConversationLocation | undefined {
+  const own = transcriptPath(cwd, sessionId)
   // A file holding nothing but mode lines does not count as a conversation.
-  return firstUserEntry(file) !== undefined
+  if (existsSync(own) && firstUserEntry(own)) return { file: own, cwd }
+
+  for (const file of worktreeTranscripts(cwd, sessionId)) {
+    const head = firstUserEntry(file)
+    if (head && existsSync(head.cwd)) return { file, cwd: head.cwd }
+  }
+  return undefined
+}
+
+/**
+ * Does a transcript for this session exist at all, conversation or not? Such an id is
+ * taken: Claude Code has a file for it, so it must not be handed to `--session-id`.
+ */
+export function hasTranscript(cwd: string, sessionId: string): boolean {
+  return existsSync(transcriptPath(cwd, sessionId)) || worktreeTranscripts(cwd, sessionId).length > 0
+}
+
+/**
+ * The session's transcripts under the worktrees of `cwd`. Their project directories
+ * all start with the encoded `<cwd>\.claude\worktrees\`, so one listing of the projects
+ * directory finds them without touching the worktrees themselves.
+ */
+function worktreeTranscripts(cwd: string, sessionId: string): string[] {
+  const prefix = `${encodeProjectDir(join(cwd, '.claude', 'worktrees'))}-`
+  let names: string[]
+  try {
+    names = readdirSync(projectsDir())
+  } catch {
+    return []
+  }
+  return names
+    .filter((name) => name.startsWith(prefix))
+    .map((name) => join(projectsDir(), name, `${sessionId}.jsonl`))
+    .filter((file) => existsSync(file))
 }
