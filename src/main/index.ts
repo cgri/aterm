@@ -24,6 +24,7 @@ import { isGitRepo } from './util/git'
 import { SessionDetector } from './claude/SessionDetector'
 import { ProcessTree } from './proc/ProcessTree'
 import { reapOrphanTabs } from './proc/orphans'
+import { checkForUpdates, cleanupDownloads, downloadUpdate, installUpdate } from './update/installer'
 
 /**
  * A dev run gets its own userData directory. Otherwise it shares
@@ -369,6 +370,13 @@ function registerIpc(): void {
   ipcMain.handle(IPC.clipboardWrite, (_e, text: string) => {
     clipboard.writeText(text)
   })
+
+  // The renderer asks, rather than main announcing a result it might not be
+  // listening for yet. It never names a file or a URL: what is downloaded is the
+  // newest release of the last check, and what is run is only what was verified.
+  ipcMain.handle(IPC.updateCheck, () => checkForUpdates())
+  ipcMain.handle(IPC.updateDownload, () => downloadUpdate((p) => send(IPC.updateProgress, p)))
+  ipcMain.handle(IPC.updateInstall, () => installUpdate())
 }
 
 // A second launch — the Explorer entry, with aterm already running — never gets a
@@ -392,6 +400,7 @@ app.whenReady().then(() => {
   // Anything a previous run left behind goes before the first tab can start. Not
   // awaited: tabs restore lazily, so the first start is a click away at the earliest.
   reapOrphanTabs()
+  cleanupDownloads()
 
   const userData = app.getPath('userData')
   store = new SessionStore(userData)

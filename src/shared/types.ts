@@ -121,3 +121,40 @@ export interface StartResult {
   resumed?: boolean
   error?: string
 }
+
+/**
+ * How this copy of aterm was delivered, which decides what an update can do: only
+ * the NSIS install can replace itself. The portable exe and a dev run are pointed
+ * at the release page instead.
+ */
+export type InstallMode = 'installer' | 'portable' | 'dev'
+
+/** A published GitHub release newer than the running version. */
+export interface ReleaseInfo {
+  /** Without the tag's `v`: `1.9.0`. */
+  version: string
+  title: string
+  /** The release notes as written on GitHub, Markdown. */
+  notes: string
+  /** The release page. */
+  url: string
+  publishedAt: string
+}
+
+export interface UpdateCheck {
+  /** The version the check compared against. */
+  current: string
+  mode: InstallMode
+  /** Newest first. Empty when aterm is up to date. */
+  releases: ReleaseInfo[]
+}
+
+export interface UpdateProgress {
+  received: number
+  total: number
+}
+
+export interface UpdateResult {
+  ok: boolean
+  error?: string
+}

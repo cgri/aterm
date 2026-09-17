@@ -70,6 +70,15 @@ window, and the window comes forward.
 The installer registers the entry and the uninstaller removes it again; the
 portable exe leaves the registry alone and so has no entry.
 
+### Updates
+
+When a newer release is out, an arrow appears next to the theme button. Clicking it
+shows the release notes of every version since yours. The installed app downloads the
+installer, checks it against the checksum GitHub publishes, and — once you confirm —
+installs it without a window and starts again; your tabs come back as they were. The
+portable exe links to the release page instead. aterm asks GitHub at startup and every
+six hours, and nothing else.
+
 ### Comfort
 
 Light, dark or follow-the-system, on the button at the right end of the tab bar —

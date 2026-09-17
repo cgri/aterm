@@ -93,6 +93,7 @@ body {
    `#draghandle` deliberately do not: they are the free space that drags. */
 #tabbar .tab,
 #tabbar #newtab,
+#tabbar #update-button,
 #tabbar #theme-toggle {
   -webkit-app-region: no-drag;
 }
@@ -311,6 +312,36 @@ body {
 #theme-toggle:hover {
   color: var(--fg);
   background: var(--bg-tab);
+}
+
+/* Only there while a newer release is. Same slot shape as the theme toggle, in the
+   accent colour, because it is the one trailing button that says something new. */
+#update-button {
+  width: 34px;
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: default;
+}
+
+#update-button[hidden] {
+  display: none;
+}
+
+#update-button:hover {
+  background: var(--bg-tab);
+}
+
+#update-button[data-state='downloading'] {
+  color: var(--fg-dim);
+}
+
+#update-button[data-state='failed'] {
+  color: var(--err);
 }
 
 /* ---------- Panes ---------- */
@@ -629,6 +660,99 @@ body {
 .dialog-actions button:focus {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* ---------- Update dialog ---------- */
+
+/* The confirm dialog's shape, wide enough for release notes, which scroll between a
+   fixed head and the buttons. */
+.picker-box.update-box {
+  width: min(640px, 90vw);
+  outline: none;
+}
+
+.update-head {
+  padding: 16px 18px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.update-heading {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.update-subheading {
+  margin-top: 2px;
+  color: var(--fg-dim);
+}
+
+.update-notes {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 18px 8px;
+  line-height: 1.45;
+}
+
+.update-notes h3 {
+  margin: 14px 0 4px;
+  font-size: 14px;
+}
+
+.update-notes .update-date {
+  margin-left: 10px;
+  color: var(--fg-dim);
+  font-weight: normal;
+  font-size: 12px;
+}
+
+.update-notes h4 {
+  margin: 12px 0 2px;
+  font-size: 13px;
+}
+
+.update-notes p {
+  margin: 6px 0;
+}
+
+.update-notes ul {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.update-notes li {
+  margin: 4px 0;
+}
+
+.update-notes code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--bg-tab);
+}
+
+.update-notes a {
+  color: var(--accent);
+}
+
+.update-box .dialog-actions {
+  align-items: center;
+  border-top: 1px solid var(--border);
+}
+
+/* Takes the room left of the buttons, so they stay where they are whatever it says. */
+.update-status {
+  flex: 1 1 auto;
+  color: var(--fg-dim);
+}
+
+.update-status.error {
+  color: var(--err);
+}
+
+.dialog-actions button:disabled {
+  opacity: 0.7;
 }
 
 /* ---------- Search bar ---------- */
