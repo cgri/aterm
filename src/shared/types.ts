@@ -27,7 +27,37 @@ export interface TabState {
   claudeSessionId?: string
   /** Whether a resumable conversation exists — decided from the transcript. */
   everStarted: boolean
+  /** The group this tab belongs to, if any. Absent is the normal case. */
+  groupId?: string
   order: number
+}
+
+/**
+ * A group's colour, as a name rather than a value: it is persisted, and it has to
+ * work in both palettes, which only `theme.css` knows. A colour it does not know
+ * falls back to 'grey' while loading, so a ninth colour added later can still be
+ * opened by an older aterm.
+ */
+export const TAB_GROUP_COLORS = [
+  'grey',
+  'blue',
+  'red',
+  'yellow',
+  'green',
+  'pink',
+  'purple',
+  'cyan'
+] as const
+
+export type TabGroupColor = (typeof TAB_GROUP_COLORS)[number]
+
+/** A named, coloured run of neighbouring tabs. */
+export interface TabGroup {
+  id: string
+  /** Absent = nameless: the header is the colour swatch alone. */
+  name?: string
+  color: TabGroupColor
+  collapsed: boolean
 }
 
 export type TabRunState =
@@ -41,6 +71,16 @@ export interface PersistedState {
   window?: { x?: number; y?: number; width: number; height: number; maximized?: boolean }
   tabs: TabState[]
   activeTabId?: string
+  /**
+   * The tab groups, in no particular order — where a group sits on screen follows
+   * from its members' `order`, not from this list.
+   *
+   * Adding this did not raise `SCHEMA_VERSION`, and neither should the next
+   * additive field: `SessionStore.load` sets a state.json aside whose version is
+   * *newer* than its own, so a bump costs every tab of anyone who goes back to an
+   * older aterm — for a field that older aterm would simply have ignored.
+   */
+  groups?: TabGroup[]
   /**
    * Last resolved appearance, written by the main process. It only exists so the
    * next window can be created in the right colours — the mode itself belongs to

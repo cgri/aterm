@@ -16,6 +16,10 @@ export interface KeymapContext {
   openSessionPicker(): void
   toggleSearch(): void
   changeFontSize(delta: number | 'reset'): void
+  /** Puts the active tab into a group, or takes it out of one. */
+  groupActiveTab(): void
+  /** Folds the group around the active tab up, or opens it again. */
+  toggleActiveGroup(): void
   /** Enter on a tab that has not started → start it. true when it did. */
   startActiveTab(): boolean
   overlayOpen(): boolean
@@ -28,6 +32,8 @@ export type Action =
   | 'newShellTab'
   | 'closeTab'
   | 'restartTab'
+  | 'groupActiveTab'
+  | 'toggleGroup'
   | 'nextTab'
   | 'previousTab'
   | 'sessionPicker'
@@ -47,6 +53,10 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   newShellTab: ['Ctrl+Shift+T'],
   closeTab: ['Ctrl+W'],
   restartTab: ['Ctrl+Shift+R'],
+  // No defaults: the terminal gets every key aterm does not claim, and these two are
+  // not worth taking one away for. Both are bindable in keymap.json.
+  groupActiveTab: [],
+  toggleGroup: [],
   nextTab: ['Ctrl+Tab', 'Ctrl+PageDown'],
   previousTab: ['Ctrl+Shift+Tab', 'Ctrl+PageUp'],
   sessionPicker: ['Ctrl+Shift+O'],
@@ -209,6 +219,12 @@ function dispatch(action: Action, ctx: KeymapContext, ev: KeyboardEvent): boolea
       return true
     case 'restartTab':
       ctx.restartActiveTab()
+      return true
+    case 'groupActiveTab':
+      ctx.groupActiveTab()
+      return true
+    case 'toggleGroup':
+      ctx.toggleActiveGroup()
       return true
     case 'nextTab':
       ctx.cycleTab(1)

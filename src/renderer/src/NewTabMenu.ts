@@ -1,5 +1,11 @@
+import type { TabGroupColor } from '@shared/types'
+
 export interface MenuItem {
   label: string
+  /** A group's colour, drawn as a swatch in front of the label. */
+  color?: TabGroupColor
+  /** Put at the right end — a check mark against the choice already in force. */
+  trailing?: string
   run: () => void
 }
 
@@ -73,7 +79,9 @@ export class NewTabMenu {
     this.items.forEach((item, index) => {
       const row = document.createElement('div')
       row.className = `picker-row${index === this.cursor ? ' selected' : ''}`
-      row.textContent = item.label
+      // Built from elements rather than written as text, because a row may carry a
+      // colour swatch and a check mark besides its label.
+      row.replaceChildren(...rowParts(item))
       // The pointer moves the cursor too, so mouse and keyboard never disagree.
       row.addEventListener('mousemove', () => this.setCursor(index))
       row.addEventListener('mousedown', (ev) => {
@@ -114,4 +122,29 @@ export class NewTabMenu {
     this.close()
     item.run()
   }
+}
+
+function rowParts(item: MenuItem): HTMLElement[] {
+  const parts: HTMLElement[] = []
+
+  if (item.color) {
+    const swatch = document.createElement('span')
+    swatch.className = 'picker-swatch'
+    swatch.dataset.groupColor = item.color
+    parts.push(swatch)
+  }
+
+  const label = document.createElement('span')
+  label.className = 'picker-label'
+  label.textContent = item.label
+  parts.push(label)
+
+  if (item.trailing) {
+    const trailing = document.createElement('span')
+    trailing.className = 'picker-trailing'
+    trailing.textContent = item.trailing
+    parts.push(trailing)
+  }
+
+  return parts
 }

@@ -165,6 +165,73 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `renderer/src/main.ts` composes both; `TabBar` draws them as two elements so the folder
   can be stepped back, and a tab whose folder is its whole name keeps it at full strength
   (`.folder:not(:only-child)` in `theme.css`).
+- **A tab group is a run in `order`, and `normalizeOrder` is the only thing that sorts.**
+  `order` is the whole truth about what is drawn where; a group's members have to sit in it
+  as one uninterrupted run, which is what lets `render` cut the bar into segments in a
+  single pass instead of gathering each group's tabs up first. `normalizeOrder` restores
+  that run after every change and renumbers `TabState.order` from the result — it is the
+  one place that writes those numbers.
+  **It must never be what decides membership.** It is stable, so the first member it meets
+  is where the group ends up: a tab dragged out of its block would be met first and would
+  pull the whole group along behind it, where the user meant to take one tab out. So
+  `moveTab` reads the dropped-on group *and* the anchor while `order` still describes the
+  bar that was dropped onto, writes `groupId`, and only then normalises. Group membership
+  is settled before, never by, that call.
+- **The active tab is never folded away, and something is always on screen.** Both are
+  `ensureVisible`, called after every change to a group or to `order`. The second one is
+  the obvious half; the first is the one that is easy to lose, because a tab can end up
+  inside a collapsed group without anyone collapsing anything — by being dragged onto a
+  collapsed group's header. Everything else leans on it: `awaitingSeen` is answered by
+  looking at the active tab, so a hidden active tab would quietly mark waits as seen.
+  Collapsing itself is the other side of the same rule — `setGroupCollapsed` moves the
+  active tab to the first tab right of the group (wrapping round), and when there is none,
+  because this group holds every reachable tab, it refuses to fold rather than working
+  around it. The header says so: dimmed, with the reason in its tooltip.
+- **A group's colour is on the bottom edge, and it is a positioned element.** The top edge
+  belongs to the active tab (`.tab.active` marks itself there), and moving the group up
+  would have changed how every tab looks, grouped or not. It cannot be an inset box-shadow
+  on `.tabgroup`: the members paint their own background over the full height of the bar,
+  and an inset shadow is drawn *under* its own children, so nothing of it reaches the
+  screen. `.tabgroup::after` it is — absolute rather than a border, so the bar keeps the
+  34px `titleBarOverlay` was told about.
+  The group palette lives in `theme.css` **and nowhere else**: no group colour is ever
+  drawn by xterm or by Windows, so "the palette exists three times over" below does not
+  extend to it. `[data-group-color]` turns the stored name into `--group-color` once, for
+  the edge, the header swatch, the menu rows and the dialog's buttons alike. The swatch is
+  a rounded square and not a circle on purpose — `--group-yellow` sits close to the amber
+  `--warn` of a waiting tab, and the shape tells them apart where the colour does not.
+  `.tabgroup-head` also has to be in the `-webkit-app-region: no-drag` list, or clicking it
+  drags the window instead of folding the group.
+- **A collapsed group speaks for its members.** Its header carries the strongest state any
+  of them is in, with the classes `dotClass` already produces — unanswered wait first,
+  because that is the state asking for something, and an exit last. Nothing at all when
+  there is no news, because the colour swatch is the group's identity and an idle grey dot
+  would only compete with it. That is why the dot rules in `theme.css` are scoped to
+  `.dot` and not to `.tab .dot`: the header is not a tab and must not be given that class.
+  `awaitingSeen` and `updateAttention` are untouched by any of this — the first cannot be
+  answered for a tab that is not active, which is exactly right, and the second walks
+  `panes` rather than `order`, so the taskbar still flashes for a wait inside a folded
+  group.
+- **A group that loses its last tab stops existing**, in `pruneEmptyGroups`, called after
+  every change rather than at the places a tab can leave — closing, ungrouping, dragging
+  out and being moved to another group are otherwise four chances to forget it. What
+  `state.json` holds is validated the same way and only in the renderer (`normalizeGroups`):
+  `SessionStore` checks no more than that a tab has an id and a cwd. A colour it does not
+  know becomes `grey`, which is what lets a ninth colour be added later without older
+  builds choking on it; a `groupId` naming no group is dropped from the tab. A group is the
+  cheaper thing to lose, so whatever does not add up costs the group and never the tab.
+  `PersistedState.groups` is additive and deliberately did **not** raise `SCHEMA_VERSION` —
+  a bump makes `load` set aside any state.json written by a newer aterm, so it would cost
+  every tab of anyone who goes back a version, for a field that version would have ignored.
+- **Dragging a whole group is a separate source, and groups do not nest.** `TabBar` reports
+  a `DragSource` of `tab` or `group` and a `DropTarget` of `before` / `group` / `end`;
+  what that means for membership is decided in `main.ts`, not in the bar. A block always
+  lands in front of a whole unit — a loose tab, or another group entire — never inside one.
+  The one rule worth knowing for a single tab: dropping it in front of a group's *first*
+  member means in front of the group, not into it, unless it is already a member. Chrome
+  tells those apart with a hysteresis zone that needs pointer tracking; this needs no
+  geometry. The insertion marker has to be cleared on `dragend` as well as `dragleave` —
+  `dragleave` does not fire when the drag ends over the element it marked.
 - **A worktree belongs to its project, in the tab name and in the session list.**
   `claude --worktree` creates `<project>\.claude\worktrees\<name>`, and a session reopened
   from the picker carries *that* as its `cwd`, because `RecentSession.cwd` comes from

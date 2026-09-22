@@ -26,6 +26,19 @@
   --shadow-soft: #0007;
   --font-ui: 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, monospace;
+
+  /* Tab groups. Eight hues, named after the colour and not after any meaning — a
+     group called "red" is not an error state. They live here and nowhere else:
+     unlike the palette above, no group colour is ever drawn by xterm or by Windows,
+     so neither TerminalView's themes nor CHROME_COLORS repeat them. */
+  --group-grey: #8b93a5;
+  --group-blue: #5b9cff;
+  --group-red: #e8737f;
+  --group-yellow: #d9b441;
+  --group-green: #5cc47f;
+  --group-pink: #e57ab8;
+  --group-purple: #a98cf0;
+  --group-cyan: #4fb6cf;
 }
 
 :root[data-theme='light'] {
@@ -47,6 +60,44 @@
   --scrim: #3a404d40;
   --shadow: #00000033;
   --shadow-soft: #00000022;
+
+  --group-grey: #6b7280;
+  --group-blue: #1a6fe0;
+  --group-red: #c02a37;
+  --group-yellow: #a07206;
+  --group-green: #1f8a4c;
+  --group-pink: #b5307f;
+  --group-purple: #6d43c9;
+  --group-cyan: #10707f;
+}
+
+/* The name a group carries turns into a colour here, once, so that everything that
+   draws one — the group's own edge, the swatch in a menu row, the buttons in the
+   group dialog — only has to say `var(--group-color)`. An unknown name is grey,
+   which is what the renderer falls back to while loading too. */
+[data-group-color] {
+  --group-color: var(--group-grey);
+}
+[data-group-color='blue'] {
+  --group-color: var(--group-blue);
+}
+[data-group-color='red'] {
+  --group-color: var(--group-red);
+}
+[data-group-color='yellow'] {
+  --group-color: var(--group-yellow);
+}
+[data-group-color='green'] {
+  --group-color: var(--group-green);
+}
+[data-group-color='pink'] {
+  --group-color: var(--group-pink);
+}
+[data-group-color='purple'] {
+  --group-color: var(--group-purple);
+}
+[data-group-color='cyan'] {
+  --group-color: var(--group-cyan);
 }
 
 * {
@@ -92,6 +143,7 @@ body {
 /* Everything clickable has to opt out of dragging again. `#tabstrip` and
    `#draghandle` deliberately do not: they are the free space that drags. */
 #tabbar .tab,
+#tabbar .tabgroup-head,
 #tabbar #newtab,
 #tabbar #update-button,
 #tabbar #theme-toggle {
@@ -139,7 +191,7 @@ body {
   box-shadow: inset 0 2px 0 var(--accent);
 }
 
-.tab .dot {
+.dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -147,13 +199,13 @@ body {
   flex: 0 0 auto;
 }
 
-.tab .dot.running {
+.dot.running {
   background: var(--ok);
 }
-.tab .dot.agent {
+.dot.agent {
   background: var(--accent);
 }
-.tab .dot.exited {
+.dot.exited {
   background: var(--err);
 }
 /* The program is working. It keeps its colour — the state is news about the tab,
@@ -162,7 +214,7 @@ body {
    redrawn glyph on purpose: the marker it comes from changes about once a second,
    and the whole point of reading it out of the title is that the tab bar is not
    rebuilt at that rate. */
-.tab .dot.working {
+.dot.working {
   animation: dot-working 1.6s ease-in-out infinite;
 }
 
@@ -182,14 +234,14 @@ body {
    the beginning — that only happens when some other tab changes state, but it is
    visible when it does. Keeping it in phase needs the dot elements to survive a
    render. */
-.tab .dot.awaiting {
+.dot.awaiting {
   background: var(--warn);
   animation: dot-pulse 1.8s ease-out infinite;
 }
 
 /* Seen: the user has had this tab on screen since it started waiting. Still
    waiting, still amber, but no longer asking. */
-.tab .dot.awaiting.seen {
+.dot.awaiting.seen {
   animation: none;
 }
 
@@ -212,8 +264,8 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tab .dot.awaiting,
-  .tab .dot.working {
+  .dot.awaiting,
+  .dot.working {
     animation: none;
   }
 }
@@ -279,6 +331,92 @@ body {
 
 .tab.dragging {
   opacity: 0.4;
+}
+
+/* ---------- Tab groups ---------- */
+
+/* A group is one run of tabs behind a header, and the group — not the single tab —
+   is what the strip clips now: `0 1 auto` with `min-width: 0`, exactly what the
+   loose tabs do. */
+.tabgroup {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* The colour sits on the *bottom* edge, because the top one is taken: `.tab.active`
+   marks itself there, and moving the group above would have changed how every tab
+   looks, grouped or not.
+
+   It has to be a positioned element and not an inset box-shadow on `.tabgroup`: the
+   members each paint their own background over the whole height of the bar, and an
+   inset shadow is drawn under its own children, so nothing of it ever reached the
+   screen. Absolute and not a border, so the bar keeps the height `titleBarOverlay` in
+   main/index.ts was told about. */
+.tabgroup::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--group-color);
+  pointer-events: none;
+}
+
+/* `flex: 0 0 auto`, so a squeezed group loses tabs and never its own identity. */
+.tabgroup-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  max-width: 160px;
+  padding: 0 8px;
+  background: var(--bg-tab);
+  border-right: 1px solid var(--border);
+  color: var(--fg-dim);
+  cursor: default;
+}
+
+.tabgroup-head:hover {
+  color: var(--fg);
+}
+
+/* A rounded square and not a circle: --group-yellow sits close to the amber --warn
+   of a waiting tab, and the shape keeps the two apart where the colour does not. */
+.tabgroup-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  background: var(--group-color);
+  flex: 0 0 auto;
+}
+
+.tabgroup-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* How many tabs are folded away in here. Only drawn while collapsed. */
+.tabgroup-count {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+/* Collapsing is refused when there would be no tab left to switch to. */
+.tabgroup-head.cannot-collapse .tabgroup-swatch {
+  opacity: 0.55;
+}
+
+/* Where a dragged tab or group would land. A shadow and not a real element: it costs
+   no layout, so nothing in the bar moves while the pointer travels. */
+.tab.drop-before,
+.tabgroup-head.drop-before {
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 #newtab {
@@ -611,6 +749,82 @@ body {
 
 .menu .picker-row {
   padding: 7px 14px;
+}
+
+/* ---------- Group colours in a menu row ---------- */
+
+/* A menu row can carry a group colour in front of its label and a check mark at the
+   end. The label is what takes the room left over, and what shortens. */
+.picker-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  background: var(--group-color);
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+/* The selected row turns --accent, which two of the swatches all but vanish into. A
+   ring in the row text colour keeps every one of them readable there. */
+.picker-row.selected .picker-swatch {
+  box-shadow: 0 0 0 1px var(--on-accent);
+}
+
+.picker-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-trailing {
+  flex: 0 0 auto;
+  color: var(--fg-dim);
+}
+
+.picker-row.selected .picker-trailing {
+  color: var(--on-accent-dim);
+}
+
+/* ---------- Group dialog ---------- */
+
+/* The confirm dialog's shell again, with a name to type and a colour to pick. */
+.group-name {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+}
+
+.group-colors {
+  display: flex;
+  gap: 8px;
+  padding: 16px 18px 2px;
+}
+
+.group-color {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: var(--group-color);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.group-color:hover {
+  opacity: 0.8;
+}
+
+/* The one in force is the only one at full strength, and wears a ring besides, so the
+   choice is still legible to anyone who cannot tell the hues apart. */
+.group-color.selected {
+  opacity: 1;
+  box-shadow:
+    0 0 0 2px var(--bg-chrome),
+    0 0 0 3px var(--fg-dim);
 }
 
 /* ---------- Confirm dialog ---------- */
