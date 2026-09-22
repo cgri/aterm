@@ -177,16 +177,21 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `moveTab` reads the dropped-on group *and* the anchor while `order` still describes the
   bar that was dropped onto, writes `groupId`, and only then normalises. Group membership
   is settled before, never by, that call.
-- **The active tab is never folded away, and something is always on screen.** Both are
-  `ensureVisible`, called after every change to a group or to `order`. The second one is
-  the obvious half; the first is the one that is easy to lose, because a tab can end up
-  inside a collapsed group without anyone collapsing anything — by being dragged onto a
-  collapsed group's header. Everything else leans on it: `awaitingSeen` is answered by
-  looking at the active tab, so a hidden active tab would quietly mark waits as seen.
-  Collapsing itself is the other side of the same rule — `setGroupCollapsed` moves the
-  active tab to the first tab right of the group (wrapping round), and when there is none,
-  because this group holds every reachable tab, it refuses to fold rather than working
-  around it. The header says so: dimmed, with the reason in its tooltip.
+- **A group always folds, and the header speaks for the tab it hides.** `setGroupCollapsed`
+  moves the active tab to the first tab right of the group (wrapping round) so the bar goes
+  on showing where the user is — but when there is no tab outside the group it folds
+  anyway, and the active tab stays inside it. The header then wears the active marker
+  (`TabGroupViewModel.active`, `.tabgroup-head.active`), which is the whole cost: what the
+  user looks at is the *pane*, and that does not go away, only the tab's button does.
+  Refusing to fold in that case was the first attempt and it was wrong — two tabs in one
+  group is already enough to hit it, so the feature looked broken the first time anyone
+  tried it. There is no invariant that the active tab is visible in the bar, and nothing
+  needs one: `awaitingSeen` asks whether the *pane* is in front, which it is.
+  What does follow from that: `activate` takes a `reveal` flag, true for every caller that
+  means "show me this tab" and false exactly once, when the tabs are restored — otherwise
+  a group folded up before a restart would spring open on the next start. And anything
+  that walks tabs by keyboard uses `reachableOrder`, which falls back to all of them when
+  every tab is folded away, so Ctrl+Tab is never a dead end.
 - **A group's colour is on the bottom edge, and it is a positioned element.** The top edge
   belongs to the active tab (`.tab.active` marks itself there), and moving the group up
   would have changed how every tab looks, grouped or not. It cannot be an inset box-shadow

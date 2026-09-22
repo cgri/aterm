@@ -407,9 +407,13 @@ body {
   opacity: 0.8;
 }
 
-/* Collapsing is refused when there would be no tab left to switch to. */
-.tabgroup-head.cannot-collapse .tabgroup-swatch {
-  opacity: 0.55;
+/* A folded group holding the tab that is in front wears that tab's marker, because the
+   tab itself has no button while it is folded away. Same shape as `.tab.active`, and the
+   group's own colour still runs along the bottom underneath it. */
+.tabgroup-head.active {
+  background: var(--bg-tab-active);
+  color: var(--fg);
+  box-shadow: inset 0 2px 0 var(--accent);
 }
 
 /* Where a dragged tab or group would land. A shadow and not a real element: it costs

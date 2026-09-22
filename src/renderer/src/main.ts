@@ -163,9 +163,9 @@ async function boot(): Promise<void> {
       },
       cycleTab: (delta) => cycleTab(delta),
       selectTabByIndex: (index) => {
-        // Counts what is on screen, so a collapsed group is skipped whole rather
+        // Counts what is on screen, so a folded-up group is skipped whole rather
         // than swallowing numbers the user cannot see.
-        const id = visibleOrder()[index]
+        const id = reachableOrder()[index]
         if (id) activate(id, { start: true })
       },
       groupActiveTab: () => {
@@ -228,7 +228,7 @@ async function boot(): Promise<void> {
   )
 
   // Lazy: the restored tab is only displayed, not started.
-  activate(state.activeTabId ?? order[0], { start: false })
+  activate(state.activeTabId ?? order[0], { start: false, reveal: false })
   render()
   void refreshClaudeTitles()
 
@@ -371,13 +371,12 @@ async function removeTab(id: string): Promise<void> {
   order = order.filter((x) => x !== id)
   pruneEmptyGroups()
   normalizeOrder()
-  ensureVisible()
 
-  // Only now, with the groups settled: picking first could name a tab that
-  // `ensureVisible` is about to leave hidden.
+  // Only now, with the groups settled. `activate` opens the group around whatever this
+  // picks, so closing the tab one was on never leaves the bar with nothing to point at.
   if (activeId === id) {
-    const visible = visibleOrder()
-    activeId = visible[visible.length - 1]
+    const reachable = reachableOrder()
+    activeId = reachable[reachable.length - 1]
   }
   if (order.length === 0) {
     await createTab('powershell', homeDir)
@@ -546,15 +545,19 @@ async function renameGroup(groupId: string): Promise<void> {
   persist()
 }
 
-function activate(id: string | undefined, opts: { start: boolean }): void {
+/**
+ * `reveal` opens the group around the tab, and is what almost every caller wants: asking
+ * for a tab means asking to see it. Restoring does not — a group the user folded up has
+ * to still be folded up on the next start, even when the tab left active is inside it.
+ */
+function activate(id: string | undefined, opts: { start: boolean; reveal?: boolean }): void {
   if (!id || !panes.has(id)) return
   activeId = id
 
-  // The one place a collapsed group is opened again. There are several ways into a
-  // tab that is not on screen — the session picker, a tab started in a group, a
-  // hand-edited state.json — and all of them come through here.
-  const group = groupOf(id)
-  if (group?.collapsed) group.collapsed = false
+  if (opts.reveal !== false) {
+    const group = groupOf(id)
+    if (group?.collapsed) group.collapsed = false
+  }
 
   for (const [paneId, pane] of panes) {
     pane.el.classList.toggle('active', paneId === id)
@@ -574,12 +577,11 @@ function activate(id: string | undefined, opts: { start: boolean }): void {
 }
 
 function cycleTab(delta: number): void {
-  const visible = visibleOrder()
-  if (visible.length < 2 || !activeId) return
-  const index = visible.indexOf(activeId)
-  // The active tab is always visible; falling on the first one is only a guard.
-  const next = index < 0 ? 0 : (index + delta + visible.length) % visible.length
-  activate(visible[next], { start: true })
+  const reachable = reachableOrder()
+  if (reachable.length < 2 || !activeId) return
+  const index = reachable.indexOf(activeId)
+  const next = index < 0 ? 0 : (index + delta + reachable.length) % reachable.length
+  activate(reachable[next], { start: true })
 }
 
 /* ------------------------------------------------------------ Tab groups */
@@ -595,12 +597,19 @@ function groupMembers(groupId: string): string[] {
   return order.filter((id) => panes.get(id)?.tab.groupId === groupId)
 }
 
-/**
- * The tabs the user can see and reach: everything but the members of a collapsed
- * group. There is always at least one — that is what `ensureVisible` is for.
- */
+/** The tabs with a button of their own: everything but the members of a folded group. */
 function visibleOrder(): string[] {
   return order.filter((id) => !groupOf(id)?.collapsed)
+}
+
+/**
+ * What the keyboard walks and what closing a tab falls back on. Normally the tabs on
+ * screen — but every tab there is can be folded away at once, and Ctrl+Tab leading
+ * nowhere would be a dead end. Whatever it names, `activate` unfolds the group around it.
+ */
+function reachableOrder(): string[] {
+  const visible = visibleOrder()
+  return visible.length > 0 ? visible : order
 }
 
 /** A group whose last tab is gone stops existing. */
@@ -646,27 +655,6 @@ function normalizeOrder(): void {
 }
 
 /**
- * Keeps the bar honest in the two ways it could stop being so, and is called after every
- * change to a group or to `order`.
- *
- * The active tab is the one receiving what is typed, so it must never be the one folded
- * away — and it can end up that way without anyone collapsing anything, by being dragged
- * into a group that is already collapsed. Collapsing itself refuses to leave nothing on
- * screen (`setGroupCollapsed`), so the second half is the net under the rest: a restored
- * state.json, and closing the last tab outside a collapsed group.
- */
-function ensureVisible(): void {
-  if (order.length === 0) return
-
-  const active = activeId ? groupOf(activeId) : undefined
-  if (active?.collapsed) active.collapsed = false
-
-  if (visibleOrder().length > 0) return
-  const group = groupOf(order[0])
-  if (group) group.collapsed = false
-}
-
-/**
  * What comes out of state.json is not to be trusted: `SessionStore` checks no more than
  * that a tab has an id and a cwd, so the groups arrive here unexamined. A group is the
  * cheaper thing to lose, so whatever does not add up costs the group and never the tab.
@@ -691,7 +679,6 @@ function normalizeGroups(stored: TabGroup[] | undefined): void {
 
   pruneEmptyGroups()
   normalizeOrder()
-  ensureVisible()
 }
 
 function isGroupColor(value: unknown): value is TabGroupColor {
@@ -739,7 +726,6 @@ function setTabGroup(tabId: string, groupId: string | undefined): void {
 
   pruneEmptyGroups()
   normalizeOrder()
-  ensureVisible()
   render()
   persist()
 }
@@ -763,10 +749,15 @@ function toggleGroup(groupId: string): void {
 }
 
 /**
- * Folding a group up takes the active tab out of it first — a tab nobody can see must
- * not be the one receiving what is typed. When there is nowhere to put it, because this
- * group holds every tab that is reachable, the group simply does not fold: the header
- * says as much rather than quietly doing nothing.
+ * Folding a group up moves the active tab out of it when there is anywhere to move it to,
+ * so the bar goes on showing which tab is in front.
+ *
+ * When there is not — because this group holds every tab there is, which two tabs in one
+ * group is already enough for — it folds anyway and the active tab stays inside it. That
+ * costs nothing: what the user is looking at is the *pane*, and it does not go away; only
+ * the tab's button does, and the header takes over saying it is the one in front. Refusing
+ * to fold instead was the first attempt, and it made the feature look broken the first
+ * time anyone tried it.
  */
 function setGroupCollapsed(groupId: string, collapsed: boolean): void {
   const group = groups.get(groupId)
@@ -774,16 +765,16 @@ function setGroupCollapsed(groupId: string, collapsed: boolean): void {
 
   if (collapsed && activeId && panes.get(activeId)?.tab.groupId === groupId) {
     const target = nextVisibleOutside(activeId, groupMembers(groupId))
-    if (!target) return
-    group.collapsed = true
-    // `start: false`, because folding a group up is not a click on a tab and must not
-    // start a process behind a placeholder. `activate` renders and persists itself.
-    activate(target, { start: false })
-    return
+    if (target) {
+      group.collapsed = true
+      // `start: false`, because folding a group up is not a click on a tab and must not
+      // start a process behind a placeholder. `activate` renders and persists itself.
+      activate(target, { start: false })
+      return
+    }
   }
 
   group.collapsed = collapsed
-  ensureVisible()
   render()
   persist()
 }
@@ -804,12 +795,9 @@ function nextVisibleOutside(fromId: string, exclude: string[]): string | undefin
   return undefined
 }
 
-/** Is there a tab outside this group that folding it up would leave reachable? */
-function canCollapseGroup(groupId: string): boolean {
-  return order.some((id) => {
-    const group = groupOf(id)
-    return group?.id !== groupId && !group?.collapsed
-  })
+/** Does this group hold the tab that is in front? Only a folded one says so itself. */
+function holdsActiveTab(groupId: string): boolean {
+  return Boolean(activeId) && panes.get(activeId!)?.tab.groupId === groupId
 }
 
 /** Every member becomes a loose tab again, and the group itself stops existing. */
@@ -820,7 +808,6 @@ function ungroup(groupId: string): void {
   }
   pruneEmptyGroups()
   normalizeOrder()
-  ensureVisible()
   render()
   persist()
 }
@@ -878,7 +865,6 @@ function moveTab(tabId: string, target: DropTarget): void {
 
   pruneEmptyGroups()
   normalizeOrder()
-  ensureVisible()
   render()
   persist()
 }
@@ -1159,7 +1145,7 @@ function render(): void {
           name: group.name,
           color: group.color,
           collapsed: group.collapsed,
-          canCollapse: canCollapseGroup(group.id)
+          active: holdsActiveTab(group.id)
         },
         tabs: []
       }

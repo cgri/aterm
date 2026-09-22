@@ -27,10 +27,10 @@ export interface TabGroupViewModel {
   color: TabGroupColor
   collapsed: boolean
   /**
-   * Whether folding this group up would still leave a tab to switch to. The renderer
-   * is what knows; the bar only dims the header and says why.
+   * This group holds the tab that is in front. While it is folded up, that tab has no
+   * button of its own, so the header wears the marker in its place.
    */
-  canCollapse: boolean
+  active: boolean
 }
 
 /**
@@ -147,15 +147,13 @@ export class TabBar {
 
   private renderGroupHead(group: TabGroupViewModel, tabs: TabViewModel[]): HTMLElement {
     const el = document.createElement('div')
-    const blocked = !group.collapsed && !group.canCollapse
-    el.className = `tabgroup-head${blocked ? ' cannot-collapse' : ''}`
+    // Only a folded group speaks for the tab in front of it; an open one has that tab
+    // drawn right next to it, wearing the marker itself.
+    const active = group.collapsed && group.active
+    el.className = `tabgroup-head${active ? ' active' : ''}`
     el.draggable = true
     el.dataset.groupColor = group.color
-    el.title = group.collapsed
-      ? 'Expand group'
-      : blocked
-        ? 'Cannot collapse — no other tab to switch to'
-        : 'Collapse group'
+    el.title = group.collapsed ? 'Expand group' : 'Collapse group'
 
     const swatch = document.createElement('span')
     swatch.className = 'tabgroup-swatch'
