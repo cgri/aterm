@@ -156,6 +156,10 @@ body {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
+  /* Tabs are pills with air between them now, so the gap is what separates them and
+     no tab needs a border of its own. */
+  gap: 3px;
+  padding: 0 3px;
 }
 
 /* The leftover width, and never less than a grabbable strip of it — this is what
@@ -173,20 +177,37 @@ body {
   gap: 6px;
   /* The ground the breath is painted on — see `.tab.working::after`. */
   position: relative;
+  /* The vertical margin is what leaves room for the active tab's ring to be drawn
+     outside the tab without touching the edges of the bar. */
+  margin: 4px 0;
   padding: 0 8px 0 10px;
   min-width: 110px;
   /* Room for a folder and a summary side by side. */
   max-width: 320px;
+  border-radius: 6px;
   background: var(--bg-tab);
-  border-right: 1px solid var(--border);
   cursor: default;
   color: var(--fg-dim);
 }
 
+/* The tab in front is ringed rather than underlined. A 2px line along the top edge was
+   what this used to be, and it was far too easy to miss on a bar full of tabs; a ring
+   all the way round reads at a glance.
+
+   The colour of the ring is the one piece of information it carries besides "this one":
+   inside a group it is the group's colour, so the group visibly wraps the tab the way
+   Chrome does, and `--tab-ring` is what each group sets. Loose tabs fall back to the
+   accent. */
 .tab.active {
   background: var(--bg-tab-active);
   color: var(--fg);
-  box-shadow: inset 0 2px 0 var(--accent);
+  box-shadow: 0 0 0 2px var(--tab-ring, var(--accent));
+}
+
+/* The breath is painted on the tab, so it has to be cut to the same shape. */
+.tab::after,
+.tabgroup-head::after {
+  border-radius: inherit;
 }
 
 /* Not a status light any more: the mark says what kind of tab this is, and nothing
@@ -370,33 +391,33 @@ body {
 
 /* A group is one run of tabs behind a header, and the group — not the single tab —
    is what the strip clips now: `0 1 auto` with `min-width: 0`, exactly what the
-   loose tabs do. */
+   loose tabs do.
+
+   It is a tinted container in its own colour, rounded like the tabs inside it, which is
+   what makes a group read as one thing. `--tab-ring` is set here and inherited: the
+   member that is in front wears the group's colour as its ring, so the group wraps it.
+   That replaces the 2px edge along the bottom this used to have — an edge under a
+   rounded container looked like a mistake, and the tint says the same thing better. */
 .tabgroup {
   position: relative;
   display: flex;
   align-items: stretch;
   flex: 0 1 auto;
   min-width: 0;
+  gap: 3px;
+  margin: 2px 0;
+  padding: 2px 3px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--group-color) 26%, transparent);
+  --tab-ring: var(--group-color);
 }
 
-/* The colour sits on the *bottom* edge, because the top one is taken: `.tab.active`
-   marks itself there, and moving the group above would have changed how every tab
-   looks, grouped or not.
-
-   It has to be a positioned element and not an inset box-shadow on `.tabgroup`: the
-   members each paint their own background over the whole height of the bar, and an
-   inset shadow is drawn under its own children, so nothing of it ever reached the
-   screen. Absolute and not a border, so the bar keeps the height `titleBarOverlay` in
-   main/index.ts was told about. */
-.tabgroup::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  background: var(--group-color);
-  pointer-events: none;
+/* Inside the container the members lose their own margin: the container's padding is
+   what insets them, and the ring of the one in front is drawn into exactly that inset,
+   so the group's colour meets it. A loose tab still comes out the same height, because
+   its own margin is the group's margin and padding added together. */
+.tabgroup .tab {
+  margin: 0;
 }
 
 /* `flex: 0 0 auto`, so a squeezed group loses tabs and never its own identity. */
@@ -408,8 +429,7 @@ body {
   flex: 0 0 auto;
   max-width: 160px;
   padding: 0 8px;
-  background: var(--bg-tab);
-  border-right: 1px solid var(--border);
+  border-radius: 6px;
   color: var(--fg-dim);
   cursor: default;
 }
@@ -441,13 +461,14 @@ body {
   opacity: 0.8;
 }
 
-/* A folded group holding the tab that is in front wears that tab's marker, because the
-   tab itself has no button while it is folded away. Same shape as `.tab.active`, and the
-   group's own colour still runs along the bottom underneath it. */
+/* A folded group holding the tab that is in front wears that tab's ring, because the tab
+   itself has no button while it is folded away. The very same treatment `.tab.active`
+   gets, ring colour included — it is standing in for a tab, so it should look like one.
+   Full-strength group colour against the container's 26% tint, so the ring still reads. */
 .tabgroup-head.active {
   background: var(--bg-tab-active);
   color: var(--fg);
-  box-shadow: inset 0 2px 0 var(--accent);
+  box-shadow: 0 0 0 2px var(--tab-ring, var(--accent));
 }
 
 /* Where a dragged tab or group would land. A shadow and not a real element: it costs

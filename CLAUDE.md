@@ -192,21 +192,27 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   a group folded up before a restart would spring open on the next start. And anything
   that walks tabs by keyboard uses `reachableOrder`, which falls back to all of them when
   every tab is folded away, so Ctrl+Tab is never a dead end.
-- **A group's colour is on the bottom edge, and it is a positioned element.** The top edge
-  belongs to the active tab (`.tab.active` marks itself there), and moving the group up
-  would have changed how every tab looks, grouped or not. It cannot be an inset box-shadow
-  on `.tabgroup`: the members paint their own background over the full height of the bar,
-  and an inset shadow is drawn *under* its own children, so nothing of it reaches the
-  screen. `.tabgroup::after` it is — absolute rather than a border, so the bar keeps the
-  34px `titleBarOverlay` was told about.
+- **A group is a tinted container, and the tab in front is ringed in its colour.** Tabs are
+  rounded pills separated by a gap rather than full-height blocks separated by a border, and
+  a group is a rounded container tinted with `color-mix` in its own colour that they sit
+  inside. `.tabgroup` sets `--tab-ring`, which `.tab.active` reads: a member in front wears
+  the group's colour all the way round, so the group visibly wraps it, and a loose tab falls
+  back to `--accent`. This is Chrome's arrangement and it was asked for by name.
+  Two things follow, and both are easy to break:
+  **The ring is drawn outside the tab**, so the room for it has to exist. A loose tab's
+  vertical margin and a group's margin plus padding are that room — which is also why a
+  loose tab's margin equals a group's margin and padding added together: otherwise grouped
+  and ungrouped tabs come out different heights.
+  **A 2px line along the top edge is what the active tab used to be**, and it was far too
+  easy to miss. If the ring is ever reduced back to an edge, that is the complaint to expect.
   The group palette lives in `theme.css` **and nowhere else**: no group colour is ever
   drawn by xterm or by Windows, so "the palette exists three times over" below does not
   extend to it. `[data-group-color]` turns the stored name into `--group-color` once, for
-  the edge, the header swatch, the menu rows and the dialog's buttons alike. The swatch is
-  a rounded square and not a circle on purpose — `--group-yellow` sits close to the amber
-  `--warn` of a waiting tab, and the shape tells them apart where the colour does not.
-  `.tabgroup-head` also has to be in the `-webkit-app-region: no-drag` list, or clicking it
-  drags the window instead of folding the group.
+  the container, the ring, the header swatch, the menu rows and the dialog's buttons alike.
+  The swatch is a rounded square and not a circle on purpose — `--group-yellow` sits close
+  to the amber `--warn` of a waiting tab, and the shape tells them apart where the colour
+  does not. `.tabgroup-head` also has to be in the `-webkit-app-region: no-drag` list, or
+  clicking it drags the window instead of folding the group.
 - **A collapsed group speaks for its members**, in the same two states a tab has: it takes
   the alarm if any of them is waiting unseen, and the breath if any is working. Alarm wins,
   as it does on a tab. Its tooltip says which, because the header has no mark of its own to
