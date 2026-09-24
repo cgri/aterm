@@ -241,7 +241,11 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   label — the chip *is* the colour, the way Chrome draws one, and a nameless group is the
   same chip at its `min-width` rather than a bare dot. It is `align-self: center`, so it is
   a chip sitting in the bar rather than a tab reaching the bottom of it, and the group's
-  line passes under it.
+  line passes under it. Its `margin-top` is what puts its label on the same line as the
+  labels beside it — centring it in the bar alone leaves it sitting a few pixels high,
+  because a tab's own text is centred in what is left under its top border, not in the bar.
+  Worth measuring rather than eyeballing: compare the middles of `.tabgroup-name` and a
+  tab's `.name` off `getBoundingClientRect`.
   **A folded group is the chip and nothing else**: no line (`.tabgroup[data-collapsed]::after`
   is `content: none` — a line ties members together and none are on show) and no tab count.
   The count lives in the tooltip, which is also where a folded group says what it is

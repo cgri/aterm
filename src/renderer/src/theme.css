@@ -523,6 +523,11 @@ body {
   position: relative;
   flex: 0 0 auto;
   align-self: center;
+  /* The same 4px the tabs carry above them. With `align-self: center` that puts the
+     chip middle on the tab middle whatever height the chip has — without it the chip
+     centres in the whole bar and its label sits a couple of pixels above the labels
+     beside it. The side margins are so the chips do not crowd each other. */
+  margin: 6px 3px 0;
   min-width: 24px;
   max-width: 160px;
   height: 18px;
