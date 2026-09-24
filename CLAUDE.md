@@ -206,8 +206,11 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   the top corners rounded. Transparent on all of them because `box-sizing: border-box`
   would otherwise shift the label by two pixels each time the user switched tabs; no bottom
   because that open foot is what makes it a tab rather than a box. `.tab.active` only sets
-  `border-color`, from `--tab-ring` — which `.tabgroup` sets to its own colour, so line and
-  outline are visibly one stroke. A loose tab falls back to `--accent`.
+  `border-color`, and only inside a group: `.tabgroup .tab.active` takes `--tab-ring`,
+  which the group sets to its own colour, so line and outline are visibly one stroke.
+  **A loose active tab gets the top edge alone**, in `--accent`. There is no line for its
+  sides to run into, and three sides closing on nothing read as a box drawn round the tab
+  rather than a tab standing in a strip.
   **`z-index: 1` on the active tab** is what stops the line running through underneath it.
   Without it the stroke closes along the bottom and the whole thing reads as a box.
   **The flare at each foot is `.tabgroup .tab.active::before`**, a 6px strip hanging past
@@ -229,15 +232,28 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   The group palette lives in `theme.css` **and nowhere else**: no group colour is ever
   drawn by xterm or by Windows, so "the palette exists three times over" below does not
   extend to it. `[data-group-color]` turns the stored name into `--group-color` once, for
-  the line, the outline, the header swatch, the menu rows and the dialog's buttons alike.
-  The swatch is a rounded square and not a circle on purpose — `--group-yellow` sits close
-  to the amber `--warn` of a waiting tab, and the shape tells them apart where the colour
-  does not. `.tabgroup-head` also has to be in the `-webkit-app-region: no-drag` list, or
-  clicking it drags the window instead of folding the group.
+  the line, the outline, the header chip, the menu rows and the dialog's buttons alike.
+  `--on-group` is what is written on a filled chip: one value per palette carries all eight
+  colours, because they are light in the dark palette and dark in the light one.
+  `.tabgroup-head` also has to be in the `-webkit-app-region: no-drag` list, or clicking it
+  drags the window instead of folding the group.
+- **The header is the group: a filled chip with the name inside it.** Not a swatch beside a
+  label — the chip *is* the colour, the way Chrome draws one, and a nameless group is the
+  same chip at its `min-width` rather than a bare dot. It is `align-self: center`, so it is
+  a chip sitting in the bar rather than a tab reaching the bottom of it, and the group's
+  line passes under it.
+  **A folded group is the chip and nothing else**: no line (`.tabgroup[data-collapsed]::after`
+  is `content: none` — a line ties members together and none are on show) and no tab count.
+  The count lives in the tooltip, which is also where a folded group says what it is
+  reporting.
 - **A collapsed group speaks for its members**, in the same two states a tab has: it takes
   the alarm if any of them is waiting unseen, and the breath if any is working. Alarm wins,
-  as it does on a tab. Its tooltip says which, because the header has no mark of its own to
+  as it does on a tab. Its tooltip says which, because the chip has no mark of its own to
   say it — see the next entry for why there is nothing else to report.
+  **The alarm swaps the chip's colour rather than washing over it.** Amber at a third
+  opacity over blue or green comes out a muddy slate that reads as some other group, not as
+  a tab asking for something. Losing the group's colour for as long as it is asking is the
+  right trade: there is only ever one thing the bar asks about.
   `awaitingSeen` and `updateAttention` are untouched by any of this: the first cannot be
   answered for a tab that is not active, which is exactly right, and the second walks
   `panes` rather than `order`, so the taskbar still flashes for a wait inside a folded

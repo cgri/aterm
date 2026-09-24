@@ -36,6 +36,9 @@
   --group-pink: #e57ab8;
   --group-purple: #a98cf0;
   --group-cyan: #4fb6cf;
+  /* What is legible written on any of the eight. They are light in this palette and
+     dark in the other, so one value carries all of them either way. */
+  --on-group: #12141a;
 }
 
 :root[data-theme='light'] {
@@ -65,6 +68,7 @@
   --group-pink: #b5307f;
   --group-purple: #6d43c9;
   --group-cyan: #10707f;
+  --on-group: #ffffff;
 }
 
 /* The name a group carries turns into a colour here, once, so that everything that
@@ -158,8 +162,10 @@ body {
   overflow: hidden;
   /* A hairline of bar between the tabs, so the rounded tops read as separate shapes
      without needing a border of their own — and so a group's line shows through
-     underneath, unbroken, the way it does in Chrome. */
+     underneath, unbroken, the way it does in Chrome. The left padding keeps the first
+     thing in the bar — often a group chip — off the window edge. */
   gap: 2px;
+  padding-left: 4px;
 }
 
 /* The leftover width, and never less than a grabbable strip of it — this is what
@@ -199,23 +205,23 @@ body {
   color: var(--fg-dim);
 }
 
-/* The tab in front is outlined along three sides — up its left edge, across the top and
-   down its right — meeting the line that runs under its group at both ends. A 2px rule
-   along the top edge alone was what this used to be, and it was far too easy to miss.
-   Chrome draws exactly this shape, and it was asked for by name.
-
-   The colour is the one other thing the outline says: inside a group it is that group's
-   colour (`--tab-ring`, set on `.tabgroup`), so the line and the outline are visibly one
-   stroke; a loose tab falls back to the accent. */
+/* The tab in front, on its own: a rule across the top and nothing down the sides. There is
+   no group line for sides to run into here, and three sides closing on nothing read as a
+   box drawn round the tab rather than a tab standing in a strip. */
 .tab.active {
   background: var(--bg-tab-active);
   color: var(--fg);
-  border-color: var(--tab-ring, var(--accent));
-  /* Above the group's line, so the line stops at this tab instead of running through
-     underneath it. That is what turns a closed box back into a tab shape: the stroke
-     arrives along the bottom, climbs the left border, crosses the top, comes down the
-     right and carries on — three sides, open at the foot. */
+  border-top-color: var(--accent);
+  /* Above the group's line — see the group's own rule for why. */
   z-index: 1;
+}
+
+/* In a group there *is* a line, and then the outline is the whole three sides: up the left
+   edge, across the top, down the right, meeting the line at both feet. The colour comes
+   from `--tab-ring`, which the group sets to its own, so line and outline read as one
+   stroke. Chrome draws exactly this, and it was asked for by name. */
+.tabgroup .tab.active {
+  border-color: var(--tab-ring);
 }
 
 /* Where the group's line meets the tab in front, it flares outward into it instead of
@@ -334,9 +340,18 @@ body {
 
    Only the text colour is set on the tab itself, and it is set after `.tab.active` so an
    alarmed inactive tab reads as brightly as an active one. */
-.tab.alarm,
-.tabgroup-head.alarm {
+.tab.alarm {
   color: var(--fg);
+}
+
+/* A folded group chip swaps its colour instead of being washed in amber: the chip is
+   already a solid colour, and amber over blue or green comes out a muddy slate that reads
+   as some other group rather than as a tab asking for something. Losing the group's colour
+   for as long as it is asking is the right trade — there is only ever one thing the bar
+   asks about. */
+.tabgroup-head.alarm {
+  background: var(--warn);
+  color: var(--on-group);
 }
 
 .tab.alarm::after,
@@ -488,59 +503,48 @@ body {
   pointer-events: none;
 }
 
+/* Folded up, the group is the chip alone. The line ties members together, and there are
+   none on show. */
+.tabgroup[data-collapsed]::after {
+  content: none;
+}
+
 /* `flex: 0 0 auto`, so a squeezed group loses tabs and never its own identity. */
+/* The header is the group: a filled chip in its colour with its name written inside,
+   the way Chrome draws one. There is no swatch beside it and no tab count in it — a
+   folded group says how many it holds in its tooltip, not on the bar.
+
+   `align-self: center` because it is a chip and not a tab: it does not reach the bottom
+   of the bar, so a group's line runs under it rather than out of it. A nameless group is
+   the same chip at `min-width`, which is what keeps it a chip and not a bare dot. */
 .tabgroup-head {
   display: flex;
   align-items: center;
-  gap: 6px;
   position: relative;
   flex: 0 0 auto;
+  align-self: center;
+  min-width: 24px;
   max-width: 160px;
-  margin-top: 4px;
+  height: 18px;
   padding: 0 8px;
-  border: 2px solid transparent;
-  border-bottom: none;
-  border-radius: 7px 7px 0 0;
-  background: var(--bg-tab);
-  color: var(--fg-dim);
+  border-radius: 9px;
+  background: var(--group-color);
+  color: var(--on-group);
+  font-size: 11px;
+  font-weight: 600;
   cursor: default;
 }
 
-.tabgroup-head:hover {
-  color: var(--fg);
-}
-
-/* A rounded square and not a circle: --group-yellow sits close to the amber --warn
-   of a waiting tab, and the shape keeps the two apart where the colour does not. */
-.tabgroup-swatch {
-  width: 8px;
-  height: 8px;
-  border-radius: 3px;
-  background: var(--group-color);
-  flex: 0 0 auto;
+/* The tab in front, in a group that is folded up. The chip is already the group's colour,
+   so the marker has to be something else — the accent, as a loose tab wears it. */
+.tabgroup-head.active {
+  box-shadow: 0 0 0 2px var(--bg-chrome), 0 0 0 4px var(--accent);
 }
 
 .tabgroup-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* How many tabs are folded away in here. Only drawn while collapsed. */
-.tabgroup-count {
-  flex: 0 0 auto;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.8;
-}
-
-/* A folded group holding the tab that is in front wears that tab's outline, because the
-   tab itself has no button while it is folded away. The very same treatment `.tab.active`
-   gets — it is standing in for a tab, so it should look like one. */
-.tabgroup-head.active {
-  background: var(--bg-tab-active);
-  color: var(--fg);
-  border-color: var(--tab-ring, var(--accent));
-  z-index: 1;
 }
 
 /* Where a dragged tab or group would land. A shadow and not a real element: it costs

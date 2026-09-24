@@ -161,32 +161,21 @@ export class TabBar {
       .join(' ')
     el.draggable = true
     el.dataset.groupColor = group.color
-    // The header has no mark of its own, so what it is reporting has to be said here.
+    // The header has no mark of its own, and a folded one no longer shows how many tabs
+    // it holds, so both have to be said here.
     el.title = group.collapsed
-      ? alarm
-        ? 'Expand group — a tab is waiting for input'
-        : working
-          ? 'Expand group — a tab is working'
-          : 'Expand group'
+      ? `Expand group (${tabs.length} ${tabs.length === 1 ? 'tab' : 'tabs'})${
+          alarm ? ' — a tab is waiting for input' : working ? ' — a tab is working' : ''
+        }`
       : 'Collapse group'
 
-    const swatch = document.createElement('span')
-    swatch.className = 'tabgroup-swatch'
-    el.appendChild(swatch)
-
-    if (group.name) {
-      const name = document.createElement('span')
-      name.className = 'tabgroup-name'
-      name.textContent = group.name
-      el.appendChild(name)
-    }
-
-    if (group.collapsed) {
-      const count = document.createElement('span')
-      count.className = 'tabgroup-count'
-      count.textContent = String(tabs.length)
-      el.appendChild(count)
-    }
+    // The header is a filled chip in the group's colour with its name written inside,
+    // which is the group's whole identity — there is no separate swatch beside it, and a
+    // nameless group is the same chip at its minimum width rather than a bare dot.
+    const name = document.createElement('span')
+    name.className = 'tabgroup-name'
+    name.textContent = group.name ?? ''
+    el.appendChild(name)
 
     el.addEventListener('mousedown', (ev) => {
       if (ev.button === 0) this.handlers.onGroupToggle(group.id)
