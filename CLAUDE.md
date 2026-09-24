@@ -199,7 +199,7 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   tab was tried and rejected as not that.
   Three pieces make it, and none of them works alone:
   **`.tabgroup::after`** is the line, absolute rather than a border so the bar keeps the
-  34px `titleBarOverlay` was told about. It cannot be an inset box-shadow on `.tabgroup`:
+  height `titleBarOverlay` was told about. It cannot be an inset box-shadow on `.tabgroup`:
   the members paint their own backgrounds over the full height, and an inset shadow is
   drawn under its own children.
   **`.tab` carries a 2px border on every tab, transparent, with `border-bottom: none`** and
@@ -254,10 +254,11 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   the alarm if any of them is waiting unseen, and the breath if any is working. Alarm wins,
   as it does on a tab. Its tooltip says which, because the chip has no mark of its own to
   say it — see the next entry for why there is nothing else to report.
-  **The alarm swaps the chip's colour rather than washing over it.** Amber at a third
-  opacity over blue or green comes out a muddy slate that reads as some other group, not as
-  a tab asking for something. Losing the group's colour for as long as it is asking is the
-  right trade: there is only ever one thing the bar asks about.
+  **What it reports is drawn behind the chip, not on it.** A folded group grows a
+  tab-shaped ground in the same place a tab has one (`.tabgroup[data-collapsed]` with the
+  wash on its `::before`), and that is what tints and breathes; the chip keeps the group's
+  own colour. Washing the chip itself was tried first and amber over blue or green came out
+  a muddy slate that read as some other group rather than as a tab asking for something.
   `awaitingSeen` and `updateAttention` are untouched by any of this: the first cannot be
   answered for a tab that is not active, which is exactly right, and the second walks
   `panes` rather than `order`, so the taskbar still flashes for a wait inside a folded

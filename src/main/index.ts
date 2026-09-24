@@ -57,7 +57,7 @@ let win: BrowserWindow | undefined
 let agentRunning: Record<string, boolean> = {}
 
 /** Height of the tab bar, which doubles as the title bar. Mirrors `#tabbar` in theme.css. */
-const TITLE_BAR_HEIGHT = 34
+const TITLE_BAR_HEIGHT = 38
 
 /**
  * The window controls are drawn by Windows, not by CSS, so their colours have to

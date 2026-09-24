@@ -130,7 +130,7 @@ body {
 #tabbar {
   display: flex;
   align-items: stretch;
-  height: env(titlebar-area-height, 34px);
+  height: env(titlebar-area-height, 38px);
   padding-right: calc(100% - env(titlebar-area-width, 100%));
   flex: 0 0 auto;
   background: var(--bg-chrome);
@@ -274,8 +274,7 @@ body {
 }
 
 /* The breath is painted on the tab, so it has to be cut to the same shape. */
-.tab::after,
-.tabgroup-head::after {
+.tab::after {
   border-radius: inherit;
 }
 
@@ -309,8 +308,8 @@ body {
    in peace. */
 .tab.alarm::after,
 .tab.working::after,
-.tabgroup-head.alarm::after,
-.tabgroup-head.working::after {
+.tabgroup[data-collapsed].alarm::before,
+.tabgroup[data-collapsed].working::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -323,7 +322,7 @@ body {
 
 /* Busy. Neutral and barely there: it says the tab is alive, and nothing more. */
 .tab.working::after,
-.tabgroup-head.working::after {
+.tabgroup[data-collapsed].working::before {
   background: var(--fg);
   animation-name: breathe-working;
 }
@@ -344,18 +343,21 @@ body {
   color: var(--fg);
 }
 
-/* A folded group chip swaps its colour instead of being washed in amber: the chip is
-   already a solid colour, and amber over blue or green comes out a muddy slate that reads
-   as some other group rather than as a tab asking for something. Losing the group's colour
-   for as long as it is asking is the right trade — there is only ever one thing the bar
-   asks about. */
-.tabgroup-head.alarm {
-  background: var(--warn);
-  color: var(--on-group);
+/* A folded group reports on the same tab-shaped ground a tab uses, drawn behind its chip
+   rather than on it — the chip stays the group's own colour, and what the bar tints and
+   breathes is a background, exactly as it is for a tab. Washing the chip itself was tried
+   first: amber over blue or green comes out a muddy slate that reads as some other group,
+   not as a tab asking for something.
+
+   `top: 4px` is the tabs' own margin, so the ground lines up with them. */
+.tabgroup[data-collapsed].alarm::before,
+.tabgroup[data-collapsed].working::before {
+  inset: 4px 0 0;
+  border-radius: 7px 7px 0 0;
 }
 
 .tab.alarm::after,
-.tabgroup-head.alarm::after {
+.tabgroup[data-collapsed].alarm::before {
   background: var(--warn);
   animation-name: breathe-alarm;
   animation-duration: 1.4s;
@@ -388,7 +390,7 @@ body {
    the colour was carrying the meaning all along. */
 @media (prefers-reduced-motion: reduce) {
   .tab.working::after,
-  .tabgroup-head.working::after {
+  .tabgroup[data-collapsed].working::before {
     animation: none;
     opacity: 0;
   }
@@ -396,7 +398,7 @@ body {
   /* The alarm keeps its colour: with the breath gone it is the only thing left saying
      that this tab is waiting. */
   .tab.alarm::after,
-  .tabgroup-head.alarm::after {
+  .tabgroup[data-collapsed].alarm::before {
     animation: none;
     opacity: 0.26;
   }

@@ -135,30 +135,39 @@ export class TabBar {
     tabs: TabViewModel[],
     activeId: string | undefined
   ): HTMLElement {
+    // A folded group speaks for its members, and it does so with the same tab-shaped
+    // ground a tab uses — not on the chip, which stays the group's own colour. An open
+    // group says nothing: each of its tabs is on show and says it for itself.
+    const alarm = group.collapsed && tabs.some((tab) => tab.alarm)
+    const working = group.collapsed && !alarm && tabs.some((tab) => tab.working)
+
     const el = document.createElement('div')
-    el.className = 'tabgroup'
+    el.className = ['tabgroup', alarm ? 'alarm' : working ? 'working' : '']
+      .filter(Boolean)
+      .join(' ')
     el.dataset.groupColor = group.color
     if (group.collapsed) el.dataset.collapsed = ''
 
-    el.appendChild(this.renderGroupHead(group, tabs))
+    el.appendChild(this.renderGroupHead(group, tabs, alarm, working))
     if (!group.collapsed) {
       for (const tab of tabs) el.appendChild(this.renderTab(tab, tab.id === activeId, group.id))
     }
     return el
   }
 
-  private renderGroupHead(group: TabGroupViewModel, tabs: TabViewModel[]): HTMLElement {
+  private renderGroupHead(
+    group: TabGroupViewModel,
+    tabs: TabViewModel[],
+    alarm: boolean,
+    working: boolean
+  ): HTMLElement {
     const el = document.createElement('div')
-    // Only a folded group speaks for its tabs — for the one in front of the user, and
-    // for what the rest are up to. An open group has each of them drawn next to it,
-    // saying it themselves.
+    // Only a folded group stands in for the tab in front of the user; an open one has
+    // that tab drawn beside it, wearing the marker itself. What the members are up to is
+    // drawn on the group, not here — the chip keeps its own colour.
     const active = group.collapsed && group.active
-    const alarm = group.collapsed && tabs.some((tab) => tab.alarm)
-    const working = group.collapsed && !alarm && tabs.some((tab) => tab.working)
 
-    el.className = ['tabgroup-head', active ? 'active' : '', alarm ? 'alarm' : working ? 'working' : '']
-      .filter(Boolean)
-      .join(' ')
+    el.className = `tabgroup-head${active ? ' active' : ''}`
     el.draggable = true
     el.dataset.groupColor = group.color
     // The header has no mark of its own, and a folded one no longer shows how many tabs
