@@ -211,9 +211,25 @@ body {
 .tab.active {
   background: var(--bg-tab-active);
   color: var(--fg);
-  border-top-color: var(--accent);
   /* Above the group's line — see the group's own rule for why. */
   z-index: 1;
+}
+
+/* The rule that marks it, drawn short and straight rather than as the top border. As a
+   border it followed the corner radius and turned downwards at both ends, which read as
+   the start of a box the tab never closes; inset a few pixels it is plainly a rule.
+   `#tabstrip > .tab` is a loose tab, the only kind this applies to — inside a group the
+   outline is the border on three sides and `::before` is already the flare, and the child
+   selector is what keeps the two from ever meeting. */
+#tabstrip > .tab.active::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  background: var(--accent);
+  pointer-events: none;
 }
 
 /* In a group there *is* a line, and then the outline is the whole three sides: up the left
@@ -559,6 +575,18 @@ body {
 .tab.drop-before,
 .tabgroup-head.drop-before {
   box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* Every button in the bar sits on the line the tab labels sit on. Centring them in the bar
+   leaves them a few pixels high, because a tab centres its text in what is left under its
+   2px top border rather than in the bar — this is the same 6px the group chip carries, for
+   the same reason. Worth measuring rather than eyeballing: compare the middles off
+   `getBoundingClientRect`. The buttons stay full height, so their hit area does not
+   shrink; only what they draw moves down. */
+#newtab,
+#theme-toggle,
+#update-button {
+  padding: 6px 0 0;
 }
 
 #newtab {
