@@ -165,6 +165,127 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `renderer/src/main.ts` composes both; `TabBar` draws them as two elements so the folder
   can be stepped back, and a tab whose folder is its whole name keeps it at full strength
   (`.folder:not(:only-child)` in `theme.css`).
+- **A tab group is a run in `order`, and `normalizeOrder` is the only thing that sorts.**
+  `order` is the whole truth about what is drawn where; a group's members have to sit in it
+  as one uninterrupted run, which is what lets `render` cut the bar into segments in a
+  single pass instead of gathering each group's tabs up first. `normalizeOrder` restores
+  that run after every change and renumbers `TabState.order` from the result — it is the
+  one place that writes those numbers.
+  **It must never be what decides membership.** It is stable, so the first member it meets
+  is where the group ends up: a tab dragged out of its block would be met first and would
+  pull the whole group along behind it, where the user meant to take one tab out. So
+  `moveTab` reads the dropped-on group *and* the anchor while `order` still describes the
+  bar that was dropped onto, writes `groupId`, and only then normalises. Group membership
+  is settled before, never by, that call.
+- **A group always folds, and the header speaks for the tab it hides.** `setGroupCollapsed`
+  moves the active tab to the first tab right of the group (wrapping round) so the bar goes
+  on showing where the user is — but when there is no tab outside the group it folds
+  anyway, and the active tab stays inside it. The header then wears the active marker
+  (`TabGroupViewModel.active`, `.tabgroup-head.active`), which is the whole cost: what the
+  user looks at is the *pane*, and that does not go away, only the tab's button does.
+  Refusing to fold in that case was the first attempt and it was wrong — two tabs in one
+  group is already enough to hit it, so the feature looked broken the first time anyone
+  tried it. There is no invariant that the active tab is visible in the bar, and nothing
+  needs one: `awaitingSeen` asks whether the *pane* is in front, which it is.
+  What does follow from that: `activate` takes a `reveal` flag, true for every caller that
+  means "show me this tab" and false exactly once, when the tabs are restored — otherwise
+  a group folded up before a restart would spring open on the next start. And anything
+  that walks tabs by keyboard uses `reachableOrder`, which falls back to all of them when
+  every tab is folded away, so Ctrl+Tab is never a dead end.
+- **A group's line runs along its bottom and climbs over the tab in front.** One stroke:
+  in along the bottom of the group, up the left edge of the active tab, across its top,
+  down its right edge and on. Three sides and open at the foot, with rounded top corners —
+  the shape every browser draws, and it was asked for by name after a full ring around the
+  tab was tried and rejected as not that.
+  Three pieces make it, and none of them works alone:
+  **`.tabgroup::after`** is the line, absolute rather than a border so the bar keeps the
+  height `titleBarOverlay` was told about. It cannot be an inset box-shadow on `.tabgroup`:
+  the members paint their own backgrounds over the full height, and an inset shadow is
+  drawn under its own children.
+  **`.tab` carries a 2px border on every tab, transparent, with `border-bottom: none`** and
+  the top corners rounded. Transparent on all of them because `box-sizing: border-box`
+  would otherwise shift the label by two pixels each time the user switched tabs; no bottom
+  because that open foot is what makes it a tab rather than a box. `.tab.active` only sets
+  `border-color`, and only inside a group: `.tabgroup .tab.active` takes `--tab-ring`,
+  which the group sets to its own colour, so line and outline are visibly one stroke.
+  **A loose active tab gets the top edge alone**, in `--accent`. There is no line for its
+  sides to run into, and three sides closing on nothing read as a box drawn round the tab
+  rather than a tab standing in a strip.
+  **`z-index: 1` on the active tab** is what stops the line running through underneath it.
+  Without it the stroke closes along the bottom and the whole thing reads as a box.
+  **The flare at each foot is `.tabgroup .tab.active::before`**, a 6px strip hanging past
+  both sides of the tab with four background layers: the two quarter arcs on top, the tab's
+  own colour across its foot below them, and the bar's colour in the 4px each arc reaches
+  into, bottom-most. The middle layer is there because a border runs the full height of its
+  box — without it each side pokes a stub down past the arc it continues from. The last is
+  there because the group's line would otherwise run on beneath the curve and fill it back
+  in; it is 2px tall, the height of the line and no more, or it eats into the neighbouring
+  tab. `border-radius` cannot do any of this: it only rounds *inward*, which bends the
+  outline away from the line and leaves a notch. Measured in the window, not reasoned out —
+  the offsets are against the *padding* box, since that is what an absolutely positioned
+  child is placed against, and being two pixels out is the whole difference.
+  Only a member tab gets a flare, never a folded group header: a folded group is nothing
+  but its header, so its line lies entirely under it and a flare would curl into empty bar.
+  A 2px rule along the top edge alone is what the active tab used to be, and it was far too
+  easy to miss on a full bar. If this is ever reduced back to an edge, that is the
+  complaint to expect.
+  The group palette lives in `theme.css` **and nowhere else**: no group colour is ever
+  drawn by xterm or by Windows, so "the palette exists three times over" below does not
+  extend to it. `[data-group-color]` turns the stored name into `--group-color` once, for
+  the line, the outline, the header chip, the menu rows and the dialog's buttons alike.
+  `--on-group` is what is written on a filled chip: one value per palette carries all eight
+  colours, because they are light in the dark palette and dark in the light one.
+  `.tabgroup-head` also has to be in the `-webkit-app-region: no-drag` list, or clicking it
+  drags the window instead of folding the group.
+- **The header is the group: a filled chip with the name inside it.** Not a swatch beside a
+  label — the chip *is* the colour, the way Chrome draws one, and a nameless group is the
+  same chip at its `min-width` rather than a bare dot. It is `align-self: center`, so it is
+  a chip sitting in the bar rather than a tab reaching the bottom of it, and the group's
+  line passes under it. Its `margin-top` is what puts its label on the same line as the
+  labels beside it — centring it in the bar alone leaves it sitting a few pixels high,
+  because a tab's own text is centred in what is left under its top border, not in the bar.
+  Worth measuring rather than eyeballing: compare the middles of `.tabgroup-name` and a
+  tab's `.name` off `getBoundingClientRect`.
+  **A folded group is the chip and nothing else**: no line (`.tabgroup[data-collapsed]::after`
+  is `content: none` — a line ties members together and none are on show) and no tab count.
+  The count lives in the tooltip, which is also where a folded group says what it is
+  reporting.
+- **A collapsed group speaks for its members**, in the same two states a tab has: it takes
+  the alarm if any of them is waiting unseen, and the breath if any is working. Alarm wins,
+  as it does on a tab. Its tooltip says which, because the chip has no mark of its own to
+  say it — see the next entry for why there is nothing else to report.
+  **What it reports is drawn behind the chip, not on it.** A folded group grows a
+  tab-shaped ground in the same place a tab has one (`.tabgroup[data-collapsed]` with the
+  wash on its `::before`), and that is what tints and breathes; the chip keeps the group's
+  own colour. Washing the chip itself was tried first and amber over blue or green came out
+  a muddy slate that read as some other group rather than as a tab asking for something.
+  `awaitingSeen` and `updateAttention` are untouched by any of this: the first cannot be
+  answered for a tab that is not active, which is exactly right, and the second walks
+  `panes` rather than `order`, so the taskbar still flashes for a wait inside a folded
+  group.
+  **A dead process inside a folded group is not reported.** That state lives on the tab's
+  own mark, and the header has none. A folded group reports only what moves; the rest is
+  seen on opening it. Deliberate, not an oversight.
+- **A group that loses its last tab stops existing**, in `pruneEmptyGroups`, called after
+  every change rather than at the places a tab can leave — closing, ungrouping, dragging
+  out and being moved to another group are otherwise four chances to forget it. What
+  `state.json` holds is validated the same way and only in the renderer (`normalizeGroups`):
+  `SessionStore` checks no more than that a tab has an id and a cwd. A colour it does not
+  know becomes `grey`, which is what lets a ninth colour be added later without older
+  builds choking on it; a `groupId` naming no group is dropped from the tab. A group is the
+  cheaper thing to lose, so whatever does not add up costs the group and never the tab.
+  `PersistedState.groups` is additive and deliberately did **not** raise `SCHEMA_VERSION` —
+  a bump makes `load` set aside any state.json written by a newer aterm, so it would cost
+  every tab of anyone who goes back a version, for a field that version would have ignored.
+- **Dragging a whole group is a separate source, and groups do not nest.** `TabBar` reports
+  a `DragSource` of `tab` or `group` and a `DropTarget` of `before` / `group` / `end`;
+  what that means for membership is decided in `main.ts`, not in the bar. A block always
+  lands in front of a whole unit — a loose tab, or another group entire — never inside one.
+  The one rule worth knowing for a single tab: dropping it in front of a group's *first*
+  member means in front of the group, not into it, unless it is already a member. Chrome
+  tells those apart with a hysteresis zone that needs pointer tracking; this needs no
+  geometry. The insertion marker has to be cleared on `dragend` as well as `dragleave` —
+  `dragleave` does not fire when the drag ends over the element it marked.
 - **A worktree belongs to its project, in the tab name and in the session list.**
   `claude --worktree` creates `<project>\.claude\worktrees\<name>`, and a session reopened
   from the picker carries *that* as its `cwd`, because `RecentSession.cwd` comes from
@@ -183,15 +304,34 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   started it with `--session-id` on its own id, in the project, with an empty conversation.
   A worktree that has since been removed does not count; its id is still taken
   (`hasTranscript`), so the tab gets a fresh one.
+- **The tab bar says three things, and only three.** What kind of tab this is (`✳` for an
+  agent, `❯` for a shell — `.mark`, faint while no process runs), that something is
+  happening (a breath), and whether it concerns the user (the breath is amber). That is the
+  whole vocabulary. It replaced a dot in five colours with two animations, which was a lot
+  of grammar for very little said, and which a folded group header then had to repeat.
+  Two rules hold it together:
+  **The alarm is word for word `updateAttention`'s condition** — waiting for input and not
+  looked at since. The tab bar and the taskbar button say the same thing or neither does;
+  if one of them ever grows a case the other lacks, that is the bug.
+  **Both live states breathe, and colour is what separates them.** The alarm does not sit
+  still: a still alarm beside a moving activity would put the motion on the one thing the
+  user is allowed to ignore. They are told apart by colour (neutral vs `--warn`) and by
+  amplitude — the alarm swings about three times as far, and both were measured against
+  each other in the running window rather than picked. The wash is a `::after` over the
+  tab, not a keyframe on `background`, because a tab may be active, grouped or plain and a
+  keyframe would have to know which colour is underneath. Under `prefers-reduced-motion`
+  the working wash goes to nothing and the alarm holds its amber — the colour was carrying
+  the meaning all along.
 - **The terminal title carries a state marker.** A program naming itself through OSC 0/2
   names its tab (`term.onTitleChange`). Claude Code
   puts its state in front: a spinner while it works, changing about once a second, and
   `✳` (`U+2733`) while it waits for input. `readPtyTitle` in `renderer/src/main.ts` splits
-  the two apart — the text becomes the summary, the marker becomes the tab's dot (amber
-  and pulsing while waiting, breathing while working). Stripping the spinner is not
-  cosmetic: every frame is a title change, and `TabBar.render` rebuilds the whole bar, so
-  keeping the frame in the label would re-render the tab bar once a second per tab — which
-  is also why the working dot is a CSS animation and not a glyph.
+  the two apart — the text becomes the summary, the marker becomes `Pane.ptyState`, which
+  is what the tab breathes with. Stripping the spinner is not cosmetic: every frame is a
+  title change, and `TabBar.render` rebuilds the whole bar, so keeping the frame in the
+  label would re-render the tab bar once a second per tab — which is also why the breath is
+  a CSS animation and not a redrawn glyph, and why a rebuild restarts it from the
+  beginning.
   **The spinner glyphs are not stable across Claude Code versions.** They were `U+2800`–
   `U+28FF` (Braille) up to some version before 2.1.247, and are `◐`/`◑` (`U+25D0`/`U+25D1`,
   alternating every 960 ms) in 2.1.247. `SPINNER_MARKER` matches both, so an older `claude`
@@ -225,7 +365,7 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `app:set-attention` whenever *any* tab is waiting unseen, deduplicated because a working tab
   re-renders about once a second; `main/index.ts` turns it into `win.flashFrame`. Two rules
   there: never flash while the window is in the foreground — the user is already here and the
-  pulsing dot says the rest — and re-evaluate on `focus` *and* `blur`, because Windows stops a
+  amber tab says the rest — and re-evaluate on `focus` *and* `blur`, because Windows stops a
   flash by itself the moment the window comes forward, whether or not the tab that asked was
   ever looked at. So the flash comes back on the next blur until the last unseen wait is seen.
   A `setOverlayIcon` badge was tried as a second marker, for the stretch the flash cannot cover
@@ -235,14 +375,6 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   padding does not shrink it because the crop goes to the *opaque* bounds. Only a visibly opaque
   ring around the dot makes the coloured part smaller, and no ring colour works both over the
   icon and over the taskbar it overhangs. Measured off screenshots, not documented anywhere.
-- **The pulse ring must not fade while it grows.** The amber dot's `dot-pulse` interpolated
-  from `var(--warn)` straight to `transparent`, which couples the alpha to the radius: measured
-  off the computed style, it was down to 20% at 4px and gone at 5px, so all that ever reached
-  the screen was a 1px shimmer on a 7px dot and the pulse read as broken. The alpha lives in
-  `--warn-ring` and holds until 55% of the cycle. Both palettes carry the token. Worth
-  re-measuring rather than eyeballing: `getComputedStyle(dot).boxShadow` sampled across one
-  cycle says exactly what is drawn, and a static ring of the target size next to it says what
-  is visible.
 - **The tab bar is the title bar.** The window uses `titleBarStyle: 'hidden'`, so Electron
   overlays the native window controls on the right. `#tabbar` is the drag region and every
   clickable child opts out again with `-webkit-app-region: no-drag`; the room left beside

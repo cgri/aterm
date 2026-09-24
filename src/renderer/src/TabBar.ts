@@ -1,4 +1,8 @@
-import type { TabKind } from '@shared/types'
+import type { TabGroupColor } from '@shared/types'
+
+/** Claude Code's own marker, with the variation selector that keeps it out of emoji. */
+const AGENT_MARK = '✳︎'
+const SHELL_MARK = '❯'
 
 export interface TabViewModel {
   id: string
@@ -8,17 +12,47 @@ export interface TabViewModel {
   folder: string
   /** What the session is about, if anything is known about it yet. */
   summary?: string
-  kind: TabKind
-  status: 'stopped' | 'running' | 'exited'
-  /** A shell tab with a Claude process running inside it. */
-  agentRunning: boolean
+  /** What runs in this tab, rather than what it was started as. */
+  agent: boolean
+  /** There is a live process. Without one the tab wears its mark faintly. */
+  running: boolean
   /** The program in this tab says it is working on something. */
   working: boolean
-  /** The program in this tab says it is waiting for input. */
-  awaitingInput: boolean
-  /** The user has had this tab on screen since it started waiting. */
-  awaitingSeen: boolean
+  /** Waiting for input and not looked at since — the one thing the bar asks about. */
+  alarm: boolean
 }
+
+export interface TabGroupViewModel {
+  id: string
+  /** Absent = nameless: the header is the colour swatch alone. */
+  name?: string
+  color: TabGroupColor
+  collapsed: boolean
+  /**
+   * This group holds the tab that is in front. While it is folded up, that tab has no
+   * button of its own, so the header wears the marker in its place.
+   */
+  active: boolean
+}
+
+/**
+ * The bar is drawn from a segmented list rather than a flat one plus a second list of
+ * groups: the renderer already walks the tabs in their drawn order, so it knows where
+ * each group begins and ends, and deriving that a second time here is how the two
+ * would eventually come to disagree.
+ */
+export type StripItem =
+  | { kind: 'tab'; tab: TabViewModel }
+  | { kind: 'group'; group: TabGroupViewModel; tabs: TabViewModel[] }
+
+/** What is being dragged: a single tab, or a whole group by its header. */
+export type DragSource = { kind: 'tab'; id: string } | { kind: 'group'; id: string }
+
+/** Where it was let go. What that means for group membership is the renderer's call. */
+export type DropTarget =
+  | { kind: 'before'; tabId: string }
+  | { kind: 'group'; groupId: string }
+  | { kind: 'end' }
 
 export interface TabBarHandlers {
   onSelect: (id: string) => void
@@ -26,11 +60,17 @@ export interface TabBarHandlers {
   /** Right-click on a tab. The tab is not selected by it. */
   onMenu: (id: string) => void
   onNew: () => void
-  onReorder: (draggedId: string, beforeId: string | undefined) => void
+  onMove: (source: DragSource, target: DropTarget) => void
+  /** Left-click on a group header. */
+  onGroupToggle: (groupId: string) => void
+  /** Right-click on a group header. */
+  onGroupMenu: (groupId: string) => void
 }
 
 export class TabBar {
-  private dragging?: string
+  private dragging?: DragSource
+  /** The element currently carrying the insertion marker, so it can be cleared again. */
+  private marked?: HTMLElement
 
   /**
    * `trailing` is put at the right end of the bar and survives every re-render —
@@ -42,7 +82,10 @@ export class TabBar {
     private readonly trailing: HTMLElement[] = []
   ) {}
 
-  render(tabs: TabViewModel[], activeId: string | undefined): void {
+  render(items: StripItem[], activeId: string | undefined): void {
+    // Whatever was marked belongs to the bar that is about to be thrown away.
+    this.marked = undefined
+
     // Only the tabs go into the strip, and only the strip clips: everything
     // after it — the new-tab button, the drag handle, the trailing buttons —
     // keeps its room however many tabs there are. Putting the tabs straight into
@@ -50,9 +93,28 @@ export class TabBar {
     // left the title bar with no free space to drag it by.
     const strip = document.createElement('div')
     strip.id = 'tabstrip'
-    for (const tab of tabs) {
-      strip.appendChild(this.renderTab(tab, tab.id === activeId))
+    for (const item of items) {
+      if (item.kind === 'tab') {
+        strip.appendChild(this.renderTab(item.tab, item.tab.id === activeId))
+      } else {
+        strip.appendChild(this.renderGroup(item.group, item.tabs, activeId))
+      }
     }
+
+    // The free space behind the last tab is a drop target of its own: "here, and in
+    // no group". `ev.target === strip` is what keeps it from also answering for a
+    // drop that came from a tab — those stop themselves, but the guard is what makes
+    // that true rather than merely likely.
+    strip.addEventListener('dragover', (ev) => {
+      if (ev.target !== strip || !this.dragging) return
+      ev.preventDefault()
+      this.clearMark()
+    })
+    strip.addEventListener('drop', (ev) => {
+      if (ev.target !== strip) return
+      ev.preventDefault()
+      this.drop({ kind: 'end' })
+    })
 
     const plus = document.createElement('button')
     plus.id = 'newtab'
@@ -68,21 +130,100 @@ export class TabBar {
     this.root.replaceChildren(strip, plus, handle, ...this.trailing)
   }
 
-  private renderTab(tab: TabViewModel, active: boolean): HTMLElement {
+  private renderGroup(
+    group: TabGroupViewModel,
+    tabs: TabViewModel[],
+    activeId: string | undefined
+  ): HTMLElement {
+    // A folded group speaks for its members, and it does so with the same tab-shaped
+    // ground a tab uses — not on the chip, which stays the group's own colour. An open
+    // group says nothing: each of its tabs is on show and says it for itself.
+    const alarm = group.collapsed && tabs.some((tab) => tab.alarm)
+    const working = group.collapsed && !alarm && tabs.some((tab) => tab.working)
+
     const el = document.createElement('div')
-    el.className = `tab${active ? ' active' : ''}`
+    el.className = ['tabgroup', alarm ? 'alarm' : working ? 'working' : '']
+      .filter(Boolean)
+      .join(' ')
+    el.dataset.groupColor = group.color
+    if (group.collapsed) el.dataset.collapsed = ''
+
+    el.appendChild(this.renderGroupHead(group, tabs, alarm, working))
+    if (!group.collapsed) {
+      for (const tab of tabs) el.appendChild(this.renderTab(tab, tab.id === activeId, group.id))
+    }
+    return el
+  }
+
+  private renderGroupHead(
+    group: TabGroupViewModel,
+    tabs: TabViewModel[],
+    alarm: boolean,
+    working: boolean
+  ): HTMLElement {
+    const el = document.createElement('div')
+    // Only a folded group stands in for the tab in front of the user; an open one has
+    // that tab drawn beside it, wearing the marker itself. What the members are up to is
+    // drawn on the group, not here — the chip keeps its own colour.
+    const active = group.collapsed && group.active
+
+    el.className = `tabgroup-head${active ? ' active' : ''}`
+    el.draggable = true
+    el.dataset.groupColor = group.color
+    // The header has no mark of its own, and a folded one no longer shows how many tabs
+    // it holds, so both have to be said here.
+    el.title = group.collapsed
+      ? `Expand group (${tabs.length} ${tabs.length === 1 ? 'tab' : 'tabs'})${
+          alarm ? ' — a tab is waiting for input' : working ? ' — a tab is working' : ''
+        }`
+      : 'Collapse group'
+
+    // The header is a filled chip in the group's colour with its name written inside,
+    // which is the group's whole identity — there is no separate swatch beside it, and a
+    // nameless group is the same chip at its minimum width rather than a bare dot.
+    const name = document.createElement('span')
+    name.className = 'tabgroup-name'
+    name.textContent = group.name ?? ''
+    el.appendChild(name)
+
+    el.addEventListener('mousedown', (ev) => {
+      if (ev.button === 0) this.handlers.onGroupToggle(group.id)
+    })
+    el.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault()
+      this.handlers.onGroupMenu(group.id)
+    })
+
+    this.installDrag(el, {
+      source: { kind: 'group', id: group.id },
+      target: { kind: 'group', groupId: group.id },
+      groupId: group.id
+    })
+    return el
+  }
+
+  private renderTab(tab: TabViewModel, active: boolean, groupId?: string): HTMLElement {
+    const el = document.createElement('div')
+    // Waiting beats working, the way it always has — one place now rather than a
+    // function of its own, because there are only the two states left.
+    el.className = [
+      'tab',
+      active ? 'active' : '',
+      tab.alarm ? 'alarm' : tab.working ? 'working' : ''
+    ]
+      .filter(Boolean)
+      .join(' ')
     el.draggable = true
     el.dataset.id = tab.id
     el.title = tab.title
 
-    const dot = document.createElement('span')
-    dot.className = `dot ${dotClass(tab)}`
-    if (tab.awaitingInput) {
-      dot.title = 'Waiting for input'
-    } else if (tab.working) {
-      dot.title = 'Working'
-    }
-    el.appendChild(dot)
+    // Not a state any more: it says what kind of tab this is, and goes faint when
+    // nothing is running in it. What the tab is *doing* is the breath behind it.
+    const mark = document.createElement('span')
+    mark.className = `mark${tab.running ? '' : ' idle'}`
+    mark.textContent = tab.agent ? AGENT_MARK : SHELL_MARK
+    mark.title = tab.agent ? 'Claude Code' : 'Terminal'
+    el.appendChild(mark)
 
     // Folder and summary are wrapped together so the tab's own gap stays between
     // dot, name and close button — inside the name, the separator does the
@@ -96,7 +237,7 @@ export class TabBar {
     // The space after the dash has to be a non-breaking one: the folder is a flex
     // item of its own, and a trailing ordinary space at the end of a line box is
     // dropped, which would glue the summary to the dash.
-    folder.textContent = tab.summary ? `${tab.folder} -\u00a0` : tab.folder
+    folder.textContent = tab.summary ? `${tab.folder} - ` : tab.folder
     name.appendChild(folder)
 
     if (tab.summary) {
@@ -130,34 +271,82 @@ export class TabBar {
       this.handlers.onMenu(tab.id)
     })
 
-    el.addEventListener('dragstart', () => {
-      this.dragging = tab.id
+    this.installDrag(el, {
+      source: { kind: 'tab', id: tab.id },
+      target: { kind: 'before', tabId: tab.id },
+      groupId
+    })
+
+    return el
+  }
+
+  /**
+   * Every tab and every group header is both a drag source and a drop target. The
+   * marker saying where a drop would land sits on the target, and `dragleave` alone
+   * cannot clear it — it does not fire when the drag ends over the element — so the
+   * bar remembers what it marked and clears that on `dragend` as well.
+   */
+  private installDrag(
+    el: HTMLElement,
+    opts: {
+      source: DragSource
+      target: DropTarget
+      /** The group this element is part of; a group dropped on its own parts does nothing. */
+      groupId?: string
+    }
+  ): void {
+    el.addEventListener('dragstart', (ev) => {
+      // A tab inside a group would otherwise start the group's drag as well.
+      ev.stopPropagation()
+      this.dragging = opts.source
       el.classList.add('dragging')
     })
     el.addEventListener('dragend', () => {
       this.dragging = undefined
       el.classList.remove('dragging')
+      this.clearMark()
     })
-    el.addEventListener('dragover', (ev) => ev.preventDefault())
-    el.addEventListener('drop', (ev) => {
+    el.addEventListener('dragover', (ev) => {
+      if (this.isNoop(opts)) return
       ev.preventDefault()
-      if (this.dragging && this.dragging !== tab.id) {
-        this.handlers.onReorder(this.dragging, tab.id)
-      }
+      ev.stopPropagation()
+      this.mark(el)
     })
-
-    return el
+    el.addEventListener('dragleave', () => {
+      if (this.marked === el) this.clearMark()
+    })
+    el.addEventListener('drop', (ev) => {
+      if (this.isNoop(opts)) return
+      ev.preventDefault()
+      ev.stopPropagation()
+      this.drop(opts.target)
+    })
   }
-}
 
-function dotClass(tab: TabViewModel): string {
-  if (tab.status === 'exited') return 'exited'
-  if (tab.status === 'stopped') return ''
-  // Waiting beats working: it is the one state that asks something of the user.
-  if (tab.awaitingInput) return tab.awaitingSeen ? 'awaiting seen' : 'awaiting'
-  // Working is a modifier on the running dot, not a colour of its own: what the
-  // colour says about the tab does not change just because something is going on
-  // in it.
-  const base = tab.agentRunning || tab.kind === 'claude' ? 'agent' : 'running'
-  return tab.working ? `${base} working` : base
+  /** Would this drop move anything? Letting a thing go over itself does not. */
+  private isNoop(opts: { source: DragSource; groupId?: string }): boolean {
+    const dragged = this.dragging
+    if (!dragged) return true
+    if (dragged.kind === 'tab') return opts.source.kind === 'tab' && opts.source.id === dragged.id
+    // A whole group: its own header and every one of its own tabs are no-ops.
+    return opts.groupId === dragged.id
+  }
+
+  private mark(el: HTMLElement): void {
+    if (this.marked === el) return
+    this.clearMark()
+    el.classList.add('drop-before')
+    this.marked = el
+  }
+
+  private clearMark(): void {
+    this.marked?.classList.remove('drop-before')
+    this.marked = undefined
+  }
+
+  private drop(target: DropTarget): void {
+    const source = this.dragging
+    this.clearMark()
+    if (source) this.handlers.onMove(source, target)
+  }
 }

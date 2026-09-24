@@ -13,9 +13,6 @@
   --accent: #4f8cff;
   --ok: #4bbf73;
   --warn: #d9a441;
-  /* The pulse ring around a waiting tab's dot. A colour of its own because the
-     ring has to keep this alpha for as long as it is growing — see dot-pulse. */
-  --warn-ring: #d9a44190;
   --err: #e05561;
   --border: #262b36;
   --hover: #3a4150;
@@ -26,6 +23,22 @@
   --shadow-soft: #0007;
   --font-ui: 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, monospace;
+
+  /* Tab groups. Eight hues, named after the colour and not after any meaning — a
+     group called "red" is not an error state. They live here and nowhere else:
+     unlike the palette above, no group colour is ever drawn by xterm or by Windows,
+     so neither TerminalView's themes nor CHROME_COLORS repeat them. */
+  --group-grey: #8b93a5;
+  --group-blue: #5b9cff;
+  --group-red: #e8737f;
+  --group-yellow: #d9b441;
+  --group-green: #5cc47f;
+  --group-pink: #e57ab8;
+  --group-purple: #a98cf0;
+  --group-cyan: #4fb6cf;
+  /* What is legible written on any of the eight. They are light in this palette and
+     dark in the other, so one value carries all of them either way. */
+  --on-group: #12141a;
 }
 
 :root[data-theme='light'] {
@@ -38,7 +51,6 @@
   --accent: #1a6fe0;
   --ok: #1f8a4c;
   --warn: #a86a08;
-  --warn-ring: #a86a0899;
   --err: #c02a37;
   --border: #d3d7de;
   --hover: #cdd2da;
@@ -47,6 +59,45 @@
   --scrim: #3a404d40;
   --shadow: #00000033;
   --shadow-soft: #00000022;
+
+  --group-grey: #6b7280;
+  --group-blue: #1a6fe0;
+  --group-red: #c02a37;
+  --group-yellow: #a07206;
+  --group-green: #1f8a4c;
+  --group-pink: #b5307f;
+  --group-purple: #6d43c9;
+  --group-cyan: #10707f;
+  --on-group: #ffffff;
+}
+
+/* The name a group carries turns into a colour here, once, so that everything that
+   draws one — the group's own edge, the swatch in a menu row, the buttons in the
+   group dialog — only has to say `var(--group-color)`. An unknown name is grey,
+   which is what the renderer falls back to while loading too. */
+[data-group-color] {
+  --group-color: var(--group-grey);
+}
+[data-group-color='blue'] {
+  --group-color: var(--group-blue);
+}
+[data-group-color='red'] {
+  --group-color: var(--group-red);
+}
+[data-group-color='yellow'] {
+  --group-color: var(--group-yellow);
+}
+[data-group-color='green'] {
+  --group-color: var(--group-green);
+}
+[data-group-color='pink'] {
+  --group-color: var(--group-pink);
+}
+[data-group-color='purple'] {
+  --group-color: var(--group-purple);
+}
+[data-group-color='cyan'] {
+  --group-color: var(--group-cyan);
 }
 
 * {
@@ -79,7 +130,7 @@ body {
 #tabbar {
   display: flex;
   align-items: stretch;
-  height: env(titlebar-area-height, 34px);
+  height: env(titlebar-area-height, 38px);
   padding-right: calc(100% - env(titlebar-area-width, 100%));
   flex: 0 0 auto;
   background: var(--bg-chrome);
@@ -92,6 +143,7 @@ body {
 /* Everything clickable has to opt out of dragging again. `#tabstrip` and
    `#draghandle` deliberately do not: they are the free space that drags. */
 #tabbar .tab,
+#tabbar .tabgroup-head,
 #tabbar #newtab,
 #tabbar #update-button,
 #tabbar #theme-toggle {
@@ -108,6 +160,12 @@ body {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
+  /* A hairline of bar between the tabs, so the rounded tops read as separate shapes
+     without needing a border of their own — and so a group's line shows through
+     underneath, unbroken, the way it does in Chrome. The left padding keeps the first
+     thing in the bar — often a group chip — off the window edge. */
+  gap: 2px;
+  padding-left: 4px;
 }
 
 /* The leftover width, and never less than a grabbable strip of it — this is what
@@ -119,102 +177,230 @@ body {
   min-width: 44px;
 }
 
+/* Tabs are rounded at the top and flush at the bottom, the shape every browser uses:
+   the bottom is where a group's line runs, and the tab in front stands on it.
+
+   The 2px border is transparent on every tab and coloured only on the one in front, so
+   that turning it on shifts nothing — with `box-sizing: border-box` a border that
+   appeared only when active would move the label by two pixels every time the user
+   switched tabs. `border-bottom` is off on all of them: the shape is open at the bottom,
+   which is what lets the active tab read as standing on the line rather than floating
+   in a box. */
 .tab {
   display: flex;
   align-items: center;
   gap: 6px;
+  /* The ground the breath is painted on — see `.tab.working::after`. */
+  position: relative;
+  margin-top: 4px;
   padding: 0 8px 0 10px;
   min-width: 110px;
   /* Room for a folder and a summary side by side. */
   max-width: 320px;
+  border: 2px solid transparent;
+  border-bottom: none;
+  border-radius: 7px 7px 0 0;
   background: var(--bg-tab);
-  border-right: 1px solid var(--border);
   cursor: default;
   color: var(--fg-dim);
 }
 
+/* The tab in front, on its own: a rule across the top and nothing down the sides. There is
+   no group line for sides to run into here, and three sides closing on nothing read as a
+   box drawn round the tab rather than a tab standing in a strip. */
 .tab.active {
   background: var(--bg-tab-active);
   color: var(--fg);
-  box-shadow: inset 0 2px 0 var(--accent);
+  border-top-color: var(--accent);
+  /* Above the group's line — see the group's own rule for why. */
+  z-index: 1;
 }
 
-.tab .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--fg-dim);
+/* In a group there *is* a line, and then the outline is the whole three sides: up the left
+   edge, across the top, down the right, meeting the line at both feet. The colour comes
+   from `--tab-ring`, which the group sets to its own, so line and outline read as one
+   stroke. Chrome draws exactly this, and it was asked for by name. */
+.tabgroup .tab.active {
+  border-color: var(--tab-ring);
+}
+
+/* Where the group's line meets the tab in front, it flares outward into it instead of
+   turning a square corner: a quarter arc on each side, 2px thick like the line and the
+   outline it joins. Only inside a group — a loose tab has no line for the flare to reach,
+   and hooks curling into nothing would read as damage.
+
+   `border-radius` cannot do this. It only ever rounds *inward*, which bends the outline
+   away from the line and leaves a notch; the flare has to bow the other way, so it is
+   drawn as arcs.
+
+   Only a member tab, never a folded group header: a folded group is nothing but its
+   header, so its line lies entirely underneath it and there is no length of line left
+   over for a flare to reach. It would curl into empty bar.
+
+   The element hangs 6px past each side of the tab and is 6px tall, and carries four
+   background layers: the two arcs, and two small patches in the tab's own colour that
+   cover the bottom 6px of its side borders. Those patches are what make the join work —
+   a border runs the full height of its box, so without them each side would poke a stub
+   down past the arc it is supposed to continue from. */
+.tabgroup .tab.active::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  bottom: 0;
+  height: 6px;
+  pointer-events: none;
+  background:
+    /* The two arcs, on top of everything else. */
+    radial-gradient(circle 6px at 0 0, #0000 0 4px, var(--tab-ring, var(--accent)) 4px 6px, #0000 6px)
+      left bottom / 6px 6px no-repeat,
+    radial-gradient(
+        circle 6px at 100% 0,
+        #0000 0 4px,
+        var(--tab-ring, var(--accent)) 4px 6px,
+        #0000 6px
+      )
+      right bottom / 6px 6px no-repeat,
+    /* Under them, the tab's own colour across its whole foot. A border runs the full
+       height of its box, so without this each side would poke a stub down past the arc it
+       is meant to continue from. */
+    linear-gradient(var(--bg-tab-active), var(--bg-tab-active)) 4px bottom / calc(100% - 8px)
+      6px no-repeat,
+    /* And underneath that, the bar's colour in the 4px the flares reach into, which is
+       what stops the group's line dead at each arc instead of letting it run on beneath
+       and fill the curve back in. */
+    linear-gradient(var(--bg-chrome), var(--bg-chrome)) left bottom / 4px 2px no-repeat,
+    linear-gradient(var(--bg-chrome), var(--bg-chrome)) right bottom / 4px 2px no-repeat;
+}
+
+/* The breath is painted on the tab, so it has to be cut to the same shape. */
+.tab::after {
+  border-radius: inherit;
+}
+
+/* Not a status light any more: the mark says what kind of tab this is, and nothing
+   about what it is up to. The fixed width is not cosmetic — the two glyphs are not
+   the same width, and without it the names in the bar would not line up. */
+.mark {
   flex: 0 0 auto;
+  width: 11px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.9;
 }
 
-.tab .dot.running {
-  background: var(--ok);
-}
-.tab .dot.agent {
-  background: var(--accent);
-}
-.tab .dot.exited {
-  background: var(--err);
-}
-/* The program is working. It keeps its colour — the state is news about the tab,
-   not a different kind of tab — and only breathes, so it stays clearly apart from
-   the amber pulse that asks for something. This is a CSS animation and not a
-   redrawn glyph on purpose: the marker it comes from changes about once a second,
-   and the whole point of reading it out of the title is that the tab bar is not
-   rebuilt at that rate. */
-.tab .dot.working {
-  animation: dot-working 1.6s ease-in-out infinite;
+/* Nothing is running: the tab still says what it is, faintly. Restored-but-not-started
+   and ended-on-its-own look the same on purpose — both mean "no process here". */
+.mark.idle {
+  opacity: 0.35;
 }
 
-@keyframes dot-working {
+/* The tab wants something, or is busy. The same breath either way, because what tells
+   them apart is the colour and how far it goes — a still alarm beside a moving activity
+   would put the motion on the one thing the user is allowed to ignore.
+
+   A wash over the background rather than a keyframe on `background`: the tab may be
+   active, grouped or plain, and a keyframe would have to know which colour is underneath.
+   Note that TabBar.render replaces the whole bar, so any re-render restarts the breath —
+   which is also why `readPtyTitle` strips the spinner out of the title: without that the
+   bar would be rebuilt about once a second per working tab and nothing would ever breathe
+   in peace. */
+.tab.alarm::after,
+.tab.working::after,
+.tabgroup[data-collapsed].alarm::before,
+.tabgroup[data-collapsed].working::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  animation-duration: 1.6s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+/* Busy. Neutral and barely there: it says the tab is alive, and nothing more. */
+.tab.working::after,
+.tabgroup[data-collapsed].working::before {
+  background: var(--fg);
+  animation-name: breathe-working;
+}
+
+/* Waiting for an answer, and not looked at since — the one thing the bar asks about, and
+   word for word what makes the taskbar button flash. The same wash as a working tab, in
+   amber and roughly three times as far: the colour says what it is, the amplitude says
+   how much it matters.
+
+   The wash carries all of it, with no tinted background underneath. A background token
+   plus the wash was the first attempt and it came out a near-solid mustard block that
+   shouted down the whole bar — two knobs where one will do. Everything the alarm needs is
+   derived from --warn, so it follows both palettes on its own.
+
+   Only the text colour is set on the tab itself, and it is set after `.tab.active` so an
+   alarmed inactive tab reads as brightly as an active one. */
+.tab.alarm {
+  color: var(--fg);
+}
+
+/* A folded group reports on the same tab-shaped ground a tab uses, drawn behind its chip
+   rather than on it — the chip stays the group's own colour, and what the bar tints and
+   breathes is a background, exactly as it is for a tab. Washing the chip itself was tried
+   first: amber over blue or green comes out a muddy slate that reads as some other group,
+   not as a tab asking for something.
+
+   `top: 4px` is the tabs' own margin, so the ground lines up with them. */
+.tabgroup[data-collapsed].alarm::before,
+.tabgroup[data-collapsed].working::before {
+  inset: 4px 0 0;
+  border-radius: 7px 7px 0 0;
+}
+
+.tab.alarm::after,
+.tabgroup[data-collapsed].alarm::before {
+  background: var(--warn);
+  animation-name: breathe-alarm;
+  animation-duration: 1.4s;
+}
+
+/* Two keyframes and not one parameterised by a custom property: a custom property in a
+   keyframe is not animatable in Chromium — it snaps at the halfway mark instead of
+   easing, which reads as a blink rather than a breath. */
+@keyframes breathe-working {
   0%,
   100% {
-    opacity: 1;
+    opacity: 0;
   }
   50% {
-    opacity: 0.35;
+    opacity: 0.16;
   }
-}
-/* The program is waiting for input — the state that asks something of the user,
-   so it moves more insistently than working does. The ring is a box-shadow: it
-   costs no layout, so nothing in the tab shifts while it pulses. Note that
-   TabBar.render replaces the whole bar, so any re-render restarts the pulse from
-   the beginning — that only happens when some other tab changes state, but it is
-   visible when it does. Keeping it in phase needs the dot elements to survive a
-   render. */
-.tab .dot.awaiting {
-  background: var(--warn);
-  animation: dot-pulse 1.8s ease-out infinite;
 }
 
-/* Seen: the user has had this tab on screen since it started waiting. Still
-   waiting, still amber, but no longer asking. */
-.tab .dot.awaiting.seen {
-  animation: none;
-}
-
-/* The ring holds its colour while it grows and only fades once it is out. Fading
-   it from the first frame instead — interpolating straight from the dot's own
-   colour to `transparent` — is what made the pulse invisible: measured off the
-   computed style, the ring was down to 20% alpha by the time it was 4px wide and
-   fully gone at 5px, so all that ever reached the screen was a 1px shimmer on a
-   7px dot. The alpha therefore lives in --warn-ring and stays put until 55%. */
-@keyframes dot-pulse {
-  0% {
-    box-shadow: 0 0 0 0 var(--warn-ring);
-  }
-  55% {
-    box-shadow: 0 0 0 5px var(--warn-ring);
-  }
+@keyframes breathe-alarm {
+  0%,
   100% {
-    box-shadow: 0 0 0 6px transparent;
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.34;
   }
 }
 
+/* With motion off the alarm is still an amber tab and the working one is quiet again —
+   the colour was carrying the meaning all along. */
 @media (prefers-reduced-motion: reduce) {
-  .tab .dot.awaiting,
-  .tab .dot.working {
+  .tab.working::after,
+  .tabgroup[data-collapsed].working::before {
     animation: none;
+    opacity: 0;
+  }
+
+  /* The alarm keeps its colour: with the breath gone it is the only thing left saying
+     that this tab is waiting. */
+  .tab.alarm::after,
+  .tabgroup[data-collapsed].alarm::before {
+    animation: none;
+    opacity: 0.26;
   }
 }
 
@@ -279,6 +465,100 @@ body {
 
 .tab.dragging {
   opacity: 0.4;
+}
+
+/* ---------- Tab groups ---------- */
+
+/* A group is one run of tabs behind a header, and the group — not the single tab —
+   is what the strip clips now: `0 1 auto` with `min-width: 0`, exactly what the
+   loose tabs do.
+
+   `--tab-ring` is set here and inherited: the member in front outlines itself in the
+   group's colour, so the line below and the outline above read as one continuous stroke
+   around that tab. */
+.tabgroup {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 2px;
+  --tab-ring: var(--group-color);
+}
+
+/* The line the group is known by, running the full width of it — under the header, under
+   every member, and through the gaps between them.
+
+   It has to be a positioned element and not an inset box-shadow on `.tabgroup`: the
+   members each paint their own background over the whole height of the bar, and an inset
+   shadow is drawn under its own children, so nothing of it ever reached the screen.
+   Absolute and not a border, so the bar keeps the height `titleBarOverlay` in
+   main/index.ts was told about. */
+.tabgroup::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--group-color);
+  pointer-events: none;
+}
+
+/* Folded up, the group is the chip alone. The line ties members together, and there are
+   none on show. */
+.tabgroup[data-collapsed]::after {
+  content: none;
+}
+
+/* `flex: 0 0 auto`, so a squeezed group loses tabs and never its own identity. */
+/* The header is the group: a filled chip in its colour with its name written inside,
+   the way Chrome draws one. There is no swatch beside it and no tab count in it — a
+   folded group says how many it holds in its tooltip, not on the bar.
+
+   `align-self: center` because it is a chip and not a tab: it does not reach the bottom
+   of the bar, so a group's line runs under it rather than out of it. A nameless group is
+   the same chip at `min-width`, which is what keeps it a chip and not a bare dot. */
+.tabgroup-head {
+  display: flex;
+  align-items: center;
+  position: relative;
+  flex: 0 0 auto;
+  align-self: center;
+  /* The same 4px the tabs carry above them. With `align-self: center` that puts the
+     chip middle on the tab middle whatever height the chip has — without it the chip
+     centres in the whole bar and its label sits a couple of pixels above the labels
+     beside it. The side margins are so the chips do not crowd each other. */
+  margin: 6px 3px 0;
+  min-width: 24px;
+  max-width: 160px;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 9px;
+  background: var(--group-color);
+  color: var(--on-group);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: default;
+}
+
+/* The tab in front, in a group that is folded up. The chip is already the group's colour,
+   so the marker has to be something else — the accent, as a loose tab wears it. */
+.tabgroup-head.active {
+  box-shadow: 0 0 0 2px var(--bg-chrome), 0 0 0 4px var(--accent);
+}
+
+.tabgroup-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Where a dragged tab or group would land. A shadow and not a real element: it costs
+   no layout, so nothing in the bar moves while the pointer travels. */
+.tab.drop-before,
+.tabgroup-head.drop-before {
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 #newtab {
@@ -611,6 +891,82 @@ body {
 
 .menu .picker-row {
   padding: 7px 14px;
+}
+
+/* ---------- Group colours in a menu row ---------- */
+
+/* A menu row can carry a group colour in front of its label and a check mark at the
+   end. The label is what takes the room left over, and what shortens. */
+.picker-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  background: var(--group-color);
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+/* The selected row turns --accent, which two of the swatches all but vanish into. A
+   ring in the row text colour keeps every one of them readable there. */
+.picker-row.selected .picker-swatch {
+  box-shadow: 0 0 0 1px var(--on-accent);
+}
+
+.picker-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-trailing {
+  flex: 0 0 auto;
+  color: var(--fg-dim);
+}
+
+.picker-row.selected .picker-trailing {
+  color: var(--on-accent-dim);
+}
+
+/* ---------- Group dialog ---------- */
+
+/* The confirm dialog's shell again, with a name to type and a colour to pick. */
+.group-name {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+}
+
+.group-colors {
+  display: flex;
+  gap: 8px;
+  padding: 16px 18px 2px;
+}
+
+.group-color {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: var(--group-color);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.group-color:hover {
+  opacity: 0.8;
+}
+
+/* The one in force is the only one at full strength, and wears a ring besides, so the
+   choice is still legible to anyone who cannot tell the hues apart. */
+.group-color.selected {
+  opacity: 1;
+  box-shadow:
+    0 0 0 2px var(--bg-chrome),
+    0 0 0 3px var(--fg-dim);
 }
 
 /* ---------- Confirm dialog ---------- */

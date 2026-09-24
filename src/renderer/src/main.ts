@@ -1,7 +1,15 @@
 import '@xterm/xterm/css/xterm.css'
 import './theme.css'
-import type { PersistedState, RecentSession, TabKind, TabState } from '@shared/types'
-import { TabBar, type TabViewModel } from './TabBar'
+import {
+  TAB_GROUP_COLORS,
+  type PersistedState,
+  type RecentSession,
+  type TabGroup,
+  type TabGroupColor,
+  type TabKind,
+  type TabState
+} from '@shared/types'
+import { TabBar, type DropTarget, type StripItem, type TabViewModel } from './TabBar'
 import { TerminalView } from './TerminalView'
 import { SessionPicker } from './SessionPicker'
 import { NewTabMenu, type MenuItem } from './NewTabMenu'
@@ -9,6 +17,7 @@ import { buildBindings, installKeymap, installWheelZoom, type Action } from './k
 import { SearchBar } from './SearchBar'
 import { ZoomIndicator } from './ZoomIndicator'
 import { ConfirmDialog } from './ConfirmDialog'
+import { GroupDialog } from './GroupDialog'
 import { ThemeToggle } from './ThemeToggle'
 import { Updates } from './updates'
 import { currentAppearance, onThemeChange } from './appearance'
@@ -66,6 +75,11 @@ const paneRoot = document.getElementById('panes') as HTMLElement
 
 const panes = new Map<string, Pane>()
 let order: string[] = []
+/**
+ * The tab groups, by id. Where a group sits on screen is not in here — that follows
+ * from `order`, which holds its members as one run (see `normalizeOrder`).
+ */
+const groups = new Map<string, TabGroup>()
 let activeId: string | undefined
 let homeDir = ''
 let fontSize = Number(localStorage.getItem('fontSize') ?? BASE_FONT_SIZE)
@@ -91,7 +105,10 @@ const tabBar = new TabBar(
     onClose: (id) => void closeTab(id),
     onMenu: (id) => openTabMenu(id),
     onNew: () => void openNewTabMenu(),
-    onReorder: (dragged, before) => reorder(dragged, before)
+    onMove: (source, target) =>
+      source.kind === 'tab' ? moveTab(source.id, target) : moveGroup(source.id, target),
+    onGroupToggle: (groupId) => toggleGroup(groupId),
+    onGroupMenu: (groupId) => openGroupMenu(groupId)
   },
   [updates.button, themeToggle.element]
 )
@@ -102,6 +119,7 @@ onThemeChange(() => {
 
 const newTabMenu = new NewTabMenu(() => activePane()?.view?.focus())
 const confirmDialog = new ConfirmDialog(() => activePane()?.view?.focus())
+const groupDialog = new GroupDialog(() => activePane()?.view?.focus())
 const searchBar = new SearchBar(() => activePane()?.view)
 const zoomIndicator = new ZoomIndicator(document.body)
 
@@ -145,8 +163,19 @@ async function boot(): Promise<void> {
       },
       cycleTab: (delta) => cycleTab(delta),
       selectTabByIndex: (index) => {
-        const id = order[index]
+        // Counts what is on screen, so a folded-up group is skipped whole rather
+        // than swallowing numbers the user cannot see.
+        const id = reachableOrder()[index]
         if (id) activate(id, { start: true })
+      },
+      groupActiveTab: () => {
+        if (!activeId) return
+        if (otherGroups(panes.get(activeId)?.tab.groupId).length > 0) openAddToGroupMenu(activeId)
+        else void newGroupFor(activeId)
+      },
+      toggleActiveGroup: () => {
+        const group = activeId ? groupOf(activeId) : undefined
+        if (group) toggleGroup(group.id)
       },
       openSessionPicker: () => void picker.show(),
       toggleSearch: () => searchBar.toggle(activePane()?.el),
@@ -162,6 +191,7 @@ async function boot(): Promise<void> {
         searchBar.isOpen() ||
         newTabMenu.isOpen() ||
         confirmDialog.isOpen() ||
+        groupDialog.isOpen() ||
         updates.isOpen()
     },
     buildBindings(overrides)
@@ -186,6 +216,7 @@ async function boot(): Promise<void> {
   for (const tab of [...state.tabs].sort((a, b) => a.order - b.order)) {
     addPane(tab)
   }
+  normalizeGroups(state.groups)
   // The stored flag may be stale — check at startup whether a resumable
   // conversation really exists, so the placeholder does not lie.
   await Promise.all(
@@ -197,7 +228,7 @@ async function boot(): Promise<void> {
   )
 
   // Lazy: the restored tab is only displayed, not started.
-  activate(state.activeTabId ?? order[0], { start: false })
+  activate(state.activeTabId ?? order[0], { start: false, reveal: false })
   render()
   void refreshClaudeTitles()
 
@@ -241,6 +272,8 @@ function addPane(tab: TabState): Pane {
   }
   panes.set(tab.id, pane)
   if (!order.includes(tab.id)) order.push(tab.id)
+  // A tab that names a group joins it here rather than sitting at the end alone.
+  normalizeOrder()
   updatePlaceholder(pane)
   return pane
 }
@@ -253,6 +286,8 @@ async function createTab(
     summary?: string
     resume?: boolean
     worktree?: boolean
+    /** Only "New tab in group" sets this; a tab made any other way is loose. */
+    groupId?: string
   } = {}
 ): Promise<void> {
   const tab: TabState = {
@@ -263,6 +298,7 @@ async function createTab(
     claudeSessionId: opts.claudeSessionId,
     // When resuming an existing session, the very first start must use --resume.
     everStarted: Boolean(opts.resume),
+    groupId: opts.groupId,
     order: order.length
   }
   const pane = addPane(tab)
@@ -333,8 +369,15 @@ async function removeTab(id: string): Promise<void> {
   pane.el.remove()
   panes.delete(id)
   order = order.filter((x) => x !== id)
+  pruneEmptyGroups()
+  normalizeOrder()
 
-  if (activeId === id) activeId = order[Math.max(0, order.length - 1)]
+  // Only now, with the groups settled. `activate` opens the group around whatever this
+  // picks, so closing the tab one was on never leaves the bar with nothing to point at.
+  if (activeId === id) {
+    const reachable = reachableOrder()
+    activeId = reachable[reachable.length - 1]
+  }
   if (order.length === 0) {
     await createTab('powershell', homeDir)
     return
@@ -394,19 +437,127 @@ async function restartTab(id: string): Promise<void> {
 }
 
 function openTabMenu(id: string): void {
-  if (!panes.has(id)) return
+  const pane = panes.get(id)
+  if (!pane) return
+
+  const items: MenuItem[] = [
+    { label: 'Restart tab', run: () => void restartTab(id) },
+    { label: 'Close tab', run: () => void closeTab(id) },
+    { label: 'Add tab to new group…', run: () => void newGroupFor(id) }
+  ]
+  // A submenu re-fills this same overlay: `NewTabMenu.choose` closes before it runs
+  // what was chosen, so opening it again from there needs nothing special.
+  if (otherGroups(pane.tab.groupId).length > 0) {
+    items.push({ label: 'Add tab to group…', run: () => openAddToGroupMenu(id) })
+  }
+  if (pane.tab.groupId) {
+    items.push({ label: 'Remove tab from group', run: () => setTabGroup(id, undefined) })
+  }
+  newTabMenu.show(items, 'Tab')
+}
+
+/** Every group but the one a tab is already in. */
+function otherGroups(groupId: string | undefined): TabGroup[] {
+  return [...groups.values()].filter((group) => group.id !== groupId)
+}
+
+function openAddToGroupMenu(id: string): void {
+  const pane = panes.get(id)
+  if (!pane) return
   newTabMenu.show(
     [
-      { label: 'Restart tab', run: () => void restartTab(id) },
-      { label: 'Close tab', run: () => void closeTab(id) }
+      { label: '‹ Back', run: () => openTabMenu(id) },
+      ...otherGroups(pane.tab.groupId).map((group) => ({
+        label: group.name ?? 'Unnamed group',
+        color: group.color,
+        run: () => setTabGroup(id, group.id)
+      }))
     ],
-    'Tab'
+    'Add tab to group'
   )
 }
 
-function activate(id: string | undefined, opts: { start: boolean }): void {
+async function newGroupFor(id: string): Promise<void> {
+  const answer = await groupDialog.ask({
+    title: 'New tab group',
+    color: nextGroupColor(),
+    confirmLabel: 'Create group'
+  })
+  // The tab may be gone by the time the dialog is answered.
+  if (!answer || !panes.has(id)) return
+  setTabGroup(id, createGroup(answer.color, answer.name).id)
+}
+
+function openGroupMenu(groupId: string): void {
+  const group = groups.get(groupId)
+  if (!group) return
+
+  const seed = groupSeed(groupId)
+  newTabMenu.show(
+    [
+      { label: 'Rename group…', run: () => void renameGroup(groupId) },
+      { label: 'Change colour…', run: () => openGroupColorMenu(groupId) },
+      {
+        label: group.collapsed ? 'Expand group' : 'Collapse group',
+        run: () => setGroupCollapsed(groupId, !group.collapsed)
+      },
+      { label: 'New tab in group', run: () => void createTab(seed.kind, seed.cwd, { groupId }) },
+      { label: 'Ungroup', run: () => ungroup(groupId) },
+      { label: 'Close group', run: () => void closeGroup(groupId) }
+    ],
+    group.name ?? 'Tab group'
+  )
+}
+
+function openGroupColorMenu(groupId: string): void {
+  const group = groups.get(groupId)
+  if (!group) return
+  newTabMenu.show(
+    [
+      { label: '‹ Back', run: () => openGroupMenu(groupId) },
+      ...TAB_GROUP_COLORS.map((color) => ({
+        label: color[0].toUpperCase() + color.slice(1),
+        color,
+        trailing: color === group.color ? '✓' : undefined,
+        run: () => setGroupColor(groupId, color)
+      }))
+    ],
+    'Group colour'
+  )
+}
+
+async function renameGroup(groupId: string): Promise<void> {
+  const group = groups.get(groupId)
+  if (!group) return
+
+  const answer = await groupDialog.ask({
+    title: 'Rename tab group',
+    name: group.name,
+    color: group.color,
+    confirmLabel: 'Rename'
+  })
+  // The group may have lost its last tab while the dialog was up.
+  const current = groups.get(groupId)
+  if (!answer || !current) return
+  current.name = answer.name
+  current.color = answer.color
+  render()
+  persist()
+}
+
+/**
+ * `reveal` opens the group around the tab, and is what almost every caller wants: asking
+ * for a tab means asking to see it. Restoring does not — a group the user folded up has
+ * to still be folded up on the next start, even when the tab left active is inside it.
+ */
+function activate(id: string | undefined, opts: { start: boolean; reveal?: boolean }): void {
   if (!id || !panes.has(id)) return
   activeId = id
+
+  if (opts.reveal !== false) {
+    const group = groupOf(id)
+    if (group?.collapsed) group.collapsed = false
+  }
 
   for (const [paneId, pane] of panes) {
     pane.el.classList.toggle('active', paneId === id)
@@ -426,24 +577,350 @@ function activate(id: string | undefined, opts: { start: boolean }): void {
 }
 
 function cycleTab(delta: number): void {
-  if (order.length < 2 || !activeId) return
-  const index = order.indexOf(activeId)
-  const next = (index + delta + order.length) % order.length
-  activate(order[next], { start: true })
+  const reachable = reachableOrder()
+  if (reachable.length < 2 || !activeId) return
+  const index = reachable.indexOf(activeId)
+  const next = index < 0 ? 0 : (index + delta + reachable.length) % reachable.length
+  activate(reachable[next], { start: true })
 }
 
-function reorder(draggedId: string, beforeId: string | undefined): void {
-  const from = order.indexOf(draggedId)
-  if (from < 0) return
-  order.splice(from, 1)
-  const to = beforeId ? order.indexOf(beforeId) : order.length
-  order.splice(to < 0 ? order.length : to, 0, draggedId)
+/* ------------------------------------------------------------ Tab groups */
+
+/** The group a tab belongs to, if it still exists. */
+function groupOf(tabId: string): TabGroup | undefined {
+  const groupId = panes.get(tabId)?.tab.groupId
+  return groupId ? groups.get(groupId) : undefined
+}
+
+/** The tabs of a group, in the order they are drawn in. */
+function groupMembers(groupId: string): string[] {
+  return order.filter((id) => panes.get(id)?.tab.groupId === groupId)
+}
+
+/** The tabs with a button of their own: everything but the members of a folded group. */
+function visibleOrder(): string[] {
+  return order.filter((id) => !groupOf(id)?.collapsed)
+}
+
+/**
+ * What the keyboard walks and what closing a tab falls back on. Normally the tabs on
+ * screen — but every tab there is can be folded away at once, and Ctrl+Tab leading
+ * nowhere would be a dead end. Whatever it names, `activate` unfolds the group around it.
+ */
+function reachableOrder(): string[] {
+  const visible = visibleOrder()
+  return visible.length > 0 ? visible : order
+}
+
+/** A group whose last tab is gone stops existing. */
+function pruneEmptyGroups(): void {
+  const alive = new Set([...panes.values()].map((pane) => pane.tab.groupId))
+  for (const id of [...groups.keys()]) if (!alive.has(id)) groups.delete(id)
+}
+
+/**
+ * Puts the members of every group back together and renumbers `tab.order` from the
+ * result. `order` is the only truth about what is drawn where, and a group's tabs have
+ * to be one run in it: that is what lets `render` segment the bar in a single pass.
+ *
+ * Stable and idempotent — a group that is already in one piece is not touched, and the
+ * first member the walk meets is what decides where the group sits. That last part is
+ * also why this must never be what *decides* membership: a tab dragged out of its block
+ * would be the first one met and would pull the whole group along behind it, where the
+ * user meant to take one tab out. Membership is always settled before this runs.
+ */
+function normalizeOrder(): void {
+  const placed = new Set<string>()
+  const result: string[] = []
+
+  for (const id of order) {
+    if (placed.has(id)) continue
+    const groupId = panes.get(id)?.tab.groupId
+    if (!groupId) {
+      result.push(id)
+      placed.add(id)
+      continue
+    }
+    for (const member of groupMembers(groupId)) {
+      result.push(member)
+      placed.add(member)
+    }
+  }
+
+  order = result
   order.forEach((id, index) => {
     const pane = panes.get(id)
     if (pane) pane.tab.order = index
   })
+}
+
+/**
+ * What comes out of state.json is not to be trusted: `SessionStore` checks no more than
+ * that a tab has an id and a cwd, so the groups arrive here unexamined. A group is the
+ * cheaper thing to lose, so whatever does not add up costs the group and never the tab.
+ */
+function normalizeGroups(stored: TabGroup[] | undefined): void {
+  groups.clear()
+
+  for (const group of stored ?? []) {
+    if (!group?.id || groups.has(group.id)) continue
+    const name = group.name?.trim()
+    groups.set(group.id, {
+      id: group.id,
+      name: name ? name : undefined,
+      color: isGroupColor(group.color) ? group.color : 'grey',
+      collapsed: Boolean(group.collapsed)
+    })
+  }
+
+  for (const pane of panes.values()) {
+    if (pane.tab.groupId && !groups.has(pane.tab.groupId)) delete pane.tab.groupId
+  }
+
+  pruneEmptyGroups()
+  normalizeOrder()
+}
+
+function isGroupColor(value: unknown): value is TabGroupColor {
+  return (TAB_GROUP_COLORS as readonly unknown[]).includes(value)
+}
+
+/** A colour no other group is wearing, so two groups are told apart without being asked. */
+function nextGroupColor(): TabGroupColor {
+  const taken = new Set([...groups.values()].map((group) => group.color))
+  // Grey stays in the picker but is never handed out on its own — beside the seven
+  // that carry a colour it reads as "no colour", which is not what a new group is.
+  const offered = TAB_GROUP_COLORS.filter((color) => color !== 'grey')
+  return offered.find((color) => !taken.has(color)) ?? 'grey'
+}
+
+function createGroup(color: TabGroupColor, name?: string): TabGroup {
+  const group: TabGroup = { id: crypto.randomUUID(), name, color, collapsed: false }
+  groups.set(group.id, group)
+  return group
+}
+
+function setGroupColor(groupId: string, color: TabGroupColor): void {
+  const group = groups.get(groupId)
+  if (!group || group.color === color) return
+  group.color = color
   render()
   persist()
+}
+
+/**
+ * Joining or leaving a group, with the tab put where it can be found again: a joiner
+ * lands behind the last member, a leaver behind the last one that stays. Either way the
+ * block keeps its place and the tab that moved ends up next to where it came from.
+ */
+function setTabGroup(tabId: string, groupId: string | undefined): void {
+  const pane = panes.get(tabId)
+  if (!pane || pane.tab.groupId === groupId) return
+
+  const previous = pane.tab.groupId
+  if (groupId) pane.tab.groupId = groupId
+  else delete pane.tab.groupId
+
+  const home = groupId ?? previous
+  if (home) placeAfter(tabId, lastMember(home, tabId))
+
+  pruneEmptyGroups()
+  normalizeOrder()
+  render()
+  persist()
+}
+
+/** The last tab of a group as it stands, leaving one id out of the reckoning. */
+function lastMember(groupId: string, ignore: string): string | undefined {
+  const members = groupMembers(groupId).filter((id) => id !== ignore)
+  return members[members.length - 1]
+}
+
+/** Puts a tab directly behind `anchor`; without one it stays where it is. */
+function placeAfter(tabId: string, anchor: string | undefined): void {
+  if (!anchor) return
+  order = order.filter((id) => id !== tabId)
+  order.splice(order.indexOf(anchor) + 1, 0, tabId)
+}
+
+function toggleGroup(groupId: string): void {
+  const group = groups.get(groupId)
+  if (group) setGroupCollapsed(groupId, !group.collapsed)
+}
+
+/**
+ * Folding a group up moves the active tab out of it when there is anywhere to move it to,
+ * so the bar goes on showing which tab is in front.
+ *
+ * When there is not — because this group holds every tab there is, which two tabs in one
+ * group is already enough for — it folds anyway and the active tab stays inside it. That
+ * costs nothing: what the user is looking at is the *pane*, and it does not go away; only
+ * the tab's button does, and the header takes over saying it is the one in front. Refusing
+ * to fold instead was the first attempt, and it made the feature look broken the first
+ * time anyone tried it.
+ */
+function setGroupCollapsed(groupId: string, collapsed: boolean): void {
+  const group = groups.get(groupId)
+  if (!group || group.collapsed === collapsed) return
+
+  if (collapsed && activeId && panes.get(activeId)?.tab.groupId === groupId) {
+    const target = nextVisibleOutside(activeId, groupMembers(groupId))
+    if (target) {
+      group.collapsed = true
+      // `start: false`, because folding a group up is not a click on a tab and must not
+      // start a process behind a placeholder. `activate` renders and persists itself.
+      activate(target, { start: false })
+      return
+    }
+  }
+
+  group.collapsed = collapsed
+  render()
+  persist()
+}
+
+/**
+ * Where the active tab goes when the group around it folds up: the first tab to the
+ * right that is neither a member nor hidden inside some other collapsed group, wrapping
+ * round at the end. Rightwards first, so the user lands just behind what they closed.
+ */
+function nextVisibleOutside(fromId: string, exclude: string[]): string | undefined {
+  const start = order.indexOf(fromId)
+  if (start < 0) return undefined
+  for (let step = 1; step <= order.length; step++) {
+    const id = order[(start + step) % order.length]
+    if (exclude.includes(id) || groupOf(id)?.collapsed) continue
+    return id
+  }
+  return undefined
+}
+
+/** Does this group hold the tab that is in front? Only a folded one says so itself. */
+function holdsActiveTab(groupId: string): boolean {
+  return Boolean(activeId) && panes.get(activeId!)?.tab.groupId === groupId
+}
+
+/** Every member becomes a loose tab again, and the group itself stops existing. */
+function ungroup(groupId: string): void {
+  for (const id of groupMembers(groupId)) {
+    const pane = panes.get(id)
+    if (pane) delete pane.tab.groupId
+  }
+  pruneEmptyGroups()
+  normalizeOrder()
+  render()
+  persist()
+}
+
+/**
+ * Closes every tab of a group behind a single question. `closeTab` would ask again for
+ * each running one, which is a chain of dialogs for something asked for once.
+ */
+async function closeGroup(groupId: string): Promise<void> {
+  const group = groups.get(groupId)
+  const members = groupMembers(groupId)
+  if (!group || members.length === 0) return
+
+  const running = members.filter((id) => panes.get(id)?.status === 'running')
+  const what = group.name ? `"${group.name}"` : 'this group'
+  let message =
+    members.length === 1
+      ? `Close the tab in ${what}?`
+      : `Close the ${members.length} tabs in ${what}?`
+  if (running.length === 1) message += ' One of them is still running.'
+  else if (running.length > 1) message += ` ${running.length} of them are still running.`
+
+  if (!(await confirmDialog.ask({ message, confirmLabel: 'Close group' }))) return
+
+  // A tab can end on its own while the dialog is up, so each one is checked again.
+  for (const id of members) {
+    if (panes.has(id)) await removeTab(id)
+  }
+}
+
+/**
+ * A dragged tab's group follows from where it was let go; there is no separate gesture
+ * for joining and leaving. The one rule worth spelling out: dropping it *in front of the
+ * first member* of a group means in front of the group, not into it — unless the tab is
+ * already one of its members. Chrome tells those two apart with a hysteresis zone along
+ * the edge, which needs pointer tracking; this needs no geometry at all and lands where
+ * it was meant nearly every time.
+ */
+function moveTab(tabId: string, target: DropTarget): void {
+  const pane = panes.get(tabId)
+  if (!pane) return
+
+  // Both are read while `order` and the memberships still describe the bar that was
+  // dropped onto. Settling the group here, before `normalizeOrder`, is what keeps that
+  // function from deciding anything — see the note on it.
+  const groupId = dropGroup(tabId, target)
+  const anchor = dropAnchor(tabId, target)
+
+  if (groupId) pane.tab.groupId = groupId
+  else delete pane.tab.groupId
+
+  order = order.filter((id) => id !== tabId)
+  const at = anchor ? order.indexOf(anchor) : -1
+  order.splice(at < 0 ? order.length : at, 0, tabId)
+
+  pruneEmptyGroups()
+  normalizeOrder()
+  render()
+  persist()
+}
+
+function dropGroup(tabId: string, target: DropTarget): string | undefined {
+  if (target.kind === 'end') return undefined
+  if (target.kind === 'group') return target.groupId
+
+  const ontoGroup = panes.get(target.tabId)?.tab.groupId
+  if (!ontoGroup) return undefined
+  if (target.tabId !== groupMembers(ontoGroup)[0]) return ontoGroup
+  return panes.get(tabId)?.tab.groupId === ontoGroup ? ontoGroup : undefined
+}
+
+/** The tab the dragged one lands in front of; nothing means the end of the bar. */
+function dropAnchor(tabId: string, target: DropTarget): string | undefined {
+  if (target.kind === 'end') return undefined
+  if (target.kind === 'before') return target.tabId
+  // Dropped on a header: in front of that group's first tab, so it becomes the first.
+  return groupMembers(target.groupId).filter((id) => id !== tabId)[0]
+}
+
+/**
+ * A whole group, dragged by its header. Groups do not nest, so the block always lands
+ * in front of a whole unit — a loose tab, or another group entire — and never inside
+ * one. Nothing changes group here; only where the block sits.
+ */
+function moveGroup(groupId: string, target: DropTarget): void {
+  const members = groupMembers(groupId)
+  if (members.length === 0) return
+
+  const anchor = groupAnchor(target)
+  if (anchor && members.includes(anchor)) return
+
+  order = order.filter((id) => !members.includes(id))
+  const at = anchor ? order.indexOf(anchor) : -1
+  order.splice(at < 0 ? order.length : at, 0, ...members)
+
+  normalizeOrder()
+  render()
+  persist()
+}
+
+/** Where a dragged block lands: in front of a loose tab, or of a whole other group. */
+function groupAnchor(target: DropTarget): string | undefined {
+  if (target.kind === 'end') return undefined
+  if (target.kind === 'group') return groupMembers(target.groupId)[0]
+  const ontoGroup = panes.get(target.tabId)?.tab.groupId
+  return ontoGroup ? groupMembers(ontoGroup)[0] : target.tabId
+}
+
+/** What a tab made inside a group should look like: whatever the group's last tab is. */
+function groupSeed(groupId: string): { kind: TabKind; cwd: string } {
+  const members = groupMembers(groupId)
+  const last = panes.get(members[members.length - 1])
+  return { kind: last?.tab.kind ?? 'claude', cwd: last?.tab.cwd ?? currentCwd() }
 }
 
 /* ------------------------------------------------------ Process start */
@@ -616,6 +1093,8 @@ function noteSeen(): void {
 let attentionSent = false
 
 function updateAttention(): void {
+  // The same condition `tabModel` draws as a tab's alarm, deliberately: there is one
+  // thing aterm asks about, and the taskbar and the tab bar must not disagree on it.
   const wanted = [...panes.values()].some(
     (pane) => pane.ptyState === 'awaiting' && !pane.awaitingSeen
   )
@@ -643,29 +1122,65 @@ function installAttentionTracking(): void {
 /* ------------------------------------------------------------ Rendering */
 
 function render(): void {
-  const models: TabViewModel[] = order
-    .map((id) => panes.get(id))
-    .filter((pane): pane is Pane => Boolean(pane))
-    .map((pane) => ({
-      id: pane.tab.id,
-      // The two halves are drawn apart so the folder can step back visually;
-      // `title` is the whole name, for the tooltip.
-      title: paneTitle(pane),
-      folder: tabFolder(pane),
-      summary: tabSummary(pane),
-      kind: pane.tab.kind,
-      status: pane.status,
-      agentRunning: pane.agentRunning,
-      working: pane.ptyState === 'working',
-      awaitingInput: pane.ptyState === 'awaiting',
-      awaitingSeen: pane.awaitingSeen
-    }))
-  tabBar.render(models, activeId)
+  // One pass over `order`. A group's tabs are a run in it (`normalizeOrder`), so a tab
+  // whose group differs from its predecessor's is exactly where one segment ends and
+  // the next begins — nothing here has to gather a group's tabs up first.
+  const items: StripItem[] = []
+  let current: Extract<StripItem, { kind: 'group' }> | undefined
+
+  for (const id of order) {
+    const pane = panes.get(id)
+    if (!pane) continue
+    const model = tabModel(pane)
+    const group = groupOf(id)
+
+    if (!group) {
+      current = undefined
+      items.push({ kind: 'tab', tab: model })
+      continue
+    }
+    if (current?.group.id !== group.id) {
+      current = {
+        kind: 'group',
+        group: {
+          id: group.id,
+          name: group.name,
+          color: group.color,
+          collapsed: group.collapsed,
+          active: holdsActiveTab(group.id)
+        },
+        tabs: []
+      }
+      items.push(current)
+    }
+    current.tabs.push(model)
+  }
+
+  tabBar.render(items, activeId)
 
   for (const pane of panes.values()) updatePlaceholder(pane)
   const active = activePane()
   document.title = active ? `${paneTitle(active)} — aterm` : 'aterm'
   updateAttention()
+}
+
+function tabModel(pane: Pane): TabViewModel {
+  return {
+    id: pane.tab.id,
+    // The two halves are drawn apart so the folder can step back visually;
+    // `title` is the whole name, for the tooltip.
+    title: paneTitle(pane),
+    folder: tabFolder(pane),
+    summary: tabSummary(pane),
+    // What is in the tab, not what it was started as: a shell someone ran `claude` in
+    // is an agent tab too.
+    agent: pane.agentRunning || pane.tab.kind === 'claude',
+    running: pane.status === 'running',
+    working: pane.ptyState === 'working',
+    // Word for word the condition `updateAttention` sends to the taskbar. That is the
+    // point: the window and the taskbar button say the same thing, or neither does.
+    alarm: pane.ptyState === 'awaiting' && !pane.awaitingSeen
+  }
 }
 
 function updatePlaceholder(pane: Pane): void {
@@ -978,7 +1493,7 @@ function installFocusGuard(): void {
       // switched to, and overlays bring their own focus handling.
       if (!document.hasFocus()) return
       if (picker.isOpen() || searchBar.isOpen() || newTabMenu.isOpen()) return
-      if (confirmDialog.isOpen() || updates.isOpen()) return
+      if (confirmDialog.isOpen() || groupDialog.isOpen() || updates.isOpen()) return
       activePane()?.view?.focus()
     })
   })
@@ -1008,7 +1523,8 @@ function persist(): void {
         return { ...pane.tab, order: index }
       })
       .filter((tab): tab is TabState => Boolean(tab)),
-    activeTabId: activeId
+    activeTabId: activeId,
+    groups: [...groups.values()]
   }
   void api.state.save(state)
 }
