@@ -207,16 +207,17 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `--warn` of a waiting tab, and the shape tells them apart where the colour does not.
   `.tabgroup-head` also has to be in the `-webkit-app-region: no-drag` list, or clicking it
   drags the window instead of folding the group.
-- **A collapsed group speaks for its members.** Its header carries the strongest state any
-  of them is in, with the classes `dotClass` already produces — unanswered wait first,
-  because that is the state asking for something, and an exit last. Nothing at all when
-  there is no news, because the colour swatch is the group's identity and an idle grey dot
-  would only compete with it. That is why the dot rules in `theme.css` are scoped to
-  `.dot` and not to `.tab .dot`: the header is not a tab and must not be given that class.
-  `awaitingSeen` and `updateAttention` are untouched by any of this — the first cannot be
+- **A collapsed group speaks for its members**, in the same two states a tab has: it takes
+  the alarm if any of them is waiting unseen, and the breath if any is working. Alarm wins,
+  as it does on a tab. Its tooltip says which, because the header has no mark of its own to
+  say it — see the next entry for why there is nothing else to report.
+  `awaitingSeen` and `updateAttention` are untouched by any of this: the first cannot be
   answered for a tab that is not active, which is exactly right, and the second walks
   `panes` rather than `order`, so the taskbar still flashes for a wait inside a folded
   group.
+  **A dead process inside a folded group is not reported.** That state lives on the tab's
+  own mark, and the header has none. A folded group reports only what moves; the rest is
+  seen on opening it. Deliberate, not an oversight.
 - **A group that loses its last tab stops existing**, in `pruneEmptyGroups`, called after
   every change rather than at the places a tab can leave — closing, ungrouping, dragging
   out and being moved to another group are otherwise four chances to forget it. What
@@ -255,15 +256,34 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   started it with `--session-id` on its own id, in the project, with an empty conversation.
   A worktree that has since been removed does not count; its id is still taken
   (`hasTranscript`), so the tab gets a fresh one.
+- **The tab bar says three things, and only three.** What kind of tab this is (`✳` for an
+  agent, `❯` for a shell — `.mark`, faint while no process runs), that something is
+  happening (a breath), and whether it concerns the user (the breath is amber). That is the
+  whole vocabulary. It replaced a dot in five colours with two animations, which was a lot
+  of grammar for very little said, and which a folded group header then had to repeat.
+  Two rules hold it together:
+  **The alarm is word for word `updateAttention`'s condition** — waiting for input and not
+  looked at since. The tab bar and the taskbar button say the same thing or neither does;
+  if one of them ever grows a case the other lacks, that is the bug.
+  **Both live states breathe, and colour is what separates them.** The alarm does not sit
+  still: a still alarm beside a moving activity would put the motion on the one thing the
+  user is allowed to ignore. They are told apart by colour (neutral vs `--warn`) and by
+  amplitude — the alarm swings about three times as far, and both were measured against
+  each other in the running window rather than picked. The wash is a `::after` over the
+  tab, not a keyframe on `background`, because a tab may be active, grouped or plain and a
+  keyframe would have to know which colour is underneath. Under `prefers-reduced-motion`
+  the working wash goes to nothing and the alarm holds its amber — the colour was carrying
+  the meaning all along.
 - **The terminal title carries a state marker.** A program naming itself through OSC 0/2
   names its tab (`term.onTitleChange`). Claude Code
   puts its state in front: a spinner while it works, changing about once a second, and
   `✳` (`U+2733`) while it waits for input. `readPtyTitle` in `renderer/src/main.ts` splits
-  the two apart — the text becomes the summary, the marker becomes the tab's dot (amber
-  and pulsing while waiting, breathing while working). Stripping the spinner is not
-  cosmetic: every frame is a title change, and `TabBar.render` rebuilds the whole bar, so
-  keeping the frame in the label would re-render the tab bar once a second per tab — which
-  is also why the working dot is a CSS animation and not a glyph.
+  the two apart — the text becomes the summary, the marker becomes `Pane.ptyState`, which
+  is what the tab breathes with. Stripping the spinner is not cosmetic: every frame is a
+  title change, and `TabBar.render` rebuilds the whole bar, so keeping the frame in the
+  label would re-render the tab bar once a second per tab — which is also why the breath is
+  a CSS animation and not a redrawn glyph, and why a rebuild restarts it from the
+  beginning.
   **The spinner glyphs are not stable across Claude Code versions.** They were `U+2800`–
   `U+28FF` (Braille) up to some version before 2.1.247, and are `◐`/`◑` (`U+25D0`/`U+25D1`,
   alternating every 960 ms) in 2.1.247. `SPINNER_MARKER` matches both, so an older `claude`
@@ -297,7 +317,7 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `app:set-attention` whenever *any* tab is waiting unseen, deduplicated because a working tab
   re-renders about once a second; `main/index.ts` turns it into `win.flashFrame`. Two rules
   there: never flash while the window is in the foreground — the user is already here and the
-  pulsing dot says the rest — and re-evaluate on `focus` *and* `blur`, because Windows stops a
+  amber tab says the rest — and re-evaluate on `focus` *and* `blur`, because Windows stops a
   flash by itself the moment the window comes forward, whether or not the tab that asked was
   ever looked at. So the flash comes back on the next blur until the last unseen wait is seen.
   A `setOverlayIcon` badge was tried as a second marker, for the stretch the flash cannot cover
@@ -307,14 +327,6 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   padding does not shrink it because the crop goes to the *opaque* bounds. Only a visibly opaque
   ring around the dot makes the coloured part smaller, and no ring colour works both over the
   icon and over the taskbar it overhangs. Measured off screenshots, not documented anywhere.
-- **The pulse ring must not fade while it grows.** The amber dot's `dot-pulse` interpolated
-  from `var(--warn)` straight to `transparent`, which couples the alpha to the radius: measured
-  off the computed style, it was down to 20% at 4px and gone at 5px, so all that ever reached
-  the screen was a 1px shimmer on a 7px dot and the pulse read as broken. The alpha lives in
-  `--warn-ring` and holds until 55% of the cycle. Both palettes carry the token. Worth
-  re-measuring rather than eyeballing: `getComputedStyle(dot).boxShadow` sampled across one
-  cycle says exactly what is drawn, and a static ring of the target size next to it says what
-  is visible.
 - **The tab bar is the title bar.** The window uses `titleBarStyle: 'hidden'`, so Electron
   overlays the native window controls on the right. `#tabbar` is the drag region and every
   clickable child opts out again with `-webkit-app-region: no-drag`; the room left beside

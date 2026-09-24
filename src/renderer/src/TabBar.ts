@@ -1,4 +1,8 @@
-import type { TabGroupColor, TabKind } from '@shared/types'
+import type { TabGroupColor } from '@shared/types'
+
+/** Claude Code's own marker, with the variation selector that keeps it out of emoji. */
+const AGENT_MARK = '✳︎'
+const SHELL_MARK = '❯'
 
 export interface TabViewModel {
   id: string
@@ -8,16 +12,14 @@ export interface TabViewModel {
   folder: string
   /** What the session is about, if anything is known about it yet. */
   summary?: string
-  kind: TabKind
-  status: 'stopped' | 'running' | 'exited'
-  /** A shell tab with a Claude process running inside it. */
-  agentRunning: boolean
+  /** What runs in this tab, rather than what it was started as. */
+  agent: boolean
+  /** There is a live process. Without one the tab wears its mark faintly. */
+  running: boolean
   /** The program in this tab says it is working on something. */
   working: boolean
-  /** The program in this tab says it is waiting for input. */
-  awaitingInput: boolean
-  /** The user has had this tab on screen since it started waiting. */
-  awaitingSeen: boolean
+  /** Waiting for input and not looked at since — the one thing the bar asks about. */
+  alarm: boolean
 }
 
 export interface TabGroupViewModel {
@@ -147,13 +149,26 @@ export class TabBar {
 
   private renderGroupHead(group: TabGroupViewModel, tabs: TabViewModel[]): HTMLElement {
     const el = document.createElement('div')
-    // Only a folded group speaks for the tab in front of it; an open one has that tab
-    // drawn right next to it, wearing the marker itself.
+    // Only a folded group speaks for its tabs — for the one in front of the user, and
+    // for what the rest are up to. An open group has each of them drawn next to it,
+    // saying it themselves.
     const active = group.collapsed && group.active
-    el.className = `tabgroup-head${active ? ' active' : ''}`
+    const alarm = group.collapsed && tabs.some((tab) => tab.alarm)
+    const working = group.collapsed && !alarm && tabs.some((tab) => tab.working)
+
+    el.className = ['tabgroup-head', active ? 'active' : '', alarm ? 'alarm' : working ? 'working' : '']
+      .filter(Boolean)
+      .join(' ')
     el.draggable = true
     el.dataset.groupColor = group.color
-    el.title = group.collapsed ? 'Expand group' : 'Collapse group'
+    // The header has no mark of its own, so what it is reporting has to be said here.
+    el.title = group.collapsed
+      ? alarm
+        ? 'Expand group — a tab is waiting for input'
+        : working
+          ? 'Expand group — a tab is working'
+          : 'Expand group'
+      : 'Collapse group'
 
     const swatch = document.createElement('span')
     swatch.className = 'tabgroup-swatch'
@@ -171,16 +186,6 @@ export class TabBar {
       count.className = 'tabgroup-count'
       count.textContent = String(tabs.length)
       el.appendChild(count)
-
-      // With the members folded away the header speaks for them — otherwise a tab
-      // waiting for input in there would ask and nobody would see it.
-      const state = groupDot(tabs)
-      if (state) {
-        const dot = document.createElement('span')
-        dot.className = `dot ${state}`
-        dot.title = dotTitle(state)
-        el.appendChild(dot)
-      }
     }
 
     el.addEventListener('mousedown', (ev) => {
@@ -201,19 +206,26 @@ export class TabBar {
 
   private renderTab(tab: TabViewModel, active: boolean, groupId?: string): HTMLElement {
     const el = document.createElement('div')
-    el.className = `tab${active ? ' active' : ''}`
+    // Waiting beats working, the way it always has — one place now rather than a
+    // function of its own, because there are only the two states left.
+    el.className = [
+      'tab',
+      active ? 'active' : '',
+      tab.alarm ? 'alarm' : tab.working ? 'working' : ''
+    ]
+      .filter(Boolean)
+      .join(' ')
     el.draggable = true
     el.dataset.id = tab.id
     el.title = tab.title
 
-    const dot = document.createElement('span')
-    dot.className = `dot ${dotClass(tab)}`
-    if (tab.awaitingInput) {
-      dot.title = 'Waiting for input'
-    } else if (tab.working) {
-      dot.title = 'Working'
-    }
-    el.appendChild(dot)
+    // Not a state any more: it says what kind of tab this is, and goes faint when
+    // nothing is running in it. What the tab is *doing* is the breath behind it.
+    const mark = document.createElement('span')
+    mark.className = `mark${tab.running ? '' : ' idle'}`
+    mark.textContent = tab.agent ? AGENT_MARK : SHELL_MARK
+    mark.title = tab.agent ? 'Claude Code' : 'Terminal'
+    el.appendChild(mark)
 
     // Folder and summary are wrapped together so the tab's own gap stays between
     // dot, name and close button — inside the name, the separator does the
@@ -339,40 +351,4 @@ export class TabBar {
     this.clearMark()
     if (source) this.handlers.onMove(source, target)
   }
-}
-
-function dotClass(tab: TabViewModel): string {
-  if (tab.status === 'exited') return 'exited'
-  if (tab.status === 'stopped') return ''
-  // Waiting beats working: it is the one state that asks something of the user.
-  if (tab.awaitingInput) return tab.awaitingSeen ? 'awaiting seen' : 'awaiting'
-  // Working is a modifier on the running dot, not a colour of its own: what the
-  // colour says about the tab does not change just because something is going on
-  // in it.
-  const base = tab.agentRunning || tab.kind === 'claude' ? 'agent' : 'running'
-  return tab.working ? `${base} working` : base
-}
-
-/**
- * What a collapsed group shows in place of its members' dots: the strongest state any
- * one of them is in. The precedence `dotClass` uses within a single tab, applied across
- * several — an unanswered wait first, because that is the state asking for something,
- * and a process that ended last, because it is news but asks nothing.
- *
- * Nothing at all when there is none of that: the colour swatch is what identifies the
- * group, and an idle grey dot beside it would only compete with it.
- */
-function groupDot(tabs: TabViewModel[]): string | undefined {
-  const strongest =
-    tabs.find((tab) => tab.status === 'running' && tab.awaitingInput && !tab.awaitingSeen) ??
-    tabs.find((tab) => tab.status === 'running' && tab.awaitingInput) ??
-    tabs.find((tab) => tab.status === 'running' && tab.working) ??
-    tabs.find((tab) => tab.status === 'exited')
-  return strongest ? dotClass(strongest) : undefined
-}
-
-function dotTitle(state: string): string {
-  if (state.startsWith('awaiting')) return 'A tab is waiting for input'
-  if (state.endsWith('working')) return 'A tab is working'
-  return 'A tab has exited'
 }

@@ -1093,6 +1093,8 @@ function noteSeen(): void {
 let attentionSent = false
 
 function updateAttention(): void {
+  // The same condition `tabModel` draws as a tab's alarm, deliberately: there is one
+  // thing aterm asks about, and the taskbar and the tab bar must not disagree on it.
   const wanted = [...panes.values()].some(
     (pane) => pane.ptyState === 'awaiting' && !pane.awaitingSeen
   )
@@ -1170,12 +1172,14 @@ function tabModel(pane: Pane): TabViewModel {
     title: paneTitle(pane),
     folder: tabFolder(pane),
     summary: tabSummary(pane),
-    kind: pane.tab.kind,
-    status: pane.status,
-    agentRunning: pane.agentRunning,
+    // What is in the tab, not what it was started as: a shell someone ran `claude` in
+    // is an agent tab too.
+    agent: pane.agentRunning || pane.tab.kind === 'claude',
+    running: pane.status === 'running',
     working: pane.ptyState === 'working',
-    awaitingInput: pane.ptyState === 'awaiting',
-    awaitingSeen: pane.awaitingSeen
+    // Word for word the condition `updateAttention` sends to the taskbar. That is the
+    // point: the window and the taskbar button say the same thing, or neither does.
+    alarm: pane.ptyState === 'awaiting' && !pane.awaitingSeen
   }
 }
 
