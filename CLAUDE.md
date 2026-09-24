@@ -210,6 +210,19 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   outline are visibly one stroke. A loose tab falls back to `--accent`.
   **`z-index: 1` on the active tab** is what stops the line running through underneath it.
   Without it the stroke closes along the bottom and the whole thing reads as a box.
+  **The flare at each foot is `.tabgroup .tab.active::before`**, a 6px strip hanging past
+  both sides of the tab with four background layers: the two quarter arcs on top, the tab's
+  own colour across its foot below them, and the bar's colour in the 4px each arc reaches
+  into, bottom-most. The middle layer is there because a border runs the full height of its
+  box — without it each side pokes a stub down past the arc it continues from. The last is
+  there because the group's line would otherwise run on beneath the curve and fill it back
+  in; it is 2px tall, the height of the line and no more, or it eats into the neighbouring
+  tab. `border-radius` cannot do any of this: it only rounds *inward*, which bends the
+  outline away from the line and leaves a notch. Measured in the window, not reasoned out —
+  the offsets are against the *padding* box, since that is what an absolutely positioned
+  child is placed against, and being two pixels out is the whole difference.
+  Only a member tab gets a flare, never a folded group header: a folded group is nothing
+  but its header, so its line lies entirely under it and a flare would curl into empty bar.
   A 2px rule along the top edge alone is what the active tab used to be, and it was far too
   easy to miss on a full bar. If this is ever reduced back to an edge, that is the
   complaint to expect.

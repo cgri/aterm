@@ -218,6 +218,55 @@ body {
   z-index: 1;
 }
 
+/* Where the group's line meets the tab in front, it flares outward into it instead of
+   turning a square corner: a quarter arc on each side, 2px thick like the line and the
+   outline it joins. Only inside a group — a loose tab has no line for the flare to reach,
+   and hooks curling into nothing would read as damage.
+
+   `border-radius` cannot do this. It only ever rounds *inward*, which bends the outline
+   away from the line and leaves a notch; the flare has to bow the other way, so it is
+   drawn as arcs.
+
+   Only a member tab, never a folded group header: a folded group is nothing but its
+   header, so its line lies entirely underneath it and there is no length of line left
+   over for a flare to reach. It would curl into empty bar.
+
+   The element hangs 6px past each side of the tab and is 6px tall, and carries four
+   background layers: the two arcs, and two small patches in the tab's own colour that
+   cover the bottom 6px of its side borders. Those patches are what make the join work —
+   a border runs the full height of its box, so without them each side would poke a stub
+   down past the arc it is supposed to continue from. */
+.tabgroup .tab.active::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  bottom: 0;
+  height: 6px;
+  pointer-events: none;
+  background:
+    /* The two arcs, on top of everything else. */
+    radial-gradient(circle 6px at 0 0, #0000 0 4px, var(--tab-ring, var(--accent)) 4px 6px, #0000 6px)
+      left bottom / 6px 6px no-repeat,
+    radial-gradient(
+        circle 6px at 100% 0,
+        #0000 0 4px,
+        var(--tab-ring, var(--accent)) 4px 6px,
+        #0000 6px
+      )
+      right bottom / 6px 6px no-repeat,
+    /* Under them, the tab's own colour across its whole foot. A border runs the full
+       height of its box, so without this each side would poke a stub down past the arc it
+       is meant to continue from. */
+    linear-gradient(var(--bg-tab-active), var(--bg-tab-active)) 4px bottom / calc(100% - 8px)
+      6px no-repeat,
+    /* And underneath that, the bar's colour in the 4px the flares reach into, which is
+       what stops the group's line dead at each arc instead of letting it run on beneath
+       and fill the curve back in. */
+    linear-gradient(var(--bg-chrome), var(--bg-chrome)) left bottom / 4px 2px no-repeat,
+    linear-gradient(var(--bg-chrome), var(--bg-chrome)) right bottom / 4px 2px no-repeat;
+}
+
 /* The breath is painted on the tab, so it has to be cut to the same shape. */
 .tab::after,
 .tabgroup-head::after {
