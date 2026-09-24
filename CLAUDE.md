@@ -192,23 +192,31 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   a group folded up before a restart would spring open on the next start. And anything
   that walks tabs by keyboard uses `reachableOrder`, which falls back to all of them when
   every tab is folded away, so Ctrl+Tab is never a dead end.
-- **A group is a tinted container, and the tab in front is ringed in its colour.** Tabs are
-  rounded pills separated by a gap rather than full-height blocks separated by a border, and
-  a group is a rounded container tinted with `color-mix` in its own colour that they sit
-  inside. `.tabgroup` sets `--tab-ring`, which `.tab.active` reads: a member in front wears
-  the group's colour all the way round, so the group visibly wraps it, and a loose tab falls
-  back to `--accent`. This is Chrome's arrangement and it was asked for by name.
-  Two things follow, and both are easy to break:
-  **The ring is drawn outside the tab**, so the room for it has to exist. A loose tab's
-  vertical margin and a group's margin plus padding are that room — which is also why a
-  loose tab's margin equals a group's margin and padding added together: otherwise grouped
-  and ungrouped tabs come out different heights.
-  **A 2px line along the top edge is what the active tab used to be**, and it was far too
-  easy to miss. If the ring is ever reduced back to an edge, that is the complaint to expect.
+- **A group's line runs along its bottom and climbs over the tab in front.** One stroke:
+  in along the bottom of the group, up the left edge of the active tab, across its top,
+  down its right edge and on. Three sides and open at the foot, with rounded top corners —
+  the shape every browser draws, and it was asked for by name after a full ring around the
+  tab was tried and rejected as not that.
+  Three pieces make it, and none of them works alone:
+  **`.tabgroup::after`** is the line, absolute rather than a border so the bar keeps the
+  34px `titleBarOverlay` was told about. It cannot be an inset box-shadow on `.tabgroup`:
+  the members paint their own backgrounds over the full height, and an inset shadow is
+  drawn under its own children.
+  **`.tab` carries a 2px border on every tab, transparent, with `border-bottom: none`** and
+  the top corners rounded. Transparent on all of them because `box-sizing: border-box`
+  would otherwise shift the label by two pixels each time the user switched tabs; no bottom
+  because that open foot is what makes it a tab rather than a box. `.tab.active` only sets
+  `border-color`, from `--tab-ring` — which `.tabgroup` sets to its own colour, so line and
+  outline are visibly one stroke. A loose tab falls back to `--accent`.
+  **`z-index: 1` on the active tab** is what stops the line running through underneath it.
+  Without it the stroke closes along the bottom and the whole thing reads as a box.
+  A 2px rule along the top edge alone is what the active tab used to be, and it was far too
+  easy to miss on a full bar. If this is ever reduced back to an edge, that is the
+  complaint to expect.
   The group palette lives in `theme.css` **and nowhere else**: no group colour is ever
   drawn by xterm or by Windows, so "the palette exists three times over" below does not
   extend to it. `[data-group-color]` turns the stored name into `--group-color` once, for
-  the container, the ring, the header swatch, the menu rows and the dialog's buttons alike.
+  the line, the outline, the header swatch, the menu rows and the dialog's buttons alike.
   The swatch is a rounded square and not a circle on purpose — `--group-yellow` sits close
   to the amber `--warn` of a waiting tab, and the shape tells them apart where the colour
   does not. `.tabgroup-head` also has to be in the `-webkit-app-region: no-drag` list, or
