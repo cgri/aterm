@@ -208,9 +208,13 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   because that open foot is what makes it a tab rather than a box. `.tab.active` only sets
   `border-color`, and only inside a group: `.tabgroup .tab.active` takes `--tab-ring`,
   which the group sets to its own colour, so line and outline are visibly one stroke.
-  **A loose active tab gets the top edge alone**, in `--accent`. There is no line for its
-  sides to run into, and three sides closing on nothing read as a box drawn round the tab
-  rather than a tab standing in a strip.
+  **A loose active tab gets a rule across the top alone**, in `--accent`. There is no line
+  for its sides to run into, and three sides closing on nothing read as a box drawn round
+  the tab rather than a tab standing in a strip. It is `#tabstrip > .tab.active::before`
+  and deliberately not the top border: a border follows the corner radius and turns
+  downwards at both ends, which reads as the start of that box again. Inset a few pixels
+  from each side it is plainly a rule. The child selector is what keeps it off grouped
+  tabs, where `::before` is already the flare — the two must never both match.
   **`z-index: 1` on the active tab** is what stops the line running through underneath it.
   Without it the stroke closes along the bottom and the whole thing reads as a box.
   **The flare at each foot is `.tabgroup .tab.active::before`**, a 6px strip hanging past
@@ -245,7 +249,9 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   labels beside it — centring it in the bar alone leaves it sitting a few pixels high,
   because a tab's own text is centred in what is left under its top border, not in the bar.
   Worth measuring rather than eyeballing: compare the middles of `.tabgroup-name` and a
-  tab's `.name` off `getBoundingClientRect`.
+  tab's `.name` off `getBoundingClientRect`. The bar's buttons — `#newtab`, the theme
+  toggle, the update arrow — carry the same offset as padding for the same reason, and
+  stay full height so their hit area does not shrink with it.
   **A folded group is the chip and nothing else**: no line (`.tabgroup[data-collapsed]::after`
   is `content: none` — a line ties members together and none are on show) and no tab count.
   The count lives in the tooltip, which is also where a folded group says what it is
