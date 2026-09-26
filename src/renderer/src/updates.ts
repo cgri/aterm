@@ -1,5 +1,6 @@
 import type { UpdateCheck } from '@shared/types'
 import { UpdateDialog, type UpdatePhase } from './UpdateDialog'
+import { icon } from './icons'
 
 /** GitHub allows 60 unauthenticated requests an hour; this is one every six. */
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -25,7 +26,7 @@ export class Updates {
   constructor(private readonly options: UpdatesOptions) {
     this.button = document.createElement('button')
     this.button.id = 'update-button'
-    this.button.textContent = '↑'
+    this.button.appendChild(icon('update'))
     this.button.hidden = true
     this.button.addEventListener('click', () => this.openDialog())
 

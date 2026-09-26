@@ -1,4 +1,5 @@
 import type { TabGroupColor } from '@shared/types'
+import { icon } from './icons'
 
 /** Claude Code's own marker, with the variation selector that keeps it out of emoji. */
 const AGENT_MARK = '✳︎'
@@ -118,7 +119,7 @@ export class TabBar {
 
     const plus = document.createElement('button')
     plus.id = 'newtab'
-    plus.textContent = '+'
+    plus.appendChild(icon('plus'))
     plus.title = 'New tab (Ctrl+T)'
     plus.addEventListener('click', () => this.handlers.onNew())
 
@@ -250,7 +251,7 @@ export class TabBar {
 
     const close = document.createElement('span')
     close.className = 'close'
-    close.textContent = '×'
+    close.appendChild(icon('close'))
     close.title = 'Close (Ctrl+W)'
     // Closing on mousedown, not click: selecting a tab re-renders the whole bar,
     // so this element is gone by mouseup and no click event is ever delivered.
