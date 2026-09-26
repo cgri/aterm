@@ -46,6 +46,17 @@ export type StripItem =
   | { kind: 'tab'; tab: TabViewModel }
   | { kind: 'group'; group: TabGroupViewModel; tabs: TabViewModel[] }
 
+/**
+ * The new-tab page's own tab. It is always the last one in the strip, belongs to no
+ * group and cannot be dragged: it stands for a page that is about to become a tab, not
+ * for a tab that has a place of its own yet.
+ */
+export interface PageTabViewModel {
+  active: boolean
+  /** Without another tab to go back to, the page is all there is and stays. */
+  closable: boolean
+}
+
 /** What is being dragged: a single tab, or a whole group by its header. */
 export type DragSource = { kind: 'tab'; id: string } | { kind: 'group'; id: string }
 
@@ -61,6 +72,8 @@ export interface TabBarHandlers {
   /** Right-click on a tab. The tab is not selected by it. */
   onMenu: (id: string) => void
   onNew: () => void
+  onPageSelect: () => void
+  onPageClose: () => void
   onMove: (source: DragSource, target: DropTarget) => void
   /** Left-click on a group header. */
   onGroupToggle: (groupId: string) => void
@@ -83,7 +96,7 @@ export class TabBar {
     private readonly trailing: HTMLElement[] = []
   ) {}
 
-  render(items: StripItem[], activeId: string | undefined): void {
+  render(items: StripItem[], activeId: string | undefined, page?: PageTabViewModel): void {
     // Whatever was marked belongs to the bar that is about to be thrown away.
     this.marked = undefined
 
@@ -101,6 +114,7 @@ export class TabBar {
         strip.appendChild(this.renderGroup(item.group, item.tabs, activeId))
       }
     }
+    if (page) strip.appendChild(this.renderPageTab(page))
 
     // The free space behind the last tab is a drop target of its own: "here, and in
     // no group". `ev.target === strip` is what keeps it from also answering for a
@@ -203,6 +217,51 @@ export class TabBar {
     return el
   }
 
+  private renderPageTab(page: PageTabViewModel): HTMLElement {
+    const el = document.createElement('div')
+    el.className = `tab page-tab${page.active ? ' active' : ''}`
+    el.title = 'New tab'
+
+    const mark = document.createElement('span')
+    mark.className = 'mark'
+    mark.appendChild(icon('search'))
+    el.appendChild(mark)
+
+    const name = document.createElement('span')
+    name.className = 'name'
+    const label = document.createElement('span')
+    label.className = 'folder'
+    label.textContent = 'New tab'
+    name.appendChild(label)
+    el.appendChild(name)
+
+    if (page.closable) el.appendChild(this.closeButton(() => this.handlers.onPageClose()))
+
+    el.addEventListener('mousedown', (ev) => {
+      if (ev.button === 0) this.handlers.onPageSelect()
+      if (ev.button === 1 && page.closable) this.handlers.onPageClose()
+    })
+    // No menu of its own: nothing on it applies to a page that is not a tab yet.
+    el.addEventListener('contextmenu', (ev) => ev.preventDefault())
+    return el
+  }
+
+  private closeButton(onClose: () => void): HTMLElement {
+    const close = document.createElement('span')
+    close.className = 'close'
+    close.appendChild(icon('close'))
+    close.title = 'Close (Ctrl+W)'
+    // Closing on mousedown, not click: selecting a tab re-renders the whole bar,
+    // so this element is gone by mouseup and no click event is ever delivered.
+    close.addEventListener('mousedown', (ev) => {
+      if (ev.button !== 0) return
+      ev.preventDefault()
+      ev.stopPropagation()
+      onClose()
+    })
+    return close
+  }
+
   private renderTab(tab: TabViewModel, active: boolean, groupId?: string): HTMLElement {
     const el = document.createElement('div')
     // Waiting beats working, the way it always has — one place now rather than a
@@ -249,19 +308,7 @@ export class TabBar {
     }
     el.appendChild(name)
 
-    const close = document.createElement('span')
-    close.className = 'close'
-    close.appendChild(icon('close'))
-    close.title = 'Close (Ctrl+W)'
-    // Closing on mousedown, not click: selecting a tab re-renders the whole bar,
-    // so this element is gone by mouseup and no click event is ever delivered.
-    close.addEventListener('mousedown', (ev) => {
-      if (ev.button !== 0) return
-      ev.preventDefault()
-      ev.stopPropagation()
-      this.handlers.onClose(tab.id)
-    })
-    el.appendChild(close)
+    el.appendChild(this.closeButton(() => this.handlers.onClose(tab.id)))
 
     el.addEventListener('mousedown', (ev) => {
       if (ev.button === 0) this.handlers.onSelect(tab.id)

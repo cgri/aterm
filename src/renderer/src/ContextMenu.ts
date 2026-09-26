@@ -10,13 +10,12 @@ export interface MenuItem {
 }
 
 /**
- * The "new tab" overlay behind "+" and Ctrl+T — same shape as the session
- * picker. It takes the focus while it is open, so the arrow keys navigate the
+ * The overlay behind a right-click on a tab or a group header, and the submenus
+ * those open. It takes the focus while it is open, so the arrow keys navigate the
  * list instead of reaching the terminal; the keymap lets plain keys through to
- * it because it counts as an open overlay. The menu behind a right-click on a
- * tab is the same overlay under a different heading.
+ * it because it counts as an open overlay.
  */
-export class NewTabMenu {
+export class ContextMenu {
   private readonly root: HTMLDivElement
   private readonly box: HTMLDivElement
   private readonly title: HTMLDivElement
@@ -55,7 +54,7 @@ export class NewTabMenu {
     return this.open
   }
 
-  show(items: MenuItem[], title = 'New tab'): void {
+  show(items: MenuItem[], title: string): void {
     if (items.length === 0) return
     this.title.textContent = title
     this.items = items

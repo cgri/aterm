@@ -11,6 +11,7 @@
 const PATHS = {
   plus: [11, '<path d="M5.5 0v11M0 5.5h11"/>'],
   close: [8, '<path d="M.5.5l7 7M7.5.5l-7 7" stroke-width="1.2"/>'],
+  search: [13, '<circle cx="5.5" cy="5.5" r="4.5"/><path d="M8.8 8.8l3.7 3.7" stroke-linecap="round"/>'],
   update: [
     11,
     '<path d="M5.5 11V1M1.5 5l4-4 4 4" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>'
