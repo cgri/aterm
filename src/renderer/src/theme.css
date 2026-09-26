@@ -581,17 +581,21 @@ body {
   flex: 0 0 auto;
   align-self: center;
   /* No vertical margin: centred in the bar it sits on the bar's middle, which is where
-     the tab labels are too. The side margins are so the chips do not crowd each other. */
-  margin: 0 3px;
-  min-width: 24px;
+     the tab labels are too. The side margins keep it clear of the tabs beside it.
+
+     Proportions taken from Chrome's own header, side by side: a rounded rectangle rather
+     than a pill, a little taller than the label needs, and a regular-weight label at
+     almost the tabs' size. An 18px pill with 11px semibold text looked squeezed next to
+     the 13px tab labels — the chip is a name, not a badge. */
+  margin: 0 5px;
+  min-width: 28px;
   max-width: 160px;
-  height: 18px;
-  padding: 0 8px;
-  border-radius: 9px;
+  height: 20px;
+  padding: 0 9px;
+  border-radius: 6px;
   background: var(--group-color);
   color: var(--on-group);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
   cursor: default;
 }
 
