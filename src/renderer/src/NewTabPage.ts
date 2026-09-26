@@ -52,6 +52,7 @@ const SHELL_MARK = '❯'
  */
 export class NewTabPage {
   readonly element: HTMLDivElement
+  private readonly scroll: HTMLDivElement
   private readonly input: HTMLInputElement
   private readonly count: HTMLSpanElement
   private readonly startHost: HTMLDivElement
@@ -83,6 +84,7 @@ export class NewTabPage {
 
     const scroll = document.createElement('div')
     scroll.className = 'ntp-scroll'
+    this.scroll = scroll
     const body = document.createElement('div')
     body.className = 'ntp-body'
 
@@ -161,6 +163,7 @@ export class NewTabPage {
     this.renderStart()
     this.renderEscHint()
     this.reveal()
+    this.scroll.scrollTop = 0
 
     const generation = ++this.generation
     void Promise.all([
@@ -314,6 +317,7 @@ export class NewTabPage {
     this.count.textContent = needle ? `${matches.length} of ${this.sessions.length}` : ''
 
     if (typed) {
+      this.scroll.scrollTop = 0
       const first = this.list.findIndex((entry) => entry.session)
       if (needle && first >= 0) {
         this.column = 'sessions'
@@ -326,7 +330,7 @@ export class NewTabPage {
     }
     this.listCursor = Math.max(0, Math.min(this.listCursor, this.list.length - 1))
     if (this.list.length === 0) this.column = 'start'
-    this.paintSelection()
+    this.paintSelection(typed)
   }
 
   private addGroup(project: string, sessions: RecentSession[], needle: string): void {
@@ -415,14 +419,19 @@ export class NewTabPage {
     })
   }
 
-  private paintSelection(): void {
+  /**
+   * `reveal` scrolls the selection into view, and only a selection the user moved asks
+   * for that: a redraw — the lists arriving, the page coming back — leaves the view
+   * where it is.
+   */
+  private paintSelection(reveal = false): void {
     this.start.forEach((entry, i) => {
       entry.el.classList.toggle('selected', this.column === 'start' && i === this.startCursor)
     })
     this.list.forEach((entry, i) => {
       entry.el.classList.toggle('selected', this.column === 'sessions' && i === this.listCursor)
     })
-    this.selected()?.el.scrollIntoView({ block: 'nearest' })
+    if (reveal) this.selected()?.el.scrollIntoView({ block: 'nearest' })
   }
 
   private selected(): Entry | undefined {
@@ -435,7 +444,7 @@ export class NewTabPage {
     } else {
       this.listCursor = clamp(this.listCursor + delta, this.list.length)
     }
-    this.paintSelection()
+    this.paintSelection(true)
   }
 
   private onKey(ev: KeyboardEvent): void {
@@ -446,7 +455,7 @@ export class NewTabPage {
       // leaves nothing to go over to.
       if (this.column === 'start' && this.list.length > 0) this.column = 'sessions'
       else this.column = 'start'
-      this.paintSelection()
+      this.paintSelection(true)
     } else if (ev.key === 'Enter') this.selected()?.run()
     else if (ev.key === 'Escape') {
       if (this.input.value) {
