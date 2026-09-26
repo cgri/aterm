@@ -208,15 +208,20 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   because that open foot is what makes it a tab rather than a box. `.tab.active` only sets
   `border-color`, and only inside a group: `.tabgroup .tab.active` takes `--tab-ring`,
   which the group sets to its own colour, so line and outline are visibly one stroke.
-  **A loose active tab gets a rule across the top alone**, in `--accent`. There is no line
-  for its sides to run into, and three sides closing on nothing read as a box drawn round
-  the tab rather than a tab standing in a strip. It is `#tabstrip > .tab.active::before`
-  and deliberately not the top border: a border follows the corner radius and turns
-  downwards at both ends, which reads as the start of that box again. Inset a few pixels
-  from each side it is plainly a rule. The child selector is what keeps it off grouped
-  tabs, where `::before` is already the flare — the two must never both match.
-  **`z-index: 1` on the active tab** is what stops the line running through underneath it.
-  Without it the stroke closes along the bottom and the whole thing reads as a box.
+  **A loose active tab is outlined by the bar's lower edge**, the same shape in a neutral
+  1px hairline (`--edge`): along the bar, up the tab, across its top, down and on. The
+  bar's edge is `#tabbar::after`, not a border, so the tab in front can stack above it and
+  open into the terminal — it is the terminal's colour, and tab and pane read as one
+  surface. The outline is `#tabstrip > .tab.active::before`, an overlay reaching back over
+  the transparent 2px border. An accent rule across the top was tried twice before — as the
+  top border (it curled down at the corners) and inset and straight — and both read as a
+  lid on a box, because the bar's border still ran underneath and closed the tab off. The
+  child selector is what keeps the outline off grouped tabs, where `::before` is already
+  the flare — the two must never both match.
+  **The stacking order is edge < group line (`z-index: 1`) < active tab (`2`).** The group's
+  line has to be above the bar's edge, which would otherwise paint across its bottom pixel,
+  and the active tab above both, or the stroke closes along its bottom and the whole thing
+  reads as a box.
   **The flare at each foot is `.tabgroup .tab.active::before`**, a 6px strip hanging past
   both sides of the tab with four background layers: the two quarter arcs on top, the tab's
   own colour across its foot below them, and the bar's colour in the 4px each arc reaches
@@ -245,13 +250,19 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   label — the chip *is* the colour, the way Chrome draws one, and a nameless group is the
   same chip at its `min-width` rather than a bare dot. It is `align-self: center`, so it is
   a chip sitting in the bar rather than a tab reaching the bottom of it, and the group's
-  line passes under it. Its `margin-top` is what puts its label on the same line as the
-  labels beside it — centring it in the bar alone leaves it sitting a few pixels high,
-  because a tab's own text is centred in what is left under its top border, not in the bar.
-  Worth measuring rather than eyeballing: compare the middles of `.tabgroup-name` and a
-  tab's `.name` off `getBoundingClientRect`. The bar's buttons — `#newtab`, the theme
-  toggle, the update arrow — carry the same offset as padding for the same reason, and
-  stay full height so their hit area does not shrink with it.
+  line passes under it.
+- **Everything in the bar is centred on y 19, the middle of the 38px bar**, because that is
+  where Windows draws the caption buttons and nothing moves those. A tab's label gets there
+  through `padding-bottom: 6px`, which answers the 4px margin and 2px border above it — the
+  last attempt instead pushed the chip and the buttons *down* to a label that sat 2.5px low,
+  and they ended up below the caption buttons. The chip is simply centred, the buttons are
+  full height and flex-centre an SVG from `icons.ts`. They were text glyphs, and `+ ↑ ◐ ☀ ☾`
+  each come from a different fallback font with a baseline of its own, so no one padding
+  could line them up. Worth measuring rather than eyeballing: with a dev run started as
+  `npx electron-vite dev --remoteDebuggingPort 9229`, the page is reachable over CDP, and
+  the middles of `.tab .name`, `.tabgroup-name` and each button's `svg` off
+  `getBoundingClientRect` should all read 19. The caption buttons are not in a page
+  screenshot — Windows draws them.
   **A folded group is the chip and nothing else**: no line (`.tabgroup[data-collapsed]::after`
   is `content: none` — a line ties members together and none are on show) and no tab count.
   The count lives in the tooltip, which is also where a folded group says what it is

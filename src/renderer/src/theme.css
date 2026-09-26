@@ -15,6 +15,9 @@
   --warn: #d9a441;
   --err: #e05561;
   --border: #262b36;
+  /* The bar's lower edge and the outline of the loose tab in front, which are one stroke.
+     Stronger than --border because the terminal and the bar are close in the dark. */
+  --edge: #353c4b;
   --hover: #3a4150;
   --on-accent: #fff;
   --on-accent-dim: #dce8ff;
@@ -53,6 +56,7 @@
   --warn: #a86a08;
   --err: #c02a37;
   --border: #d3d7de;
+  --edge: #c5cad3;
   --hover: #cdd2da;
   --on-accent: #fff;
   --on-accent-dim: #dde9ff;
@@ -126,18 +130,36 @@ body {
 /* The tab bar is the window's title bar: the bar itself drags the window and
    the padding keeps the tabs clear of the native window controls, which Electron
    overlays on the right. `titlebar-area-width` is what is left beside them; the
-   fallbacks apply when the window controls overlay is unavailable. */
+   fallbacks apply when the window controls overlay is unavailable.
+
+   Everything in the bar is centred on its middle, y 19 of 38: that is where Windows
+   draws the caption buttons, so it is the one line the bar cannot move. */
 #tabbar {
+  position: relative;
   display: flex;
   align-items: stretch;
   height: env(titlebar-area-height, 38px);
   padding-right: calc(100% - env(titlebar-area-width, 100%));
   flex: 0 0 auto;
   background: var(--bg-chrome);
-  border-bottom: 1px solid var(--border);
   user-select: none;
   overflow: hidden;
   -webkit-app-region: drag;
+}
+
+/* The bar's lower edge, drawn over the tabs rather than as a border: the tab in front
+   stacks above it (`.tab.active`) and so opens into the terminal below instead of
+   standing on a line that closes it off. A border cannot do that — `overflow: hidden`
+   clips anything reaching past it. */
+#tabbar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--edge);
+  pointer-events: none;
 }
 
 /* Everything clickable has to opt out of dragging again. `#tabstrip` and
@@ -185,7 +207,13 @@ body {
    appeared only when active would move the label by two pixels every time the user
    switched tabs. `border-bottom` is off on all of them: the shape is open at the bottom,
    which is what lets the active tab read as standing on the line rather than floating
-   in a box. */
+   in a box.
+
+   The bottom padding is what puts the label on the bar's middle. The top border pushes
+   the content down by two pixels, and without something to answer it underneath the
+   label sat 2.5px low — crowding the group's line, and below the caption buttons.
+   6px = 4 margin + 2 border above, so the content box is 6..32 and centred on 19.
+   `line-height` is fixed so that no font's metrics can move it again. */
 .tab {
   display: flex;
   align-items: center;
@@ -193,7 +221,8 @@ body {
   /* The ground the breath is painted on — see `.tab.working::after`. */
   position: relative;
   margin-top: 4px;
-  padding: 0 8px 0 10px;
+  padding: 0 8px 6px 10px;
+  line-height: 16px;
   min-width: 110px;
   /* Room for a folder and a summary side by side. */
   max-width: 320px;
@@ -205,30 +234,36 @@ body {
   color: var(--fg-dim);
 }
 
-/* The tab in front, on its own: a rule across the top and nothing down the sides. There is
-   no group line for sides to run into here, and three sides closing on nothing read as a
-   box drawn round the tab rather than a tab standing in a strip. */
+/* The tab in front is the terminal's own colour, and it opens into it: it stacks above
+   the bar's lower edge and the group's line (`z-index: 2`, over the line's 1), so the
+   tab and the pane below read as one surface. */
 .tab.active {
   background: var(--bg-tab-active);
   color: var(--fg);
-  /* Above the group's line — see the group's own rule for why. */
-  z-index: 1;
+  z-index: 2;
 }
 
-/* The rule that marks it, drawn short and straight rather than as the top border. As a
-   border it followed the corner radius and turned downwards at both ends, which read as
-   the start of a box the tab never closes; inset a few pixels it is plainly a rule.
-   `#tabstrip > .tab` is a loose tab, the only kind this applies to — inside a group the
-   outline is the border on three sides and `::before` is already the flare, and the child
-   selector is what keeps the two from ever meeting. */
+/* On its own, the tab in front is outlined by the bar's edge itself: one neutral hairline
+   that runs along the bar, up the tab, across its top and down again. It is the shape a
+   group's line draws in colour, so a loose tab and a grouped one say the same thing.
+
+   An accent rule across the top was what this used to be, first as the top border (which
+   followed the corner radius and curled down at both ends) and then inset and straight.
+   Both read as a lid on a box, because the bar's border still ran underneath and closed
+   the tab off; the tab opening into the terminal is what the rule never managed.
+
+   It is an overlay and not the border: the 2px transparent border is what every tab
+   carries so that nothing shifts when the active one changes, and this is 1px. `inset`
+   reaches back over that border to the tab's outer edge. `#tabstrip > .tab` is a loose
+   tab, the only kind this applies to — inside a group `::before` is the flare, and the
+   child selector keeps the two from ever meeting. */
 #tabstrip > .tab.active::before {
   content: '';
   position: absolute;
-  top: -2px;
-  left: 8px;
-  right: 8px;
-  height: 2px;
-  background: var(--accent);
+  inset: -2px -2px 0;
+  border: 1px solid var(--edge);
+  border-bottom: none;
+  border-radius: 7px 7px 0 0;
   pointer-events: none;
 }
 
@@ -460,10 +495,11 @@ body {
 
 .tab .close {
   flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  line-height: 17px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
   border-radius: 3px;
   color: var(--fg-dim);
   visibility: hidden;
@@ -519,6 +555,9 @@ body {
   height: 2px;
   background: var(--group-color);
   pointer-events: none;
+  /* Over the bar's lower edge, which would otherwise paint across its bottom pixel, and
+     under the tab in front (2), which it runs beneath. */
+  z-index: 1;
 }
 
 /* Folded up, the group is the chip alone. The line ties members together, and there are
@@ -541,20 +580,22 @@ body {
   position: relative;
   flex: 0 0 auto;
   align-self: center;
-  /* The same 4px the tabs carry above them. With `align-self: center` that puts the
-     chip middle on the tab middle whatever height the chip has — without it the chip
-     centres in the whole bar and its label sits a couple of pixels above the labels
-     beside it. The side margins are so the chips do not crowd each other. */
-  margin: 6px 3px 0;
-  min-width: 24px;
+  /* No vertical margin: centred in the bar it sits on the bar's middle, which is where
+     the tab labels are too. The side margins keep it clear of the tabs beside it.
+
+     Proportions taken from Chrome's own header, side by side: a rounded rectangle rather
+     than a pill, a little taller than the label needs, and a regular-weight label at
+     almost the tabs' size. An 18px pill with 11px semibold text looked squeezed next to
+     the 13px tab labels — the chip is a name, not a badge. */
+  margin: 0 5px;
+  min-width: 28px;
   max-width: 160px;
-  height: 18px;
-  padding: 0 8px;
-  border-radius: 9px;
+  height: 20px;
+  padding: 0 9px;
+  border-radius: 6px;
   background: var(--group-color);
   color: var(--on-group);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
   cursor: default;
 }
 
@@ -577,16 +618,18 @@ body {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-/* Every button in the bar sits on the line the tab labels sit on. Centring them in the bar
-   leaves them a few pixels high, because a tab centres its text in what is left under its
-   2px top border rather than in the bar — this is the same 6px the group chip carries, for
-   the same reason. Worth measuring rather than eyeballing: compare the middles off
-   `getBoundingClientRect`. The buttons stay full height, so their hit area does not
-   shrink; only what they draw moves down. */
+/* Every button in the bar is full height and centres an SVG icon (icons.ts) in it, which
+   puts the icon on the bar's middle — the line the tab labels and the caption buttons
+   sit on. They used to be text glyphs pushed down by padding, and each came out at a
+   different height because each came from a different fallback font. Worth measuring
+   rather than eyeballing: compare the middles off `getBoundingClientRect`. */
 #newtab,
 #theme-toggle,
 #update-button {
-  padding: 6px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
 
 #newtab {
@@ -595,7 +638,6 @@ body {
   background: transparent;
   border: none;
   color: var(--fg-dim);
-  font-size: 17px;
   cursor: default;
 }
 
@@ -612,8 +654,6 @@ body {
   background: transparent;
   border: none;
   color: var(--fg-dim);
-  font-size: 15px;
-  line-height: 1;
   cursor: default;
 }
 
@@ -630,9 +670,6 @@ body {
   background: transparent;
   border: none;
   color: var(--accent);
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1;
   cursor: default;
 }
 
