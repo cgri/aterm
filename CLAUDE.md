@@ -52,6 +52,8 @@ main/                      Node side: owns all processes, files and Claude Code 
 preload/index.ts           contextBridge → window.aterm
 renderer/src/main.ts       tab lifecycle, panes, persistence — the controller
   keymap.ts                data-driven bindings, one capture-phase listener
+  NewTabPage.ts            the page behind "+": ways to start a tab, sessions to resume
+  ContextMenu.ts           the overlay behind a right-click on a tab or group header
   TerminalView.ts          one xterm.js instance per running tab
   appearance.ts            light/dark/system, applied while the module is imported
   updates.ts               update check, tab-bar button and UpdateDialog
@@ -104,6 +106,25 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
 - **Windows PowerShell 5.1 writes a UTF-8 BOM** with `Set-Content -Encoding utf8`, and
   `JSON.parse` chokes on it while the file looks fine in any editor. All JSON reading goes
   through `util/json.ts`; the shell profile writes without a BOM via `UTF8Encoding($false)`.
+- **The new-tab page is not a tab, but it has one.** "+", Ctrl+T and Ctrl+Shift+O all
+  open it, and it is what a window without tabs shows — at a first start, and after the
+  last tab is closed, where a PowerShell tab nobody asked for used to appear. It is not a
+  `Pane`: nothing runs in it and it is never persisted. `main.ts` keeps it in three
+  variables: `pageOpen` (it has a tab at the end of the bar), `pageActive` (it is in
+  front) and `returnId` (the tab it was opened from, where Esc goes back to and whose
+  folder "current folder" means). While it is in front, `activeId` is **undefined** —
+  that is what makes typing, paste, restart and search find nothing to act on, rather
+  than reaching a terminal hidden behind the page, and why `keymap.ts` lets Ctrl+V and
+  Ctrl+Shift+C through to the search field when there is no view. Anything started
+  while it is in front takes its place (`createTab` calls `leavePage`); switching to
+  another tab leaves it open behind that one. With no other tab it cannot be closed.
+  **One selection, and the keyboard never leaves the search field.** Up and Down move
+  within a column, Tab and Shift+Tab take the selection across, Left and Right stay the
+  caret's. Arrows for the columns were tried and dropped: they either took the caret
+  away from the search or worked only at its ends, which read as working sometimes. A
+  mousedown anywhere on the page is prevented except on the field, so a click runs what
+  it hit and the keys go on working. The keymap names `newTabMenu` and `sessionPicker`
+  are kept, because they are what users' keymap.json files say.
 - **Restore is lazy.** Restored tabs render as placeholders; the process starts on click or
   Enter, including the tab that was active last. The one exception is a directory the
   launch itself named — that tab is started and made active, because that is what
@@ -416,7 +437,9 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   window opens in the right colours.
 - **Native dialogs are out.** `confirm()` and `alert()` draw Chromium's own dialog, which
   matches nothing else here. Ask through `ConfirmDialog`, and register any new overlay in
-  `overlayOpen()` and the focus guard, or the keymap will eat its keys.
+  `overlayOpen()` and the focus guard, or the keymap will eat its keys. An overlay hands
+  the focus back through `focusFront()`, which knows whether the page or a terminal is in
+  front.
 - **An update is the NSIS installer, run silently, and nothing else.** No
   electron-updater: it needs a `latest.yml` and a blockmap on every release, and the
   release process uploads only the two exes. `update/releases.ts` asks the public

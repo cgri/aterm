@@ -825,7 +825,325 @@ body {
   font-size: 12px;
 }
 
-/* ---------- Session picker ---------- */
+/* ---------- New-tab page ---------- */
+
+/* The page lies over the panes, in the terminal's own colour, so its tab opens into it
+   the way a terminal tab does. Two columns: the ways to start a tab, narrow, and the
+   sessions, taking the rest. */
+.ntp {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: none;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.ntp.visible {
+  display: flex;
+}
+
+/* The gutter is kept whether or not the list is long enough to scroll, so the page
+   does not shift sideways as a search shortens it. */
+.ntp-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable both-edges;
+  display: flex;
+  justify-content: center;
+}
+
+.ntp-body {
+  width: min(1080px, calc(100% - 48px));
+  padding: 52px 0 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+/* Drawn as focused, always: the field never gives the keyboard away while the page is up. */
+.ntp-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 46px;
+  padding: 0 16px;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  background: var(--bg-chrome);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+  color: var(--fg-dim);
+}
+
+.ntp-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 15px;
+}
+
+.ntp-search input::placeholder {
+  color: var(--fg-dim);
+}
+
+.ntp-count {
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+
+.ntp-columns {
+  display: flex;
+  align-items: flex-start;
+  gap: 40px;
+}
+
+.ntp-start {
+  flex: 0 0 250px;
+  padding-top: 6px;
+}
+
+.ntp-start-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ntp-start-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 10px;
+}
+
+.ntp-sessions {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ntp-sessions > .ntp-label {
+  padding: 0 12px;
+}
+
+.ntp-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.ntp-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ntp-kind {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ntp-kind-name {
+  padding: 0 10px 4px;
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Every selectable thing on the page is a button that never takes the focus, so the
+   browser's own button look has to go. */
+.ntp button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  margin: 0;
+  text-align: left;
+  cursor: default;
+}
+
+.ntp-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 6px;
+}
+
+.ntp-mark {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.ntp-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ntp-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0 4px 12px;
+}
+
+.ntp-group-head .ntp-path {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ntp-new {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+
+.ntp-new svg {
+  width: 9px;
+  height: 9px;
+}
+
+.ntp-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 12px;
+  border-radius: 6px;
+  color: var(--fg);
+}
+
+.ntp-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* What was typed, where it was found. Underlined as well as tinted, because the tint
+   alone is faint in the dark palette. */
+.ntp-title mark {
+  color: inherit;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 2px;
+  box-shadow: 0 1px 0 var(--accent);
+}
+
+.ntp-worktree {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+
+.ntp-meta {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+
+.ntp-meta.is-open {
+  color: var(--ok);
+}
+
+.ntp-option:hover,
+.ntp-new:hover,
+.ntp-row:hover {
+  background: var(--bg-tab);
+}
+
+/* The one selection on the page, in whichever column it is. */
+.ntp .selected {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.ntp .selected .ntp-mark {
+  color: var(--on-accent);
+}
+
+.ntp .selected .ntp-worktree,
+.ntp .selected .ntp-meta {
+  color: var(--on-accent-dim);
+}
+
+.ntp .selected .ntp-meta.is-open {
+  color: var(--on-accent);
+}
+
+.ntp .selected mark {
+  background: color-mix(in srgb, var(--on-accent) 20%, transparent);
+  box-shadow: 0 1px 0 var(--on-accent);
+}
+
+.ntp-empty {
+  padding: 18px 12px;
+  color: var(--fg-dim);
+}
+
+.ntp-hints {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 30px;
+  padding: 0 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-chrome);
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+
+.ntp-hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ntp-hint kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg-dim);
+}
+
+/* The page's tab carries a magnifier where a tab has its kind. It is an SVG rather than a
+   glyph, so it needs its own box to sit on the same line as ✳ and ❯. */
+.page-tab .mark {
+  display: flex;
+  justify-content: center;
+}
+
+/* ---------- Overlays ---------- */
+
+/* The shell every overlay shares: context menu, dialogs, update dialog. */
 
 .picker {
   position: fixed;
@@ -869,9 +1187,9 @@ body {
   overflow-y: auto;
 }
 
-/* The gap above the folder is much larger than the one below it, so the header
-   clearly belongs to the sessions that follow. The space above is a margin, not
-   padding, to keep the header compact once it sticks to the top. */
+/* A menu's heading. The gap above it is much larger than the one below, so it clearly
+   belongs to the rows that follow; a margin rather than padding, to keep it compact
+   once it sticks to the top. */
 .picker-group {
   margin-top: 18px;
   padding: 4px 14px 1px;
@@ -900,60 +1218,9 @@ body {
   color: var(--on-accent);
 }
 
-.picker-row.selected .picker-meta {
-  color: var(--on-accent-dim);
-}
+/* ---------- Context menu ---------- */
 
-.picker-title {
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The worktree a session ran in. The header names the project now, so this is
-   what tells two sessions of one project apart — same weight as the meta, and it
-   sits between the two so it reads as part of the session's address. */
-.picker-worktree {
-  flex: 0 0 auto;
-  color: var(--fg-dim);
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.picker-row.selected .picker-worktree {
-  color: var(--on-accent-dim);
-}
-
-/* The row that starts a fresh session in the project its block is headed by. It
-   offers something rather than reporting something, so it reads at the weight of
-   the meta instead of a session title. */
-.picker-new .picker-title {
-  color: var(--fg-dim);
-}
-
-.picker-new.selected .picker-title {
-  color: var(--on-accent);
-}
-
-.picker-meta {
-  flex: 0 0 auto;
-  color: var(--fg-dim);
-  font-size: 11px;
-}
-
-.picker-meta.is-open {
-  color: var(--ok);
-}
-
-.picker-empty {
-  padding: 18px 14px;
-  color: var(--fg-dim);
-}
-
-/* ---------- New tab overlay ---------- */
-
-/* Same overlay as the session picker, only narrower — the labels are short. */
+/* The overlay shell, narrower — the labels are short. */
 .menu-box {
   width: min(520px, 90vw);
   padding-bottom: 6px;

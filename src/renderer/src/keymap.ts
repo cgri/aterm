@@ -6,14 +6,13 @@ export interface KeymapContext {
   /** Writes straight into the active tab's PTY. */
   write(data: string): void
   newTab(kind: TabKind): void
-  /** The overlay behind "+". */
-  openNewTabMenu(): void
+  /** The page behind "+": ways to start a tab, and the sessions to resume. */
+  openNewTabPage(): void
   closeActiveTab(): void
   /** Ends the active tab's process and starts it again — Claude resumes its session. */
   restartActiveTab(): void
   cycleTab(delta: number): void
   selectTabByIndex(index: number): void
-  openSessionPicker(): void
   toggleSearch(): void
   changeFontSize(delta: number | 'reset'): void
   /** Puts the active tab into a group, or takes it out of one. */
@@ -48,7 +47,7 @@ export type Action =
 
 export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   newTabMenu: ['Ctrl+T'],
-  // No default: Ctrl+T opens the menu instead. Still bindable in keymap.json.
+  // No default: Ctrl+T opens the new-tab page instead. Still bindable in keymap.json.
   newClaudeTab: [],
   newShellTab: ['Ctrl+Shift+T'],
   closeTab: ['Ctrl+W'],
@@ -172,7 +171,7 @@ export function installWheelZoom(changeFontSize: (delta: number) => void): void 
 }
 
 function handle(ev: KeyboardEvent, ctx: KeymapContext, bindings: Bindings): boolean {
-  // Overlays (session picker, search) bring their own keyboard handling; only
+  // Overlays (the new-tab page, search) bring their own keyboard handling; only
   // combinations with Ctrl or Alt still get through there.
   if (ctx.overlayOpen() && !ev.ctrlKey && !ev.altKey) return false
 
@@ -205,8 +204,11 @@ function handle(ev: KeyboardEvent, ctx: KeymapContext, bindings: Bindings): bool
 
 function dispatch(action: Action, ctx: KeymapContext, ev: KeyboardEvent): boolean {
   switch (action) {
+    // Both open the new-tab page. The page took over from the session list, and the
+    // action names stay what they were, because they are what keymap.json says.
     case 'newTabMenu':
-      ctx.openNewTabMenu()
+    case 'sessionPicker':
+      ctx.openNewTabPage()
       return true
     case 'newClaudeTab':
       ctx.newTab('claude')
@@ -232,16 +234,17 @@ function dispatch(action: Action, ctx: KeymapContext, ev: KeyboardEvent): boolea
     case 'previousTab':
       ctx.cycleTab(-1)
       return true
-    case 'sessionPicker':
-      ctx.openSessionPicker()
-      return true
     case 'search':
       ctx.toggleSearch()
       return true
+    // Without a terminal in front — on the new-tab page — these belong to the text
+    // field that has the focus, and have to reach it.
     case 'paste':
+      if (!ctx.activeView()) return false
       void paste(ctx)
       return true
     case 'copy':
+      if (!ctx.activeView()) return false
       void copySelection(ctx)
       return true
     case 'pasteImage':

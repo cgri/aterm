@@ -11,8 +11,8 @@ import {
 } from '@shared/types'
 import { TabBar, type DropTarget, type StripItem, type TabViewModel } from './TabBar'
 import { TerminalView } from './TerminalView'
-import { SessionPicker } from './SessionPicker'
-import { NewTabMenu, type MenuItem } from './NewTabMenu'
+import { NewTabPage } from './NewTabPage'
+import { ContextMenu, type MenuItem } from './ContextMenu'
 import { buildBindings, installKeymap, installWheelZoom, type Action } from './keymap'
 import { SearchBar } from './SearchBar'
 import { ZoomIndicator } from './ZoomIndicator'
@@ -81,6 +81,18 @@ let order: string[] = []
  */
 const groups = new Map<string, TabGroup>()
 let activeId: string | undefined
+/**
+ * The new-tab page is not a pane: nothing runs in it, and it is never persisted. It has
+ * a tab of its own at the end of the bar for as long as it is open (`pageOpen`), and
+ * while it is in front (`pageActive`) no pane is — `activeId` is undefined then, so
+ * whatever acts on the active tab (typing, paste, restart, search) finds nothing to act
+ * on, and `returnId` keeps the tab Esc goes back to.
+ */
+let pageOpen = false
+let pageActive = false
+let returnId: string | undefined
+/** Stands for the page's tab where a walk over the bar needs one id per tab. */
+const PAGE_ID = 'new-tab-page'
 let homeDir = ''
 let fontSize = Number(localStorage.getItem('fontSize') ?? BASE_FONT_SIZE)
 /** sessionId → first prompt, used for titles and the "last here" bar. */
@@ -95,7 +107,7 @@ let windowFocused = document.hasFocus()
 const themeToggle = new ThemeToggle()
 const updates = new Updates({
   confirmInstall: (version) => confirmUpdateInstall(version),
-  onClosed: () => activePane()?.view?.focus()
+  onClosed: () => focusFront()
 })
 
 const tabBar = new TabBar(
@@ -104,7 +116,9 @@ const tabBar = new TabBar(
     onSelect: (id) => activate(id, { start: true }),
     onClose: (id) => void closeTab(id),
     onMenu: (id) => openTabMenu(id),
-    onNew: () => void openNewTabMenu(),
+    onNew: () => openNewTabPage(),
+    onPageSelect: () => openNewTabPage(),
+    onPageClose: () => closePage(),
     onMove: (source, target) =>
       source.kind === 'tab' ? moveTab(source.id, target) : moveGroup(source.id, target),
     onGroupToggle: (groupId) => toggleGroup(groupId),
@@ -117,18 +131,24 @@ onThemeChange(() => {
   for (const pane of panes.values()) pane.view?.setAppearance(currentAppearance())
 })
 
-const newTabMenu = new NewTabMenu(() => activePane()?.view?.focus())
-const confirmDialog = new ConfirmDialog(() => activePane()?.view?.focus())
-const groupDialog = new GroupDialog(() => activePane()?.view?.focus())
+const contextMenu = new ContextMenu(() => focusFront())
+const confirmDialog = new ConfirmDialog(() => focusFront())
+const groupDialog = new GroupDialog(() => focusFront())
 const searchBar = new SearchBar(() => activePane()?.view)
 const zoomIndicator = new ZoomIndicator(document.body)
 
-const picker = new SessionPicker({
-  onOpen: (session) => void openSession(session),
-  onNew: (cwd) => void createTab('claude', cwd),
-  onFocus: (tabId) => activate(tabId, { start: true }),
+const page = new NewTabPage(paneRoot, {
+  start: (kind, cwd, opts) => void createTab(kind, cwd, { worktree: opts?.worktree }),
+  startInFolder: (kind) => void createTabWithPicker(kind),
+  open: (session) => void openSession(session),
+  // The page asked for a tab that exists already — it is done, and goes.
+  focusTab: (tabId) => {
+    leavePage()
+    activate(tabId, { start: true })
+  },
   openTabFor: (sessionId) =>
-    [...panes.values()].find((p) => p.tab.claudeSessionId === sessionId)?.tab.id
+    [...panes.values()].find((p) => p.tab.claudeSessionId === sessionId)?.tab.id,
+  back: () => closePage()
 })
 
 /* ------------------------------------------------------------------ Boot */
@@ -154,9 +174,10 @@ async function boot(): Promise<void> {
         if (pane && pane.status === 'running') api.pty.write(pane.tab.id, data)
       },
       newTab: (kind) => void createTab(kind, currentCwd()),
-      openNewTabMenu: () => void openNewTabMenu(),
+      openNewTabPage: () => openNewTabPage(),
       closeActiveTab: () => {
-        if (activeId) void closeTab(activeId)
+        if (pageActive) closePage()
+        else if (activeId) void closeTab(activeId)
       },
       restartActiveTab: () => {
         if (activeId) void restartTab(activeId)
@@ -177,7 +198,6 @@ async function boot(): Promise<void> {
         const group = activeId ? groupOf(activeId) : undefined
         if (group) toggleGroup(group.id)
       },
-      openSessionPicker: () => void picker.show(),
       toggleSearch: () => searchBar.toggle(activePane()?.el),
       changeFontSize: (delta) => changeFontSize(delta),
       startActiveTab: () => {
@@ -187,9 +207,9 @@ async function boot(): Promise<void> {
         return true
       },
       overlayOpen: () =>
-        picker.isOpen() ||
+        pageActive ||
         searchBar.isOpen() ||
-        newTabMenu.isOpen() ||
+        contextMenu.isOpen() ||
         confirmDialog.isOpen() ||
         groupDialog.isOpen() ||
         updates.isOpen()
@@ -208,7 +228,7 @@ async function boot(): Promise<void> {
 
   const state = await api.state.load()
   if (state.tabs.length === 0) {
-    if (launchDirs.length === 0) await createTab('powershell', homeDir)
+    if (launchDirs.length === 0) openNewTabPage()
     else for (const dir of launchDirs) await createTab('claude', dir)
     return
   }
@@ -290,6 +310,8 @@ async function createTab(
     groupId?: string
   } = {}
 ): Promise<void> {
+  // Whatever is started while the page is in front takes the page's place.
+  if (pageActive) leavePage()
   const tab: TabState = {
     id: crypto.randomUUID(),
     kind,
@@ -378,8 +400,14 @@ async function removeTab(id: string): Promise<void> {
     const reachable = reachableOrder()
     activeId = reachable[reachable.length - 1]
   }
+  if (returnId === id) returnId = undefined
   if (order.length === 0) {
-    await createTab('powershell', homeDir)
+    // Nothing left: the window shows the new-tab page rather than a tab nobody asked for.
+    // Rendered here too — with the page in front already, opening it only focuses it,
+    // and the page's tab has just lost the × it no longer may have.
+    openNewTabPage()
+    render()
+    persist()
     return
   }
   activate(activeId, { start: false })
@@ -445,7 +473,7 @@ function openTabMenu(id: string): void {
     { label: 'Close tab', run: () => void closeTab(id) },
     { label: 'Add tab to new group…', run: () => void newGroupFor(id) }
   ]
-  // A submenu re-fills this same overlay: `NewTabMenu.choose` closes before it runs
+  // A submenu re-fills this same overlay: `ContextMenu.choose` closes before it runs
   // what was chosen, so opening it again from there needs nothing special.
   if (otherGroups(pane.tab.groupId).length > 0) {
     items.push({ label: 'Add tab to group…', run: () => openAddToGroupMenu(id) })
@@ -453,7 +481,7 @@ function openTabMenu(id: string): void {
   if (pane.tab.groupId) {
     items.push({ label: 'Remove tab from group', run: () => setTabGroup(id, undefined) })
   }
-  newTabMenu.show(items, 'Tab')
+  contextMenu.show(items, 'Tab')
 }
 
 /** Every group but the one a tab is already in. */
@@ -464,7 +492,7 @@ function otherGroups(groupId: string | undefined): TabGroup[] {
 function openAddToGroupMenu(id: string): void {
   const pane = panes.get(id)
   if (!pane) return
-  newTabMenu.show(
+  contextMenu.show(
     [
       { label: '‹ Back', run: () => openTabMenu(id) },
       ...otherGroups(pane.tab.groupId).map((group) => ({
@@ -493,7 +521,7 @@ function openGroupMenu(groupId: string): void {
   if (!group) return
 
   const seed = groupSeed(groupId)
-  newTabMenu.show(
+  contextMenu.show(
     [
       { label: 'Rename group…', run: () => void renameGroup(groupId) },
       { label: 'Change colour…', run: () => openGroupColorMenu(groupId) },
@@ -512,7 +540,7 @@ function openGroupMenu(groupId: string): void {
 function openGroupColorMenu(groupId: string): void {
   const group = groups.get(groupId)
   if (!group) return
-  newTabMenu.show(
+  contextMenu.show(
     [
       { label: '‹ Back', run: () => openGroupMenu(groupId) },
       ...TAB_GROUP_COLORS.map((color) => ({
@@ -553,6 +581,11 @@ async function renameGroup(groupId: string): Promise<void> {
 function activate(id: string | undefined, opts: { start: boolean; reveal?: boolean }): void {
   if (!id || !panes.has(id)) return
   activeId = id
+  // The page stays open behind the tab; its own tab brings it back.
+  if (pageActive) {
+    pageActive = false
+    page.hide()
+  }
 
   if (opts.reveal !== false) {
     const group = groupOf(id)
@@ -577,11 +610,14 @@ function activate(id: string | undefined, opts: { start: boolean; reveal?: boole
 }
 
 function cycleTab(delta: number): void {
-  const reachable = reachableOrder()
-  if (reachable.length < 2 || !activeId) return
-  const index = reachable.indexOf(activeId)
-  const next = index < 0 ? 0 : (index + delta + reachable.length) % reachable.length
-  activate(reachable[next], { start: true })
+  // The page's tab is the last one in the bar, and the walk passes through it like any other.
+  const ring = pageOpen ? [...reachableOrder(), PAGE_ID] : reachableOrder()
+  const current = pageActive ? PAGE_ID : activeId
+  if (ring.length < 2 || !current) return
+  const index = ring.indexOf(current)
+  const next = ring[index < 0 ? 0 : (index + delta + ring.length) % ring.length]
+  if (next === PAGE_ID) openNewTabPage()
+  else activate(next, { start: true })
 }
 
 /* ------------------------------------------------------------ Tab groups */
@@ -1156,11 +1192,20 @@ function render(): void {
     current.tabs.push(model)
   }
 
-  tabBar.render(items, activeId)
+  tabBar.render(
+    items,
+    activeId,
+    pageOpen ? { active: pageActive, closable: order.length > 0 } : undefined
+  )
+  page.setCanGoBack(order.length > 0)
 
   for (const pane of panes.values()) updatePlaceholder(pane)
   const active = activePane()
-  document.title = active ? `${paneTitle(active)} — aterm` : 'aterm'
+  document.title = pageActive
+    ? 'New tab — aterm'
+    : active
+      ? `${paneTitle(active)} — aterm`
+      : 'aterm'
   updateAttention()
 }
 
@@ -1427,35 +1472,52 @@ setInterval(() => {
 
 /* ----------------------------------------------------------- New tab */
 
-async function openNewTabMenu(): Promise<void> {
-  // Ctrl+T on the open overlay closes it again.
-  if (newTabMenu.isOpen()) {
-    newTabMenu.close()
+/**
+ * "+", Ctrl+T, Ctrl+Shift+O and a click on the page's own tab. A page that is open
+ * already comes back as it was left; otherwise it opens fresh, on the folder of the tab
+ * that was in front.
+ */
+function openNewTabPage(): void {
+  if (pageActive) {
+    page.focus()
     return
   }
 
   const cwd = currentCwd()
-  // `claude --worktree` needs a git working tree; offering it anywhere else
-  // would just open a tab that dies with an error.
-  const canWorktree = await api.system.isGitRepo(cwd)
+  returnId = activeId
+  activeId = undefined
+  for (const pane of panes.values()) pane.el.classList.remove('active')
+  searchBar.detach()
 
-  const items: MenuItem[] = [
-    { label: 'Claude Code — current folder', run: () => void createTab('claude', cwd) }
-  ]
-  if (canWorktree) {
-    items.push({
-      label: 'Claude Code — current folder, new worktree',
-      run: () => void createTab('claude', cwd, { worktree: true })
-    })
-  }
-  items.push(
-    { label: 'Claude Code — choose folder…', run: () => void createTabWithPicker('claude') },
-    { label: 'PowerShell — current folder', run: () => void createTab('powershell', cwd) },
-    { label: 'PowerShell — choose folder…', run: () => void createTabWithPicker('powershell') },
-    { label: 'Recently opened sessions…', run: () => void picker.show() }
-  )
+  if (pageOpen) page.reveal()
+  else page.open({ cwd })
+  pageOpen = true
+  pageActive = true
+  render()
+  persist()
+}
 
-  newTabMenu.show(items)
+/**
+ * The page is done with — whatever it started takes its place, so there is nothing to
+ * go back to. Renders nothing: every caller goes on to activate a tab, which does.
+ */
+function leavePage(): void {
+  pageOpen = false
+  pageActive = false
+  returnId = undefined
+  page.hide()
+}
+
+/** Esc, Ctrl+W or the page's ×: back to the tab that was in front before it. */
+function closePage(): void {
+  // Without another tab the page is all the window has, and it stays.
+  if (!pageOpen || order.length === 0) return
+  const wasActive = pageActive
+  const reachable = reachableOrder()
+  const back = returnId && panes.has(returnId) ? returnId : reachable[reachable.length - 1]
+  leavePage()
+  if (wasActive) activate(back, { start: false })
+  else render()
 }
 
 async function createTabWithPicker(kind: TabKind): Promise<void> {
@@ -1463,8 +1525,15 @@ async function createTabWithPicker(kind: TabKind): Promise<void> {
   if (dir) await createTab(kind, dir)
 }
 
+/** The folder of the tab in front — or, while the page is, of the tab it came from. */
 function currentCwd(): string {
-  return activePane()?.tab.cwd ?? homeDir
+  return activePane()?.tab.cwd ?? (returnId && panes.get(returnId)?.tab.cwd) ?? homeDir
+}
+
+/** Where the keyboard goes once an overlay is gone: the page, or the terminal in front. */
+function focusFront(): void {
+  if (pageActive) page.focus()
+  else activePane()?.view?.focus()
 }
 
 function activePane(): Pane | undefined {
@@ -1492,9 +1561,9 @@ function installFocusGuard(): void {
       // While the window is inactive the focus belongs to whatever the user
       // switched to, and overlays bring their own focus handling.
       if (!document.hasFocus()) return
-      if (picker.isOpen() || searchBar.isOpen() || newTabMenu.isOpen()) return
+      if (searchBar.isOpen() || contextMenu.isOpen()) return
       if (confirmDialog.isOpen() || groupDialog.isOpen() || updates.isOpen()) return
-      activePane()?.view?.focus()
+      focusFront()
     })
   })
 }
@@ -1523,7 +1592,8 @@ function persist(): void {
         return { ...pane.tab, order: index }
       })
       .filter((tab): tab is TabState => Boolean(tab)),
-    activeTabId: activeId,
+    // The page is not a tab; the one it came from is what comes back after a restart.
+    activeTabId: activeId ?? returnId,
     groups: [...groups.values()]
   }
   void api.state.save(state)

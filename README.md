@@ -25,10 +25,10 @@ Tabs are saved on exit and restored on start, but **lazily**: they are all there
 immediately, and a tab's process only starts when you click it or press `Enter`. A
 window full of yesterday's work costs nothing until you touch it.
 
-`Ctrl+Shift+O` opens the session list — everything Claude Code has run recently,
-grouped by project, filtered as you type, whether or not aterm started it. Pick a
-session to resume it, or **New session** to start a fresh one in that project. A
-session that is already open in a tab says so and takes you there instead.
+The new-tab page (below) lists everything Claude Code has run recently, grouped by
+project, filtered as you type, whether or not aterm started it. Pick a session to resume
+it, or **New session** in a project's header to start a fresh one there. A session that
+is already open in a tab says so and takes you there instead.
 
 Whether a session can be resumed at all is decided by looking at it, not by a flag
 somebody remembered to set — and aterm keeps up when a conversation moves out from
@@ -49,16 +49,24 @@ meant for something else entirely.
 
 ### Opening a new tab
 
-`Ctrl+T` opens a small menu instead of guessing:
+`Ctrl+T`, `Ctrl+Shift+O` or **+** opens the new-tab page, in a tab of its own. It is also
+what a window without tabs shows — at the first start, and after the last tab is closed.
+The search field has the focus straight away. On the left are the ways to start a tab:
 
-- Claude Code in the current folder
+- Claude Code in the current folder — the folder of the tab you came from
 - Claude Code in a fresh **git worktree** of it (`claude --worktree`, offered where
   there is a repository) — the tab still carries the project's name, so the worktree
   does not disappear into a path nobody recognises
 - Claude Code or PowerShell in a folder you pick
-- straight to the session list
 
-`Ctrl+Shift+T` skips the menu for a PowerShell tab.
+On the right are the sessions to resume. There is one selection on the page: `↑`/`↓`
+move it within a column, `Tab` takes it to the other one, `Enter` opens it. Typing moves
+it to the first matching session; with an empty search it sits on Claude Code in the
+current folder, so `Ctrl+T`, `Enter` starts one there. `Esc` clears the search, or
+closes the page and goes back to the tab you came from. Whatever you start takes the
+page's place.
+
+`Ctrl+Shift+T` skips the page for a PowerShell tab.
 
 ### Straight from Explorer
 
@@ -91,14 +99,14 @@ behind them.
 
 | Key | Effect |
 |---|---|
-| `Ctrl+T` | New tab menu |
+| `Ctrl+T` | New-tab page |
 | `Ctrl+Shift+T` | New PowerShell tab, straight away |
 | `Ctrl+W` | Close tab |
 | `Ctrl+Shift+R` | Restart tab — a Claude tab resumes its conversation |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab (also `Ctrl+PageDown` / `Ctrl+PageUp`) |
 | `Ctrl+1…9` | Jump to a tab |
 | `Enter` | On a tab that has not started yet: open it |
-| `Ctrl+Shift+O` | Session list |
+| `Ctrl+Shift+O` | New-tab page (it holds the session list) |
 | `Ctrl+Shift+F` | Search the scrollback |
 | `Ctrl+V` | Paste — text directly, an image as a file in the temp directory (the path is pasted) |
 | `Alt+V` | Passed through as `ESC v` → Claude Code's own image paste |
@@ -121,8 +129,10 @@ action entirely; an empty array disables it:
 
 Actions: `newTabMenu`, `newClaudeTab`, `newShellTab`, `closeTab`, `restartTab`,
 `nextTab`, `previousTab`, `sessionPicker`, `search`, `paste`, `copy`, `pasteImage`,
-`newline`, `fontLarger`, `fontSmaller`, `fontReset`. `newClaudeTab` has no default —
-`Ctrl+T` opens the menu instead — so bind it if you want a Claude tab in a single key.
+`newline`, `fontLarger`, `fontSmaller`, `fontReset`. `newTabMenu` and `sessionPicker`
+both open the new-tab page; the names are kept so existing keymaps go on working.
+`newClaudeTab` has no default — `Ctrl+T` opens the page instead — so bind it if you want
+a Claude tab in a single key.
 `Ctrl+C`, `Ctrl+1…9` and `Ctrl+Wheel` are fixed.
 
 ## Configuration
