@@ -2,8 +2,11 @@ import type { UpdateCheck } from '@shared/types'
 import { UpdateDialog, type UpdatePhase } from './UpdateDialog'
 import { icon } from './icons'
 
-/** GitHub allows 60 unauthenticated requests an hour; this is one every six. */
-const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
+/**
+ * GitHub allows 60 unauthenticated requests an hour per IP address, and a check is one
+ * request, so an hourly check leaves room for several aterm windows behind one address.
+ */
+const CHECK_INTERVAL_MS = 60 * 60 * 1000
 
 export interface UpdatesOptions {
   /** Installing quits aterm, which ends every running tab — the caller knows which. */
