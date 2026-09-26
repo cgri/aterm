@@ -133,12 +133,16 @@ body {
    fallbacks apply when the window controls overlay is unavailable.
 
    Everything in the bar is centred on its middle, y 19 of 38: that is where Windows
-   draws the caption buttons, so it is the one line the bar cannot move. */
+   draws the caption buttons, so it is the one line the bar cannot move.
+
+   The height is not `env(titlebar-area-height)`: the overlay is one pixel shorter than
+   the bar (`TITLE_BAR_HEIGHT` in main/index.ts), so that the lower edge below runs on
+   underneath the caption buttons instead of being covered by them. */
 #tabbar {
   position: relative;
   display: flex;
   align-items: stretch;
-  height: env(titlebar-area-height, 38px);
+  height: 38px;
   padding-right: calc(100% - env(titlebar-area-width, 100%));
   flex: 0 0 auto;
   background: var(--bg-chrome);
@@ -580,18 +584,23 @@ body {
   position: relative;
   flex: 0 0 auto;
   align-self: center;
-  /* No vertical margin: centred in the bar it sits on the bar's middle, which is where
-     the tab labels are too. The side margins keep it clear of the tabs beside it.
+  /* Centred in the bar it sits on the bar's middle, which is where the tab labels are
+     too. The side margins keep it clear of the tabs beside it.
 
      Proportions taken from Chrome's own header, side by side: a rounded rectangle rather
      than a pill, a little taller than the label needs, and a regular-weight label at
      almost the tabs' size. An 18px pill with 11px semibold text looked squeezed next to
-     the 13px tab labels — the chip is a name, not a badge. */
-  margin: 0 5px;
+     the 13px tab labels — the chip is a name, not a badge.
+
+     The label is centred in the top 20px and the chip is 21px tall: the font's line box
+     keeps room for descenders, so a label centred in the whole chip put its capitals a
+     pixel closer to the bottom than to the top. The extra pixel goes below, and the 1px
+     top margin keeps the label where it was, on the bar's middle. */
+  margin: 1px 5px 0;
   min-width: 28px;
   max-width: 160px;
-  height: 20px;
-  padding: 0 9px;
+  height: 21px;
+  padding: 0 9px 1px;
   border-radius: 6px;
   background: var(--group-color);
   color: var(--on-group);

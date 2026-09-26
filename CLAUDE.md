@@ -255,7 +255,9 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   where Windows draws the caption buttons and nothing moves those. A tab's label gets there
   through `padding-bottom: 6px`, which answers the 4px margin and 2px border above it — the
   last attempt instead pushed the chip and the buttons *down* to a label that sat 2.5px low,
-  and they ended up below the caption buttons. The chip is simply centred, the buttons are
+  and they ended up below the caption buttons. The chip is centred with one extra pixel
+  below its label (`margin-top: 1px`, `padding-bottom: 1px`), because the line box keeps
+  room for descenders and capitals sat a pixel low in it otherwise. The buttons are
   full height and flex-centre an SVG from `icons.ts`. They were text glyphs, and `+ ↑ ◐ ☀ ☾`
   each come from a different fallback font with a baseline of its own, so no one padding
   could line them up. Worth measuring rather than eyeballing: with a dev run started as
@@ -396,7 +398,9 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   overlays the native window controls on the right. `#tabbar` is the drag region and every
   clickable child opts out again with `-webkit-app-region: no-drag`; the room left beside
   the controls comes from `env(titlebar-area-width)`. `titleBarOverlay.height` in
-  `main/index.ts` and the `#tabbar` height in `theme.css` have to stay in step.
+  `main/index.ts` is the `#tabbar` height in `theme.css` minus one, and the two have to
+  stay in step: the caption buttons are opaque, and an overlay as tall as the bar covered
+  its 1px lower edge, which then stopped short where the buttons begin.
   **Some of the bar has to stay free, or the window cannot be moved at all.** Only
   `#tabstrip` clips, and `#draghandle` after it keeps a minimum width the tabs cannot
   shrink into, so there is always a stretch left to grab — and `#newtab` and the trailing
