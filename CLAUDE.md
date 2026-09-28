@@ -310,6 +310,12 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   is `content: none` — a line ties members together and none are on show) and no tab count.
   The count lives in the tooltip, which is also where a folded group says what it is
   reporting.
+- **A group is a grid, so that it shrinks like loose tabs and never past its own.** Its
+  tracks are `minmax(110px, max-content)`, the tabs' own `min-width` and natural width. As
+  a flex row its floor was its members' full content width, so grouped tabs kept their
+  length while loose ones shrank — and the `min-width: 0` that answered that let the box
+  shrink below its tabs, so in a full bar each group started on top of the one before, a
+  little further each time.
 - **A collapsed group speaks for its members**, in the same two states a tab has: it takes
   the alarm if any of them is waiting unseen, and the breath if any is working. Alarm wins,
   as it does on a tab. Its tooltip says which, because the chip has no mark of its own to
