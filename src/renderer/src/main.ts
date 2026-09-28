@@ -877,8 +877,8 @@ async function closeGroup(groupId: string): Promise<void> {
 /**
  * A dragged tab's group follows from where it was let go; there is no separate gesture
  * for joining and leaving. Where that is — which tab it lands in front of, and in which
- * group — the tab bar has already worked out from the pointer, because that is also what
- * its insertion marker showed.
+ * group — the tab bar has already worked out from the pointer, because that is also where
+ * its preview put the tab while it was being dragged.
  */
 function moveTab(tabId: string, target: DropTarget): void {
   const pane = panes.get(tabId)

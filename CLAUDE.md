@@ -343,7 +343,7 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `PersistedState.groups` is additive and deliberately did **not** raise `SCHEMA_VERSION` —
   a bump makes `load` set aside any state.json written by a newer aterm, so it would cost
   every tab of anyone who goes back a version, for a field that version would have ignored.
-- **A drop is decided by the pointer's x, in the bar, and the marker shows exactly that.**
+- **A drop is decided by the pointer's x, in the bar, and shown before it happens.**
   One `dragover`/`drop` listener on `#tabbar` works out a `DropTarget` — the tab to land in
   front of (none = the end) and the group to be in (none = loose) — from the geometry of
   the strip, and `main.ts` only carries it out. Which element happens to be under the
@@ -352,12 +352,18 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   For a tab: the half of a tab the pointer is on says which side, in that tab's group; a
   group's header means its end; the outer `GROUP_EDGE` pixels of a group mean beside it,
   loose; anything behind the last visible tab means the end of the bar. A dragged group
-  only lands between whole units, since groups do not nest. A drop that would move nothing
-  is not accepted and shows no marker (`moves`).
-  The marker is a line in the group's colour standing on the group's line, or in `--fg`
-  running down through it for loose — never the accent, which in the light palette *is*
-  the blue group's colour, so the end of a blue group and the gap behind it looked the
-  same. A folded group has no gap to mark; its chip gets a ring (`.drop-into`).
+  only lands between whole units, since groups do not nest.
+  **The preview is the dragged element itself, moved there while the drag goes on**, faded
+  (`.dragging`); inside a group it takes on the line and outline as any member does, and a
+  drop is that preview made real (`pending`). An insertion line was the first version and
+  was hard to see under the half-transparent drag image. What keeps it from jumping back
+  and forth: the target is computed against the live DOM, and one that is where the
+  element already is changes nothing — after a swap the pointer is always over the moved
+  element or in the half of its neighbour that means "stay". A folded group has no room
+  to show a tab in, so the element stays put and the chip gets a ring (`.drop-into`).
+  Leaving the bar or ending the drag anywhere else puts it back. `render` is deferred
+  while a drag is on: rebuilding the bar would take the dragged element with it, and a
+  drag whose element is gone gets no `dragend`.
 - **A worktree belongs to its project, in the tab name and in the session list.**
   `claude --worktree` creates `<project>\.claude\worktrees\<name>`, and a session reopened
   from the picker carries *that* as its `cwd`, because `RecentSession.cwd` comes from
