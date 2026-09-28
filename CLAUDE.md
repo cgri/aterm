@@ -343,15 +343,21 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `PersistedState.groups` is additive and deliberately did **not** raise `SCHEMA_VERSION` —
   a bump makes `load` set aside any state.json written by a newer aterm, so it would cost
   every tab of anyone who goes back a version, for a field that version would have ignored.
-- **Dragging a whole group is a separate source, and groups do not nest.** `TabBar` reports
-  a `DragSource` of `tab` or `group` and a `DropTarget` of `before` / `group` / `end`;
-  what that means for membership is decided in `main.ts`, not in the bar. A block always
-  lands in front of a whole unit — a loose tab, or another group entire — never inside one.
-  The one rule worth knowing for a single tab: dropping it in front of a group's *first*
-  member means in front of the group, not into it, unless it is already a member. Chrome
-  tells those apart with a hysteresis zone that needs pointer tracking; this needs no
-  geometry. The insertion marker has to be cleared on `dragend` as well as `dragleave` —
-  `dragleave` does not fire when the drag ends over the element it marked.
+- **A drop is decided by the pointer's x, in the bar, and the marker shows exactly that.**
+  One `dragover`/`drop` listener on `#tabbar` works out a `DropTarget` — the tab to land in
+  front of (none = the end) and the group to be in (none = loose) — from the geometry of
+  the strip, and `main.ts` only carries it out. Which element happens to be under the
+  pointer said too little: a tab could only get into a group by its header, the end of a
+  group had no element at all, and the gap between two groups is two pixels wide.
+  For a tab: the half of a tab the pointer is on says which side, in that tab's group; a
+  group's header means its end; the outer `GROUP_EDGE` pixels of a group mean beside it,
+  loose; anything behind the last visible tab means the end of the bar. A dragged group
+  only lands between whole units, since groups do not nest. A drop that would move nothing
+  is not accepted and shows no marker (`moves`).
+  The marker is a line in the group's colour standing on the group's line, or in `--fg`
+  running down through it for loose — never the accent, which in the light palette *is*
+  the blue group's colour, so the end of a blue group and the gap behind it looked the
+  same. A folded group has no gap to mark; its chip gets a ring (`.drop-into`).
 - **A worktree belongs to its project, in the tab name and in the session list.**
   `claude --worktree` creates `<project>\.claude\worktrees\<name>`, and a session reopened
   from the picker carries *that* as its `cwd`, because `RecentSession.cwd` comes from

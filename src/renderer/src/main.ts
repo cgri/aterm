@@ -876,51 +876,27 @@ async function closeGroup(groupId: string): Promise<void> {
 
 /**
  * A dragged tab's group follows from where it was let go; there is no separate gesture
- * for joining and leaving. The one rule worth spelling out: dropping it *in front of the
- * first member* of a group means in front of the group, not into it — unless the tab is
- * already one of its members. Chrome tells those two apart with a hysteresis zone along
- * the edge, which needs pointer tracking; this needs no geometry at all and lands where
- * it was meant nearly every time.
+ * for joining and leaving. Where that is — which tab it lands in front of, and in which
+ * group — the tab bar has already worked out from the pointer, because that is also what
+ * its insertion marker showed.
  */
 function moveTab(tabId: string, target: DropTarget): void {
   const pane = panes.get(tabId)
   if (!pane) return
 
-  // Both are read while `order` and the memberships still describe the bar that was
-  // dropped onto. Settling the group here, before `normalizeOrder`, is what keeps that
-  // function from deciding anything — see the note on it.
-  const groupId = dropGroup(tabId, target)
-  const anchor = dropAnchor(tabId, target)
-
-  if (groupId) pane.tab.groupId = groupId
+  // Membership is settled here, before `normalizeOrder`, so that function decides
+  // nothing — see the note on it.
+  if (target.groupId && groups.has(target.groupId)) pane.tab.groupId = target.groupId
   else delete pane.tab.groupId
 
   order = order.filter((id) => id !== tabId)
-  const at = anchor ? order.indexOf(anchor) : -1
+  const at = target.before ? order.indexOf(target.before) : -1
   order.splice(at < 0 ? order.length : at, 0, tabId)
 
   pruneEmptyGroups()
   normalizeOrder()
   render()
   persist()
-}
-
-function dropGroup(tabId: string, target: DropTarget): string | undefined {
-  if (target.kind === 'end') return undefined
-  if (target.kind === 'group') return target.groupId
-
-  const ontoGroup = panes.get(target.tabId)?.tab.groupId
-  if (!ontoGroup) return undefined
-  if (target.tabId !== groupMembers(ontoGroup)[0]) return ontoGroup
-  return panes.get(tabId)?.tab.groupId === ontoGroup ? ontoGroup : undefined
-}
-
-/** The tab the dragged one lands in front of; nothing means the end of the bar. */
-function dropAnchor(tabId: string, target: DropTarget): string | undefined {
-  if (target.kind === 'end') return undefined
-  if (target.kind === 'before') return target.tabId
-  // Dropped on a header: in front of that group's first tab, so it becomes the first.
-  return groupMembers(target.groupId).filter((id) => id !== tabId)[0]
 }
 
 /**
@@ -944,12 +920,14 @@ function moveGroup(groupId: string, target: DropTarget): void {
   persist()
 }
 
-/** Where a dragged block lands: in front of a loose tab, or of a whole other group. */
+/**
+ * Where a dragged block lands. The bar only ever names the first tab of a unit, but a
+ * block put down in the middle of another group would split it, so that is made sure of.
+ */
 function groupAnchor(target: DropTarget): string | undefined {
-  if (target.kind === 'end') return undefined
-  if (target.kind === 'group') return groupMembers(target.groupId)[0]
-  const ontoGroup = panes.get(target.tabId)?.tab.groupId
-  return ontoGroup ? groupMembers(ontoGroup)[0] : target.tabId
+  if (!target.before) return undefined
+  const ontoGroup = panes.get(target.before)?.tab.groupId
+  return ontoGroup ? groupMembers(ontoGroup)[0] : target.before
 }
 
 /** What a tab made inside a group should look like: whatever the group's last tab is. */

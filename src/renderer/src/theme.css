@@ -627,11 +627,36 @@ body {
   white-space: nowrap;
 }
 
-/* Where a dragged tab or group would land. A shadow and not a real element: it costs
-   no layout, so nothing in the bar moves while the pointer travels. */
-.tab.drop-before,
-.tabgroup-head.drop-before {
-  box-shadow: inset 2px 0 0 var(--accent);
+/* Where a dragged tab or group would land: a line on the gap it would go into, so it says
+   both where and in what. Into a group, it is the group's colour and stands on the group's
+   line; into none, it is the text colour and runs down to the bar's edge, cutting through
+   any line there. Not the accent for "none": in the light palette the accent *is* the blue
+   group's colour, and the end of a blue group and the gap behind it looked the same.
+
+   Absolute in the bar, which costs no layout: nothing moves while the pointer travels, and
+   the strip's clipping cannot cut it off. Above the tab in front (2), whose side it may well
+   be drawn along. */
+.drop-marker {
+  position: absolute;
+  top: 6px;
+  bottom: 0;
+  width: 2px;
+  border-radius: 1px 1px 0 0;
+  background: var(--fg);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.drop-marker[data-group-color] {
+  bottom: 2px;
+  border-radius: 1px;
+  background: var(--group-color);
+}
+
+/* A folded group has no gap to draw a line on; the tab would disappear into its header,
+   so the header is what lights up. */
+.tabgroup-head.drop-into {
+  box-shadow: 0 0 0 2px var(--bg-chrome), 0 0 0 4px var(--group-color);
 }
 
 /* Every button in the bar is full height and centres an SVG icon (icons.ts) in it, which

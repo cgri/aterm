@@ -60,11 +60,39 @@ export interface PageTabViewModel {
 /** What is being dragged: a single tab, or a whole group by its header. */
 export type DragSource = { kind: 'tab'; id: string } | { kind: 'group'; id: string }
 
-/** Where it was let go. What that means for group membership is the renderer's call. */
-export type DropTarget =
-  | { kind: 'before'; tabId: string }
-  | { kind: 'group'; groupId: string }
-  | { kind: 'end' }
+/**
+ * Where it was let go, already settled: in front of which tab (none = the end of the
+ * bar), and in which group (none = loose). The bar decides both from the pointer's
+ * position, because that is also what the insertion marker shows — a drop lands where
+ * the marker was. A dragged group only ever gets `before`, and always the first tab of
+ * a whole unit.
+ */
+export interface DropTarget {
+  before?: string
+  groupId?: string
+}
+
+/**
+ * How far into a group, from either edge, a tab still counts as dropped *beside* the
+ * group rather than into it. Without it, the space between two groups would be two
+ * pixels wide.
+ */
+const GROUP_EDGE = 12
+
+/** One unit of the strip — a loose tab or a whole group — with the element that draws it. */
+interface Unit {
+  el: HTMLElement
+  item: StripItem
+  /** The tab a drop in front of this unit lands in front of. */
+  first: string
+}
+
+/** A computed drop, with where to draw its preview. */
+interface Drop {
+  target: DropTarget
+  /** Viewport x of the insertion line, or the folded header the tab would disappear into. */
+  mark: { x: number } | { into: HTMLElement }
+}
 
 export interface TabBarHandlers {
   onSelect: (id: string) => void
@@ -83,22 +111,58 @@ export interface TabBarHandlers {
 
 export class TabBar {
   private dragging?: DragSource
-  /** The element currently carrying the insertion marker, so it can be cleared again. */
-  private marked?: HTMLElement
+  /** What the strip was last drawn from, and the element drawing each unit of it. */
+  private units: Unit[] = []
+  /** The strip those units are in. What it clips away cannot be dropped on. */
+  private strip?: HTMLElement
+  /** The insertion line. It lives in the bar, not the strip, so the strip cannot clip it. */
+  private readonly marker = document.createElement('div')
+  /** The folded header carrying the "into this group" preview, so it can be cleared. */
+  private into?: HTMLElement
 
   /**
    * `trailing` is put at the right end of the bar and survives every re-render —
    * rendering replaces the whole bar, so nothing may be appended from outside.
+   *
+   * Dropping is handled once, on the bar itself, and decided from the pointer's x alone:
+   * which element happens to be under it says too little. The gap between two groups is
+   * two pixels, the end of a group has no element of its own, and the whole bar behind the
+   * last tab means the same thing. So every drag event of the bar ends up here.
    */
   constructor(
     private readonly root: HTMLElement,
     private readonly handlers: TabBarHandlers,
     private readonly trailing: HTMLElement[] = []
-  ) {}
+  ) {
+    this.marker.className = 'drop-marker'
+
+    root.addEventListener('dragover', (ev) => {
+      if (!this.dragging) return
+      const drop = this.dropAt(ev.clientX)
+      this.preview(drop)
+      if (!drop) return
+      // Only a drop that moves something is accepted; anything else shows no marker and
+      // the pointer says it would do nothing.
+      ev.preventDefault()
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move'
+    })
+    root.addEventListener('dragleave', (ev) => {
+      if (!root.contains(ev.relatedTarget as Node | null)) this.preview(undefined)
+    })
+    root.addEventListener('drop', (ev) => {
+      const source = this.dragging
+      const drop = source && this.dropAt(ev.clientX)
+      this.endDrag()
+      if (!source || !drop) return
+      ev.preventDefault()
+      this.handlers.onMove(source, drop.target)
+    })
+  }
 
   render(items: StripItem[], activeId: string | undefined, page?: PageTabViewModel): void {
     // Whatever was marked belongs to the bar that is about to be thrown away.
-    this.marked = undefined
+    this.into = undefined
+    this.units = []
 
     // Only the tabs go into the strip, and only the strip clips: everything
     // after it — the new-tab button, the drag handle, the trailing buttons —
@@ -107,29 +171,17 @@ export class TabBar {
     // left the title bar with no free space to drag it by.
     const strip = document.createElement('div')
     strip.id = 'tabstrip'
+    this.strip = strip
     for (const item of items) {
-      if (item.kind === 'tab') {
-        strip.appendChild(this.renderTab(item.tab, item.tab.id === activeId))
-      } else {
-        strip.appendChild(this.renderGroup(item.group, item.tabs, activeId))
-      }
+      const el =
+        item.kind === 'tab'
+          ? this.renderTab(item.tab, item.tab.id === activeId)
+          : this.renderGroup(item.group, item.tabs, activeId)
+      strip.appendChild(el)
+      const first = item.kind === 'tab' ? item.tab.id : item.tabs[0]?.id
+      if (first) this.units.push({ el, item, first })
     }
     if (page) strip.appendChild(this.renderPageTab(page))
-
-    // The free space behind the last tab is a drop target of its own: "here, and in
-    // no group". `ev.target === strip` is what keeps it from also answering for a
-    // drop that came from a tab — those stop themselves, but the guard is what makes
-    // that true rather than merely likely.
-    strip.addEventListener('dragover', (ev) => {
-      if (ev.target !== strip || !this.dragging) return
-      ev.preventDefault()
-      this.clearMark()
-    })
-    strip.addEventListener('drop', (ev) => {
-      if (ev.target !== strip) return
-      ev.preventDefault()
-      this.drop({ kind: 'end' })
-    })
 
     const plus = document.createElement('button')
     plus.id = 'newtab'
@@ -165,7 +217,7 @@ export class TabBar {
 
     el.appendChild(this.renderGroupHead(group, tabs, alarm, working))
     if (!group.collapsed) {
-      for (const tab of tabs) el.appendChild(this.renderTab(tab, tab.id === activeId, group.id))
+      for (const tab of tabs) el.appendChild(this.renderTab(tab, tab.id === activeId))
     }
     return el
   }
@@ -209,11 +261,7 @@ export class TabBar {
       this.handlers.onGroupMenu(group.id)
     })
 
-    this.installDrag(el, {
-      source: { kind: 'group', id: group.id },
-      target: { kind: 'group', groupId: group.id },
-      groupId: group.id
-    })
+    this.installDrag(el, { kind: 'group', id: group.id })
     return el
   }
 
@@ -262,7 +310,7 @@ export class TabBar {
     return close
   }
 
-  private renderTab(tab: TabViewModel, active: boolean, groupId?: string): HTMLElement {
+  private renderTab(tab: TabViewModel, active: boolean): HTMLElement {
     const el = document.createElement('div')
     // Waiting beats working, the way it always has — one place now rather than a
     // function of its own, because there are only the two states left.
@@ -319,82 +367,168 @@ export class TabBar {
       this.handlers.onMenu(tab.id)
     })
 
-    this.installDrag(el, {
-      source: { kind: 'tab', id: tab.id },
-      target: { kind: 'before', tabId: tab.id },
-      groupId
-    })
+    this.installDrag(el, { kind: 'tab', id: tab.id })
 
     return el
   }
 
-  /**
-   * Every tab and every group header is both a drag source and a drop target. The
-   * marker saying where a drop would land sits on the target, and `dragleave` alone
-   * cannot clear it — it does not fire when the drag ends over the element — so the
-   * bar remembers what it marked and clears that on `dragend` as well.
-   */
-  private installDrag(
-    el: HTMLElement,
-    opts: {
-      source: DragSource
-      target: DropTarget
-      /** The group this element is part of; a group dropped on its own parts does nothing. */
-      groupId?: string
-    }
-  ): void {
+  /** Every tab and every group header can be dragged; where it lands is the bar's call. */
+  private installDrag(el: HTMLElement, source: DragSource): void {
     el.addEventListener('dragstart', (ev) => {
       // A tab inside a group would otherwise start the group's drag as well.
       ev.stopPropagation()
-      this.dragging = opts.source
+      this.dragging = source
       el.classList.add('dragging')
+      if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move'
     })
+    // `drop` ends the drag too, but a drag let go anywhere else has only this.
     el.addEventListener('dragend', () => {
-      this.dragging = undefined
       el.classList.remove('dragging')
-      this.clearMark()
-    })
-    el.addEventListener('dragover', (ev) => {
-      if (this.isNoop(opts)) return
-      ev.preventDefault()
-      ev.stopPropagation()
-      this.mark(el)
-    })
-    el.addEventListener('dragleave', () => {
-      if (this.marked === el) this.clearMark()
-    })
-    el.addEventListener('drop', (ev) => {
-      if (this.isNoop(opts)) return
-      ev.preventDefault()
-      ev.stopPropagation()
-      this.drop(opts.target)
+      this.endDrag()
     })
   }
 
-  /** Would this drop move anything? Letting a thing go over itself does not. */
-  private isNoop(opts: { source: DragSource; groupId?: string }): boolean {
-    const dragged = this.dragging
-    if (!dragged) return true
-    if (dragged.kind === 'tab') return opts.source.kind === 'tab' && opts.source.id === dragged.id
-    // A whole group: its own header and every one of its own tabs are no-ops.
-    return opts.groupId === dragged.id
+  private endDrag(): void {
+    this.dragging = undefined
+    this.preview(undefined)
   }
 
-  private mark(el: HTMLElement): void {
-    if (this.marked === el) return
-    this.clearMark()
-    el.classList.add('drop-before')
-    this.marked = el
-  }
-
-  private clearMark(): void {
-    this.marked?.classList.remove('drop-before')
-    this.marked = undefined
-  }
-
-  private drop(target: DropTarget): void {
+  /**
+   * What letting go at `x` would do, or nothing if it would move nothing. A tab lands on
+   * the side of the tab under the pointer that the pointer is on, in that tab's group; a
+   * group header takes it in at the end; and the outer `GROUP_EDGE` of a group, with the
+   * gap beside it, puts it next to the group rather than into it.
+   */
+  private dropAt(x: number): Drop | undefined {
     const source = this.dragging
-    this.clearMark()
-    if (source) this.handlers.onMove(source, target)
+    if (!source || this.units.length === 0) return undefined
+    const drop = source.kind === 'tab' ? this.tabDropAt(x) : this.groupDropAt(x)
+    return this.moves(source, drop.target) ? drop : undefined
+  }
+
+  private tabDropAt(x: number): Drop {
+    const { unit, index } = this.unitAt(x)
+    if (!unit) return this.atEnd()
+    const rect = unit.el.getBoundingClientRect()
+    const after = this.units[index + 1]?.first
+
+    if (unit.item.kind === 'tab') {
+      return x < (rect.left + rect.right) / 2
+        ? { target: { before: unit.first }, mark: { x: rect.left } }
+        : { target: { before: after }, mark: { x: rect.right } }
+    }
+
+    if (x < rect.left + GROUP_EDGE) {
+      return { target: { before: unit.first }, mark: { x: rect.left } }
+    }
+    if (x > rect.right - GROUP_EDGE) {
+      return { target: { before: after }, mark: { x: rect.right } }
+    }
+
+    // Folded, the header is all there is of the group: it takes the tab in at the end,
+    // and it is the header that shows it.
+    const groupId = unit.item.group.id
+    const [head, ...members] = [...unit.el.children] as HTMLElement[]
+    const last = members[members.length - 1]
+    const atGroupEnd: Drop = {
+      target: { before: after, groupId },
+      mark: last ? { x: last.getBoundingClientRect().right } : { into: head }
+    }
+    if (unit.item.group.collapsed || x <= head.getBoundingClientRect().right) return atGroupEnd
+
+    for (let i = 0; i < members.length; i++) {
+      const box = members[i].getBoundingClientRect()
+      if (x > box.right && i < members.length - 1) continue
+      if (x < (box.left + box.right) / 2) {
+        return { target: { before: unit.item.tabs[i].id, groupId }, mark: { x: box.left } }
+      }
+      if (i === members.length - 1) return atGroupEnd
+      return { target: { before: unit.item.tabs[i + 1].id, groupId }, mark: { x: box.right } }
+    }
+    return atGroupEnd
+  }
+
+  /** A whole group moves between whole units only: in front of one or behind it. */
+  private groupDropAt(x: number): Drop {
+    const { unit, index } = this.unitAt(x)
+    if (!unit) return this.atEnd()
+    const rect = unit.el.getBoundingClientRect()
+    return x < (rect.left + rect.right) / 2
+      ? { target: { before: unit.first }, mark: { x: rect.left } }
+      : { target: { before: this.units[index + 1]?.first }, mark: { x: rect.right } }
+  }
+
+  /**
+   * The unit `x` falls on, a gap counting to the unit before it. None: behind the last,
+   * or past the strip's edge — a unit clipped off there is not on screen to be aimed at.
+   */
+  private unitAt(x: number): { unit?: Unit; index: number } {
+    if (x > this.visibleRight()) return { index: this.units.length }
+    for (let index = 0; index < this.units.length; index++) {
+      const unit = this.units[index]
+      if (x <= unit.el.getBoundingClientRect().right + 1) return { unit, index }
+    }
+    return { index: this.units.length }
+  }
+
+  private atEnd(): Drop {
+    const last = this.units[this.units.length - 1]
+    return {
+      target: {},
+      mark: { x: Math.min(last.el.getBoundingClientRect().right, this.visibleRight()) }
+    }
+  }
+
+  private visibleRight(): number {
+    return this.strip?.getBoundingClientRect().right ?? Infinity
+  }
+
+  /** Would this drop change anything? Letting a thing go where it already is does not. */
+  private moves(source: DragSource, target: DropTarget): boolean {
+    const tabs: { id: string; groupId?: string }[] = this.units.flatMap(({ item }) =>
+      item.kind === 'tab'
+        ? [{ id: item.tab.id }]
+        : item.tabs.map((tab) => ({ id: tab.id, groupId: item.group.id }))
+    )
+    if (source.kind === 'tab') {
+      const at = tabs.findIndex((tab) => tab.id === source.id)
+      if (at < 0) return false
+      if (tabs[at].groupId !== target.groupId) return true
+      return target.before !== source.id && target.before !== tabs[at + 1]?.id
+    }
+    const own = tabs.filter((tab) => tab.groupId === source.id)
+    if (own.length === 0 || own.some((tab) => tab.id === target.before)) return false
+    const behind = tabs[tabs.findIndex((tab) => tab.id === own[own.length - 1].id) + 1]
+    return target.before !== behind?.id
+  }
+
+  /**
+   * Shows where a drop would land: a line at the spot, in the colour of the group it would
+   * join or a neutral one for none, or a ring round a folded header it would disappear into.
+   */
+  private preview(drop: Drop | undefined): void {
+    this.into?.classList.remove('drop-into')
+    this.into = undefined
+
+    if (!drop || !('x' in drop.mark)) {
+      this.marker.remove()
+      if (drop && 'into' in drop.mark) {
+        this.into = drop.mark.into
+        this.into.classList.add('drop-into')
+      }
+      return
+    }
+
+    const groupId = drop.target.groupId
+    const group = groupId
+      ? this.units.find((unit) => unit.item.kind === 'group' && unit.item.group.id === groupId)
+      : undefined
+    if (group?.item.kind === 'group') this.marker.dataset.groupColor = group.item.group.color
+    else delete this.marker.dataset.groupColor
+
+    // The bar is the marker's containing block. One pixel back, so the two-pixel line
+    // sits on the gap between two tabs rather than beside it.
+    this.marker.style.left = `${drop.mark.x - this.root.getBoundingClientRect().left - 1}px`
+    if (!this.marker.isConnected) this.root.appendChild(this.marker)
   }
 }
