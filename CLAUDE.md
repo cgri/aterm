@@ -356,7 +356,8 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   **The preview is the dragged element itself, moved there while the drag goes on**, faded
   (`.dragging`); inside a group it takes on the line and outline as any member does, and a
   drop is that preview made real (`pending`). An insertion line was the first version and
-  was hard to see under the half-transparent drag image. What keeps it from jumping back
+  was hard to see under the half-transparent drag image, which is now an empty one
+  (`NO_DRAG_IMAGE`): the tab in place says it all. What keeps it from jumping back
   and forth: the target is computed against the live DOM, and one that is where the
   element already is changes nothing — after a swap the pointer is always over the moved
   element or in the half of its neighbour that means "stay". A folded group has no room

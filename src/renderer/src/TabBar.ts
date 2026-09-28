@@ -80,6 +80,15 @@ export interface DropTarget {
 const GROUP_EDGE = 12
 
 /**
+ * What the drag shows under the pointer: nothing. The dragged tab is already drawn where it
+ * would land, and the browser's own half-transparent copy of it, floating over the bar, only
+ * covered that up. Loaded once, up front — `setDragImage` takes only what is decoded by the
+ * time the drag starts.
+ */
+const NO_DRAG_IMAGE = new Image()
+NO_DRAG_IMAGE.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+
+/**
  * One unit of the strip — a loose tab or a whole group — as it is drawn right now, with
  * the dragged tab or group wherever the preview has put it. Read off the DOM, not off the
  * items the bar was rendered from, because the preview is exactly where the two differ.
@@ -400,7 +409,10 @@ export class TabBar {
         place: this.placeOf(moving)
       }
       moving.classList.add('dragging')
-      if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move'
+      if (ev.dataTransfer) {
+        ev.dataTransfer.effectAllowed = 'move'
+        ev.dataTransfer.setDragImage(NO_DRAG_IMAGE, 0, 0)
+      }
     })
     // `drop` ends the drag too, but a drag let go anywhere else has only this.
     el.addEventListener('dragend', () => {
