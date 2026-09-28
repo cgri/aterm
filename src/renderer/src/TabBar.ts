@@ -62,22 +62,14 @@ export type DragSource = { kind: 'tab'; id: string } | { kind: 'group'; id: stri
 
 /**
  * Where it lands: in front of which tab (none = the end of the bar), and in which group
- * (none = loose). The bar works both out from the pointer's position while the drag is
- * still going on, and moves the dragged tab there as a preview — so a drop is simply
- * the preview made real. A dragged group only ever gets `before`, and always the first
- * tab of a whole unit.
+ * (none = loose). The bar has the dragged tab change places with its neighbours while the
+ * drag goes on, so this is read off where it has ended up — a drop is that place made
+ * real. A dragged group only ever gets `before`, and always the first tab of a whole unit.
  */
 export interface DropTarget {
   before?: string
   groupId?: string
 }
-
-/**
- * How far into a group, from either edge, a tab still counts as dropped *beside* the
- * group rather than into it. Without it, the space between two groups would be two
- * pixels wide.
- */
-const GROUP_EDGE = 12
 
 /**
  * How the bar's parts glide into their new places. Short, because it runs on every drag
@@ -93,8 +85,8 @@ const SLIDE = 'slide'
 const SLIDE_TIMING: KeyframeAnimationOptions = { id: SLIDE, duration: 150, easing: 'ease-out' }
 
 /**
- * What the drag shows under the pointer: nothing. The dragged tab is already drawn where it
- * would land, and the browser's own half-transparent copy of it, floating over the bar, only
+ * What the drag shows under the pointer: nothing. The dragged tab itself is drawn under the
+ * pointer, and the browser's own half-transparent copy of it, floating over the bar, only
  * covered that up. Loaded once, up front — `setDragImage` takes only what is decoded by the
  * time the drag starts.
  */
@@ -103,21 +95,15 @@ NO_DRAG_IMAGE.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAAL
 
 /**
  * One unit of the strip — a loose tab or a whole group — as it is drawn right now, with
- * the dragged tab or group wherever the preview has put it. Read off the DOM, not off the
- * items the bar was rendered from, because the preview is exactly where the two differ.
+ * the dragged tab or group wherever the drag has put it. Read off the DOM, not off the
+ * items the bar was rendered from, because during a drag that is where the two differ.
  */
 interface Unit {
   el: HTMLElement
   /** The tab a drop in front of this unit lands in front of; never the dragged one. */
   first?: string
-  /** Set for a group: its id, and its members' elements — none while it is folded. */
-  group?: { id: string; collapsed: boolean; members: HTMLElement[] }
-}
-
-/** A computed drop, and the folded header it would disappear into, if that is where. */
-interface Drop {
-  target: DropTarget
-  into?: HTMLElement
+  /** Set for a group: its members' elements — none while it is folded. */
+  group?: { collapsed: boolean; members: HTMLElement[] }
 }
 
 export interface TabBarHandlers {
@@ -140,12 +126,12 @@ export class TabBar {
   /** The element being dragged — a tab, or a whole group — and where it was taken from. */
   private dragEl?: HTMLElement
   private origin?: { parent: Node; next: Node | null; place: DropTarget }
-  /** Where the preview has put it. None: back where it came from, and a drop does nothing. */
+  /** Where the pointer took hold of it, from its left edge, so it stays held there. */
+  private grab = 0
+  /** Where the drag has put it. None: back where it came from, and a drop does nothing. */
   private pending?: DropTarget
-  /** The strip being drawn. What it clips away cannot be dropped on. */
+  /** The strip being drawn; the dragged element is kept inside it. */
   private strip?: HTMLElement
-  /** The folded header carrying the "into this group" preview, so it can be cleared. */
-  private into?: HTMLElement
   /**
    * A render asked for while a drag is going on, applied when it is over. Rendering
    * replaces every element, the dragged one included, and a drag whose element is gone
@@ -159,10 +145,8 @@ export class TabBar {
    * `trailing` is put at the right end of the bar and survives every re-render —
    * rendering replaces the whole bar, so nothing may be appended from outside.
    *
-   * Dropping is handled once, on the bar itself, and decided from the pointer's x alone:
-   * which element happens to be under it says too little. The gap between two groups is
-   * two pixels, the end of a group has no element of its own, and the whole bar behind the
-   * last tab means the same thing. So every drag event of the bar ends up here.
+   * Dragging is handled once, on the bar itself, from the pointer's x alone: which element
+   * happens to be under it says too little, and the dragged one is under it all the time.
    */
   constructor(
     private readonly root: HTMLElement,
@@ -173,8 +157,7 @@ export class TabBar {
       if (!this.dragging) return
       ev.preventDefault()
       if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move'
-      const drop = this.dropAt(ev.clientX)
-      if (drop) this.apply(drop)
+      this.drag(ev.clientX)
     })
     // Out of the bar, the preview goes back: letting go there moves nothing.
     root.addEventListener('dragleave', (ev) => {
@@ -186,6 +169,7 @@ export class TabBar {
       ev.preventDefault()
       const target = this.pending
       if (target) this.carried = this.drawn()
+      else this.restore()
       this.endDrag()
       if (target) this.handlers.onMove(source, target)
     })
@@ -200,9 +184,6 @@ export class TabBar {
     // A drop hands over what it measured before the drag's own render put things back.
     const drawn = this.carried ?? this.drawn()
     this.carried = undefined
-
-    // Whatever was marked belongs to the bar that is about to be thrown away.
-    this.into = undefined
 
     // Only the tabs go into the strip, and only the strip clips: everything
     // after it — the new-tab button, the drag handle, the trailing buttons —
@@ -425,6 +406,8 @@ export class TabBar {
       const moving = source.kind === 'group' ? (el.parentElement ?? el) : el
       this.dragging = source
       this.dragEl = moving
+      // Where it is drawn, a glide included, so taking hold of it does not make it jump.
+      this.grab = ev.clientX - moving.getBoundingClientRect().left
       this.origin = {
         parent: moving.parentNode ?? this.root,
         next: moving.nextSibling,
@@ -444,53 +427,129 @@ export class TabBar {
     })
   }
 
+  /**
+   * One step of the drag: the dragged element is drawn under the pointer, and it changes
+   * places with its neighbours for as long as its middle has passed theirs — several in one
+   * go, if the pointer moved fast. What is left over is where it would land.
+   */
+  private drag(x: number): void {
+    const el = this.dragEl
+    if (!el) return
+    let middle = this.follow(el, x)
+    for (let steps = 0; steps < 100; steps++) {
+      const step = this.step(el, middle)
+      if (!step) break
+      this.slide(step)
+      middle = this.follow(el, x)
+    }
+    const place = this.placeOf(el)
+    const origin = this.origin?.place
+    this.pending = origin && sameTarget(place, origin) ? undefined : place
+  }
+
+  /**
+   * Draws the dragged element where the pointer holds it, kept inside the strip, and says
+   * where its middle is now. It is a transform on top of the element's place in the layout,
+   * so the layout — which is what everything else is measured against — does not see it.
+   */
+  private follow(el: HTMLElement, x: number): number {
+    for (const part of [el, ...el.querySelectorAll<HTMLElement>('.tab, .tabgroup-head')]) {
+      for (const running of part.getAnimations()) if (running.id === SLIDE) running.cancel()
+    }
+    const slot = this.box(el)
+    const width = slot.right - slot.left
+    const strip = this.strip?.getBoundingClientRect()
+    const wanted = x - this.grab
+    const left = strip ? Math.max(strip.left, Math.min(wanted, strip.right - width)) : wanted
+    el.style.transform = `translateX(${left - slot.left}px)`
+    // Held against an end of the strip, the pointer itself counts: the tab's middle cannot
+    // get past a group header in the first place, or past the far end of a group that
+    // reaches the last, so it could never be put in front of the one or behind the other.
+    return left === wanted ? left + width / 2 : x
+  }
+
+  /**
+   * The next place change, or none. The rule is the one Chrome has: the dragged thing
+   * trades places with a neighbour once its middle passes the neighbour's middle. That is
+   * stable by construction — after the trade the neighbour sits a whole tab further back,
+   * so the pointer is nowhere near passing it again — however wide the tabs are and however
+   * full the bar is.
+   *
+   * A group's header is a neighbour like any tab: before its middle the tab is loose in
+   * front of the group, past it the tab is the group's first. Leaving a group at its far
+   * end has no header to pass, so it is the group's own right edge; coming back in is the
+   * edge of the group without the tab, which leaves half a tab of play between the two.
+   * A folded group is passed as a whole: there is no room in it to show a tab.
+   */
+  private step(el: HTMLElement, middle: number): (() => void) | undefined {
+    const strip = this.strip
+    const parent = el.parentElement
+    if (!strip || !parent) return undefined
+    const next = el.nextElementSibling as HTMLElement | null
+    const prev = el.previousElementSibling as HTMLElement | null
+    const center = (other: HTMLElement): number => mid(this.box(other))
+
+    if (this.dragging?.kind === 'group') {
+      if (next && !isPageTab(next) && middle > center(next)) {
+        return () => strip.insertBefore(el, next.nextSibling)
+      }
+      if (prev && middle < center(prev)) return () => strip.insertBefore(el, prev)
+      return undefined
+    }
+
+    if (parent !== strip) {
+      // Inside a group, whose first child is its header.
+      if (next && middle > center(next)) return () => parent.insertBefore(el, next.nextSibling)
+      if (!next && middle > this.box(parent).right) {
+        return () => strip.insertBefore(el, parent.nextSibling)
+      }
+      if (prev?.classList.contains('tabgroup-head')) {
+        if (middle < center(prev)) return () => strip.insertBefore(el, parent)
+      } else if (prev && middle < center(prev)) {
+        return () => parent.insertBefore(el, prev)
+      }
+      return undefined
+    }
+
+    if (next && !isPageTab(next)) {
+      if (isOpenGroup(next)) {
+        const head = next.firstElementChild as HTMLElement
+        if (middle > center(head)) return () => next.insertBefore(el, head.nextSibling)
+      } else if (middle > center(next)) {
+        return () => strip.insertBefore(el, next.nextSibling)
+      }
+    }
+    if (prev) {
+      if (isOpenGroup(prev)) {
+        if (middle < this.box(prev).right) return () => prev.appendChild(el)
+      } else if (middle < center(prev)) {
+        return () => strip.insertBefore(el, prev)
+      }
+    }
+    return undefined
+  }
+
   private endDrag(): void {
     if (!this.dragging) return
-    this.dragEl?.classList.remove('dragging')
-    this.setInto(undefined)
+    if (this.dragEl) {
+      this.dragEl.classList.remove('dragging')
+      this.dragEl.style.transform = ''
+    }
     this.dragging = this.dragEl = this.origin = this.pending = undefined
     const deferred = this.deferred
     this.deferred = undefined
     if (deferred) this.render(...deferred)
   }
 
-  /** Puts the dragged element back where it was taken from. */
+  /** Lets the dragged element glide back to where it was taken from. */
   private restore(): void {
-    this.setInto(undefined)
     this.pending = undefined
     const { dragEl, origin } = this
-    if (dragEl && origin) this.slide(() => origin.parent.insertBefore(dragEl, origin.next))
-  }
-
-  /**
-   * Moves the dragged element to where `drop` says, which is the whole preview: inside a
-   * group it takes on the group's line and outline as any member does. A folded group has
-   * no room to show it in, so there the element stays put and the header lights up.
-   */
-  private apply(drop: Drop): void {
-    const el = this.dragEl
-    const strip = this.strip
-    if (!el || !strip) return
-
-    this.setInto(drop.into)
-    if (!drop.into) {
-      const { before, groupId } = drop.target
-      if (groupId) {
-        const group = this.groupEl(groupId)
-        if (!group) return
-        const next = [...group.children].find((m) => (m as HTMLElement).dataset.id === before)
-        this.slide(() => group.insertBefore(el, next ?? null))
-      } else {
-        const next = before
-          ? this.units().find((unit) => unit.first === before)?.el
-          : strip.querySelector(':scope > .page-tab')
-        this.slide(() => strip.insertBefore(el, next ?? null))
-      }
-    }
-
-    const origin = this.origin?.place
-    const home = !drop.into && origin !== undefined && sameTarget(drop.target, origin)
-    this.pending = home ? undefined : drop.target
+    if (!dragEl || !origin) return
+    this.slide(() => {
+      dragEl.style.transform = ''
+      origin.parent.insertBefore(dragEl, origin.next)
+    })
   }
 
   /** Runs `move` and lets everything it shifted glide to its new place. */
@@ -503,7 +562,8 @@ export class TabBar {
   /**
    * Where each tab and group header is drawn right now, by a key that outlives a render.
    * Drawn and not laid out: a part in the middle of a glide starts its next one from where
-   * the eye last saw it, instead of jumping.
+   * the eye last saw it, instead of jumping — and the dragged tab, let go, glides from
+   * under the pointer into its place.
    */
   private drawn(): Map<string, number> {
     const drawn = new Map<string, number>()
@@ -517,13 +577,15 @@ export class TabBar {
   /**
    * Lets every part that is now somewhere else than `drawn` says glide from there to here,
    * so the eye can follow what made room for what. With `fadeIn`, a part that was not there
-   * before — a tab unfolded, opened or dropped in — fades in instead.
+   * before — a tab unfolded, opened or dropped in — fades in instead. What the pointer is
+   * holding is left alone: it is drawn where the pointer is, not where the layout has it.
    */
   private glide(drawn: Map<string, number>, fadeIn = false): void {
     if (drawn.size === 0) return
+    const held = this.dragEl?.style.transform ? this.dragEl : undefined
     for (const el of this.parts()) {
       const key = partKey(el)
-      if (!key) continue
+      if (!key || held?.contains(el)) continue
       for (const running of el.getAnimations()) if (running.id === SLIDE) running.cancel()
       const from = drawn.get(key)
       if (from === undefined) {
@@ -542,8 +604,8 @@ export class TabBar {
 
   /**
    * Where an element sits in the layout, in viewport x, leaving any transform out. That is
-   * what hit-testing must use: while a tab glides, the frame it is drawn at is not its place,
-   * and aiming at the frame would move it again and again.
+   * what the drag must measure against: the dragged element is drawn away from its place,
+   * and while a tab glides, the frame it is drawn at is not its place either.
    */
   private box(el: HTMLElement): { left: number; right: number } {
     let left = this.root.getBoundingClientRect().left
@@ -552,91 +614,6 @@ export class TabBar {
       at = at.offsetParent as HTMLElement | null
     }
     return { left, right: left + el.offsetWidth }
-  }
-
-  private setInto(head: HTMLElement | undefined): void {
-    if (this.into === head) return
-    this.into?.classList.remove('drop-into')
-    this.into = head
-    head?.classList.add('drop-into')
-  }
-
-  /**
-   * Where letting go at `x` would put the dragged thing, or nothing if that is where the
-   * preview already has it — which is what keeps the preview from jumping back and forth.
-   * A tab lands on the side of the tab under the pointer that the pointer is on, in that
-   * tab's group; a group header takes it in at the end; and the outer `GROUP_EDGE` of a
-   * group, with the gap beside it, puts it next to the group rather than into it.
-   */
-  private dropAt(x: number): Drop | undefined {
-    const source = this.dragging
-    const el = this.dragEl
-    if (!source || !el) return undefined
-    const units = this.units()
-    if (units.length === 0) return undefined
-
-    if (source.kind === 'group') {
-      // Between whole units only, since groups do not nest.
-      const at = this.slotAt(x, units)
-      if (units[at]?.el === el || units[at - 1]?.el === el) return undefined
-      return { target: { before: units[at]?.first } }
-    }
-
-    const drop = this.tabDropAt(x, units)
-    if (drop.target.before === source.id) drop.target.before = this.placeOf(el).before
-    if (!drop.into && sameTarget(drop.target, this.placeOf(el))) return undefined
-    return drop
-  }
-
-  private tabDropAt(x: number, units: Unit[]): Drop {
-    const { unit, index } = this.unitAt(x, units)
-    if (!unit) return { target: {} }
-    const rect = this.box(unit.el)
-    const after = units[index + 1]?.first
-    const group = unit.group
-
-    if (!group) return { target: { before: x < middle(rect) ? unit.first : after } }
-    if (x < rect.left + GROUP_EDGE) return { target: { before: unit.first } }
-    if (x > rect.right - GROUP_EDGE) return { target: { before: after } }
-
-    // Folded, the header is all there is of the group: it takes the tab in at the end.
-    const head = unit.el.firstElementChild as HTMLElement
-    const atGroupEnd: Drop = { target: { before: after, groupId: group.id } }
-    if (group.collapsed) return { ...atGroupEnd, into: head }
-    if (x <= this.box(head).right) return atGroupEnd
-
-    const members = group.members
-    for (let i = 0; i < members.length; i++) {
-      const box = this.box(members[i])
-      if (x > box.right && i < members.length - 1) continue
-      if (x < middle(box)) return { target: { before: members[i].dataset.id, groupId: group.id } }
-      if (i === members.length - 1) return atGroupEnd
-      return { target: { before: members[i + 1].dataset.id, groupId: group.id } }
-    }
-    return atGroupEnd
-  }
-
-  /** The unit `x` falls on, a gap counting to the unit before it. None: behind the last. */
-  private unitAt(x: number, units: Unit[]): { unit?: Unit; index: number } {
-    // A unit clipped off past the strip's edge is not on screen to be aimed at.
-    if (x > this.visibleRight()) return { index: units.length }
-    for (let index = 0; index < units.length; index++) {
-      if (x <= this.box(units[index].el).right + 1) {
-        return { unit: units[index], index }
-      }
-    }
-    return { index: units.length }
-  }
-
-  /** The index of the unit a whole unit dropped at `x` would go in front of. */
-  private slotAt(x: number, units: Unit[]): number {
-    const { unit, index } = this.unitAt(x, units)
-    if (!unit) return index
-    return x < middle(this.box(unit.el)) ? index : index + 1
-  }
-
-  private visibleRight(): number {
-    return this.strip?.getBoundingClientRect().right ?? Infinity
   }
 
   private units(): Unit[] {
@@ -652,8 +629,8 @@ export class TabBar {
         const first = collapsed
           ? el.dataset.first
           : members.find((m) => m !== dragged)?.dataset.id
-        units.push({ el, first, group: { id: el.dataset.groupId ?? '', collapsed, members } })
-      } else if (el.classList.contains('tab') && !el.classList.contains('page-tab')) {
+        units.push({ el, first, group: { collapsed, members } })
+      } else if (el.classList.contains('tab') && !isPageTab(el)) {
         units.push({ el, first: el.dataset.id })
       }
     }
@@ -682,22 +659,26 @@ export class TabBar {
     const groupId = parent?.classList.contains('tabgroup') ? parent.dataset.groupId : undefined
     return { before: ids[at + 1], groupId }
   }
-
-  private groupEl(groupId: string): HTMLElement | undefined {
-    return this.units().find((unit) => unit.group?.id === groupId)?.el
-  }
 }
 
 /** What a part of the bar is called across renders: its tab, its group, or the page. */
 function partKey(el: HTMLElement): string | undefined {
   if (el.dataset.id) return el.dataset.id
   if (el.classList.contains('tabgroup-head')) return `group:${el.parentElement?.dataset.groupId}`
-  if (el.classList.contains('page-tab')) return 'page'
+  if (isPageTab(el)) return 'page'
   return undefined
 }
 
-function middle(rect: { left: number; right: number }): number {
-  return (rect.left + rect.right) / 2
+function isPageTab(el: HTMLElement): boolean {
+  return el.classList.contains('page-tab')
+}
+
+function isOpenGroup(el: HTMLElement): boolean {
+  return el.classList.contains('tabgroup') && !('collapsed' in el.dataset)
+}
+
+function mid(box: { left: number; right: number }): number {
+  return (box.left + box.right) / 2
 }
 
 function sameTarget(a: DropTarget, b: DropTarget): boolean {

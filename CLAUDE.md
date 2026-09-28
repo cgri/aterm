@@ -343,37 +343,37 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `PersistedState.groups` is additive and deliberately did **not** raise `SCHEMA_VERSION` —
   a bump makes `load` set aside any state.json written by a newer aterm, so it would cost
   every tab of anyone who goes back a version, for a field that version would have ignored.
-- **A drop is decided by the pointer's x, in the bar, and shown before it happens.**
-  One `dragover`/`drop` listener on `#tabbar` works out a `DropTarget` — the tab to land in
-  front of (none = the end) and the group to be in (none = loose) — from the geometry of
-  the strip, and `main.ts` only carries it out. Which element happens to be under the
-  pointer said too little: a tab could only get into a group by its header, the end of a
-  group had no element at all, and the gap between two groups is two pixels wide.
-  For a tab: the half of a tab the pointer is on says which side, in that tab's group; a
-  group's header means its end; the outer `GROUP_EDGE` pixels of a group mean beside it,
-  loose; anything behind the last visible tab means the end of the bar. A dragged group
-  only lands between whole units, since groups do not nest.
-  **The preview is the dragged element itself, moved there while the drag goes on**, faded
-  (`.dragging`); inside a group it takes on the line and outline as any member does, and a
-  drop is that preview made real (`pending`). An insertion line was the first version and
-  was hard to see under the half-transparent drag image, which is now an empty one
-  (`NO_DRAG_IMAGE`): the tab in place says it all. What keeps it from jumping back
-  and forth: the target is computed against the live DOM, and one that is where the
-  element already is changes nothing — after a swap the pointer is always over the moved
-  element or in the half of its neighbour that means "stay". A folded group has no room
-  to show a tab in, so the element stays put and the chip gets a ring (`.drop-into`).
-  Leaving the bar or ending the drag anywhere else puts it back. `render` is deferred
-  while a drag is on: rebuilding the bar would take the dragged element with it, and a
-  drag whose element is gone gets no `dragend`.
+- **A dragged tab is held under the pointer, and the others make room — Chrome's model.**
+  One `dragover`/`drop` listener on `#tabbar` does all of it from the pointer's x. The
+  dragged element keeps its place in the DOM but is drawn where the pointer holds it (a
+  transform, `follow`), and it trades places with a neighbour once its middle passes the
+  neighbour's middle (`step`); the neighbours glide aside. What it has ended up next to,
+  and in which group, is the `DropTarget` a drop hands to `main.ts` (`pending`).
+  Two earlier versions were worse, and the reason is worth keeping: deciding the target
+  from where the pointer was over the *other* tabs, and moving the dragged one there as a
+  preview, jumped back and forth once the bar was full — every move changed the widths the
+  next decision was measured against. Trading on passed middles cannot do that: after a
+  trade the neighbour sits a whole tab further back, however wide anything is.
+  A group's header is a neighbour like any tab: before its middle the tab is loose in
+  front of the group, past it the tab is the group's first — it lands where it is, not at
+  the group's end. Leaving a group at its far end has no header to pass, so it is the
+  group's own right edge; coming back in is the edge without the tab, which leaves half a
+  tab of play. A folded group is passed as a whole and cannot be dropped into; the context
+  menu does that. Held against an end of the strip, the pointer's own x counts instead of
+  the tab's middle, or nothing could ever get in front of a group that starts the bar.
+  The browser's drag image is an empty one (`NO_DRAG_IMAGE`): the tab itself is under the
+  pointer. Leaving the bar or ending the drag anywhere else lets it glide back. `render` is
+  deferred while a drag is on: rebuilding the bar would take the dragged element with it,
+  and a drag whose element is gone gets no `dragend`.
 - **The tabs glide into place, on every render and every drag step.** `TabBar.glide` is
   FLIP: remember where each tab and header is *drawn* (`drawn`, keyed by tab id or group id
   so it outlives a render), rebuild or move, then animate each from there to its new place;
   what was not there before fades in. So folding, unfolding, closing, opening and dropping
   all move visibly, and a title change moves nothing and animates nothing. Two rules make it
-  safe: hit-testing reads the layout (`box`, from `offsetLeft`), never the rect an animation
-  happens to be on, or a tab in flight would be aimed at and moved again; and a drop hands
-  its measurement to the next render (`carried`), because the deferred render that runs
-  first puts the dragged tab back where it came from for a moment.
+  safe: the drag measures the layout (`box`, from `offsetLeft`), never the rect an
+  animation or the hold happens to be drawn at, or a tab in flight would be passed again
+  and again; and a drop hands its measurement to the next render (`carried`), because the
+  deferred render that runs first puts the dragged tab back where it came from for a moment.
   It ignores `prefers-reduced-motion`, deliberately and unlike the breath: Windows reports
   "reduce" whenever its animation effects are off — the repository owner's machine does —
   and the glide is what shows which tab went where, not decoration.

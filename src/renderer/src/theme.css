@@ -519,8 +519,12 @@ body {
   color: var(--fg);
 }
 
-.tab.dragging {
-  opacity: 0.4;
+/* What the pointer is holding: drawn under the pointer (a transform TabBar sets), above
+   everything it passes over, the tab in front (2) included. Opaque: it is the tab itself,
+   in the user's hand, and a faded one let the label underneath show through its own. */
+.tab.dragging,
+.tabgroup.dragging {
+  z-index: 3;
 }
 
 /* ---------- Tab groups ---------- */
@@ -627,17 +631,6 @@ body {
   white-space: nowrap;
 }
 
-/* A group being dragged, faded the way a dragged tab is — it is drawn where it would land
-   while the drag goes on, so the fading is what says it is not there yet. */
-.tabgroup.dragging {
-  opacity: 0.4;
-}
-
-/* A folded group has no room to show a tab dropped into it; the tab would disappear into
-   its header, so the header is what lights up. */
-.tabgroup-head.drop-into {
-  box-shadow: 0 0 0 2px var(--bg-chrome), 0 0 0 4px var(--group-color);
-}
 
 /* Every button in the bar is full height and centres an SVG icon (icons.ts) in it, which
    puts the icon on the bar's middle — the line the tab labels and the caption buttons
