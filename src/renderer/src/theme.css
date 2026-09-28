@@ -519,25 +519,36 @@ body {
   color: var(--fg);
 }
 
-.tab.dragging {
-  opacity: 0.4;
+/* What the pointer is holding: drawn under the pointer (a transform TabBar sets), above
+   everything it passes over, the tab in front (2) included. Opaque: it is the tab itself,
+   in the user's hand, and a faded one let the label underneath show through its own. */
+.tab.dragging,
+.tabgroup.dragging {
+  z-index: 3;
 }
 
 /* ---------- Tab groups ---------- */
 
-/* A group is one run of tabs behind a header, and the group — not the single tab —
-   is what the strip clips now: `0 1 auto` with `min-width: 0`, exactly what the
-   loose tabs do.
+/* A group is one run of tabs behind a header. It shrinks like the loose tabs do, down
+   to its header plus 110px per member and never below that: the group's box must hold
+   all of its tabs, or the next group starts on top of them.
+
+   A grid and not a flex row, because only a grid knows that floor. A flex row's minimum
+   is its members' content width, so grouped tabs stayed at full length while loose ones
+   shrank — and `min-width: 0`, which was the answer to that, let the box shrink past its
+   own tabs, so every group in a full bar overlapped the one before it by a little more.
+   `minmax(110px, max-content)` is the tabs' own `min-width` and natural width as tracks.
 
    `--tab-ring` is set here and inherited: the member in front outlines itself in the
    group's colour, so the line below and the outline above read as one continuous stroke
    around that tab. */
 .tabgroup {
   position: relative;
-  display: flex;
-  align-items: stretch;
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-columns: max-content;
+  grid-auto-columns: minmax(110px, max-content);
   flex: 0 1 auto;
-  min-width: 0;
   gap: 2px;
   --tab-ring: var(--group-color);
 }
@@ -620,12 +631,6 @@ body {
   white-space: nowrap;
 }
 
-/* Where a dragged tab or group would land. A shadow and not a real element: it costs
-   no layout, so nothing in the bar moves while the pointer travels. */
-.tab.drop-before,
-.tabgroup-head.drop-before {
-  box-shadow: inset 2px 0 0 var(--accent);
-}
 
 /* Every button in the bar is full height and centres an SVG icon (icons.ts) in it, which
    puts the icon on the bar's middle — the line the tab labels and the caption buttons

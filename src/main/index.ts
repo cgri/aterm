@@ -103,6 +103,13 @@ const ICON = app.isPackaged
   ? join(process.resourcesPath, 'icon.png')
   : join(__dirname, '../../resources/icon.png')
 
+/**
+ * A dev run that never shows a window: it renders offscreen, and is driven and
+ * screenshotted over the DevTools protocol alone (`--remote-debugging-port`). That is
+ * how the UI gets verified without a window popping up in front of the user.
+ */
+const OFFSCREEN = !app.isPackaged && process.env['ATERM_OFFSCREEN'] === '1'
+
 function createWindow(state: PersistedState): void {
   const bounds = state.window
   // Only a first guess: the renderer reports the appearance it really applied as
@@ -129,15 +136,17 @@ function createWindow(state: PersistedState): void {
       symbolColor: colors.symbol,
       height: TITLE_BAR_HEIGHT
     },
+    show: !OFFSCREEN,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      offscreen: OFFSCREEN
     }
   })
 
-  if (bounds?.maximized) win.maximize()
+  if (bounds?.maximized && !OFFSCREEN) win.maximize()
 
   // No application menu: its accelerators would steal keys from the terminal.
   Menu.setApplicationMenu(null)
@@ -212,7 +221,7 @@ function openDirectory(dir: string): void {
 
 /** Brings the existing window forward for a launch that was handed to it. */
 function revealWindow(): void {
-  if (!win || win.isDestroyed()) return
+  if (!win || win.isDestroyed() || OFFSCREEN) return
   if (win.isMinimized()) win.restore()
   win.show()
   win.focus()

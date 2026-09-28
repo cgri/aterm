@@ -23,6 +23,26 @@ npm run setup:force            # rebuild node-pty even if pty.node already exist
 There is no test framework and no linter — `npm run typecheck` is the whole automated
 safety net. Verify behaviour by running the app.
 
+**Verify without a window.** `ATERM_OFFSCREEN=1` makes a dev run render offscreen and never
+show its window (`OFFSCREEN` in `main/index.ts`; ignored when packaged), so nothing pops up
+in front of the user. Drive it over the DevTools protocol instead:
+
+```bash
+ATERM_OFFSCREEN=1 npm run dev -- -- --remote-debugging-port=9222
+```
+
+The doubled `--` gets the switch past npm and electron-vite. A script against
+`http://127.0.0.1:9222/json/list` and the page's WebSocket (`node --experimental-websocket`
+on Node 20) then uses `Runtime.evaluate` to read the DOM and dispatch events — including
+drag and drop, as `DragEvent`s with a `new DataTransfer()` — and `Page.captureScreenshot`
+with a `clip` and `scale` for a magnified crop. `Emulation.setDeviceMetricsOverride` widens
+the viewport, `Emulation.setEmulatedMedia` covers `prefers-reduced-motion`. An offscreen
+window has no caption buttons, so `env(titlebar-area-*)` falls back and the bar is a little
+wider than in a real window. Kill every `electron.exe` whose command line names `aterm`
+before starting again, or the old one keeps port 9222; and back up
+`%APPDATA%\aterm-dev\state.json` first — killing the process does not save it, so a test
+state written there while nothing runs is what the next start restores.
+
 Windows only. `npm run dev` must not be started twice; two `electron-vite dev` processes
 produce two windows and it is not obvious which one is which.
 
@@ -290,6 +310,12 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   is `content: none` — a line ties members together and none are on show) and no tab count.
   The count lives in the tooltip, which is also where a folded group says what it is
   reporting.
+- **A group is a grid, so that it shrinks like loose tabs and never past its own.** Its
+  tracks are `minmax(110px, max-content)`, the tabs' own `min-width` and natural width. As
+  a flex row its floor was its members' full content width, so grouped tabs kept their
+  length while loose ones shrank — and the `min-width: 0` that answered that let the box
+  shrink below its tabs, so in a full bar each group started on top of the one before, a
+  little further each time.
 - **A collapsed group speaks for its members**, in the same two states a tab has: it takes
   the alarm if any of them is waiting unseen, and the breath if any is working. Alarm wins,
   as it does on a tab. Its tooltip says which, because the chip has no mark of its own to
@@ -317,15 +343,40 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `PersistedState.groups` is additive and deliberately did **not** raise `SCHEMA_VERSION` —
   a bump makes `load` set aside any state.json written by a newer aterm, so it would cost
   every tab of anyone who goes back a version, for a field that version would have ignored.
-- **Dragging a whole group is a separate source, and groups do not nest.** `TabBar` reports
-  a `DragSource` of `tab` or `group` and a `DropTarget` of `before` / `group` / `end`;
-  what that means for membership is decided in `main.ts`, not in the bar. A block always
-  lands in front of a whole unit — a loose tab, or another group entire — never inside one.
-  The one rule worth knowing for a single tab: dropping it in front of a group's *first*
-  member means in front of the group, not into it, unless it is already a member. Chrome
-  tells those apart with a hysteresis zone that needs pointer tracking; this needs no
-  geometry. The insertion marker has to be cleared on `dragend` as well as `dragleave` —
-  `dragleave` does not fire when the drag ends over the element it marked.
+- **A dragged tab is held under the pointer, and the others make room — Chrome's model.**
+  One `dragover`/`drop` listener on `#tabbar` does all of it from the pointer's x. The
+  dragged element keeps its place in the DOM but is drawn where the pointer holds it (a
+  transform, `follow`), and it trades places with a neighbour once its middle passes the
+  neighbour's middle (`step`); the neighbours glide aside. What it has ended up next to,
+  and in which group, is the `DropTarget` a drop hands to `main.ts` (`pending`).
+  Two earlier versions were worse, and the reason is worth keeping: deciding the target
+  from where the pointer was over the *other* tabs, and moving the dragged one there as a
+  preview, jumped back and forth once the bar was full — every move changed the widths the
+  next decision was measured against. Trading on passed middles cannot do that: after a
+  trade the neighbour sits a whole tab further back, however wide anything is.
+  A group's header is a neighbour like any tab: before its middle the tab is loose in
+  front of the group, past it the tab is the group's first — it lands where it is, not at
+  the group's end. Leaving a group at its far end has no header to pass, so it is the
+  group's own right edge; coming back in is the edge without the tab, which leaves half a
+  tab of play. A folded group is passed as a whole and cannot be dropped into; the context
+  menu does that. Held against an end of the strip, the pointer's own x counts instead of
+  the tab's middle, or nothing could ever get in front of a group that starts the bar.
+  The browser's drag image is an empty one (`NO_DRAG_IMAGE`): the tab itself is under the
+  pointer. Leaving the bar or ending the drag anywhere else lets it glide back. `render` is
+  deferred while a drag is on: rebuilding the bar would take the dragged element with it,
+  and a drag whose element is gone gets no `dragend`.
+- **The tabs glide into place, on every render and every drag step.** `TabBar.glide` is
+  FLIP: remember where each tab and header is *drawn* (`drawn`, keyed by tab id or group id
+  so it outlives a render), rebuild or move, then animate each from there to its new place;
+  what was not there before fades in. So folding, unfolding, closing, opening and dropping
+  all move visibly, and a title change moves nothing and animates nothing. Two rules make it
+  safe: the drag measures the layout (`box`, from `offsetLeft`), never the rect an
+  animation or the hold happens to be drawn at, or a tab in flight would be passed again
+  and again; and a drop hands its measurement to the next render (`carried`), because the
+  deferred render that runs first puts the dragged tab back where it came from for a moment.
+  It ignores `prefers-reduced-motion`, deliberately and unlike the breath: Windows reports
+  "reduce" whenever its animation effects are off — the repository owner's machine does —
+  and the glide is what shows which tab went where, not decoration.
 - **A worktree belongs to its project, in the tab name and in the session list.**
   `claude --worktree` creates `<project>\.claude\worktrees\<name>`, and a session reopened
   from the picker carries *that* as its `cwd`, because `RecentSession.cwd` comes from
