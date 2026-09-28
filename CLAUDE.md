@@ -23,6 +23,26 @@ npm run setup:force            # rebuild node-pty even if pty.node already exist
 There is no test framework and no linter — `npm run typecheck` is the whole automated
 safety net. Verify behaviour by running the app.
 
+**Verify without a window.** `ATERM_OFFSCREEN=1` makes a dev run render offscreen and never
+show its window (`OFFSCREEN` in `main/index.ts`; ignored when packaged), so nothing pops up
+in front of the user. Drive it over the DevTools protocol instead:
+
+```bash
+ATERM_OFFSCREEN=1 npm run dev -- -- --remote-debugging-port=9222
+```
+
+The doubled `--` gets the switch past npm and electron-vite. A script against
+`http://127.0.0.1:9222/json/list` and the page's WebSocket (`node --experimental-websocket`
+on Node 20) then uses `Runtime.evaluate` to read the DOM and dispatch events — including
+drag and drop, as `DragEvent`s with a `new DataTransfer()` — and `Page.captureScreenshot`
+with a `clip` and `scale` for a magnified crop. `Emulation.setDeviceMetricsOverride` widens
+the viewport, `Emulation.setEmulatedMedia` covers `prefers-reduced-motion`. An offscreen
+window has no caption buttons, so `env(titlebar-area-*)` falls back and the bar is a little
+wider than in a real window. Kill every `electron.exe` whose command line names `aterm`
+before starting again, or the old one keeps port 9222; and back up
+`%APPDATA%\aterm-dev\state.json` first — killing the process does not save it, so a test
+state written there while nothing runs is what the next start restores.
+
 Windows only. `npm run dev` must not be started twice; two `electron-vite dev` processes
 produce two windows and it is not obvious which one is which.
 
