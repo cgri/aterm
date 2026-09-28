@@ -365,6 +365,18 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   Leaving the bar or ending the drag anywhere else puts it back. `render` is deferred
   while a drag is on: rebuilding the bar would take the dragged element with it, and a
   drag whose element is gone gets no `dragend`.
+- **The tabs glide into place, on every render and every drag step.** `TabBar.glide` is
+  FLIP: remember where each tab and header is *drawn* (`drawn`, keyed by tab id or group id
+  so it outlives a render), rebuild or move, then animate each from there to its new place;
+  what was not there before fades in. So folding, unfolding, closing, opening and dropping
+  all move visibly, and a title change moves nothing and animates nothing. Two rules make it
+  safe: hit-testing reads the layout (`box`, from `offsetLeft`), never the rect an animation
+  happens to be on, or a tab in flight would be aimed at and moved again; and a drop hands
+  its measurement to the next render (`carried`), because the deferred render that runs
+  first puts the dragged tab back where it came from for a moment.
+  It ignores `prefers-reduced-motion`, deliberately and unlike the breath: Windows reports
+  "reduce" whenever its animation effects are off — the repository owner's machine does —
+  and the glide is what shows which tab went where, not decoration.
 - **A worktree belongs to its project, in the tab name and in the session list.**
   `claude --worktree` creates `<project>\.claude\worktrees\<name>`, and a session reopened
   from the picker carries *that* as its `cwd`, because `RecentSession.cwd` comes from

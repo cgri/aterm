@@ -80,6 +80,19 @@ export interface DropTarget {
 const GROUP_EDGE = 12
 
 /**
+ * How the bar's parts glide into their new places. Short, because it runs on every drag
+ * step and must never be what the user waits for. The id is what tells these apart from
+ * any other animation on the element, so only they are cancelled when the next one starts.
+ *
+ * It runs whatever `prefers-reduced-motion` says, unlike the breath. Windows reports
+ * "reduce" whenever its animation effects are off, which is often a policy rather than
+ * anyone's choice, and then nobody saw the glide at all. It is also not decoration: it is
+ * how the eye follows which tab moved where, and it is short enough not to be felt.
+ */
+const SLIDE = 'slide'
+const SLIDE_TIMING: KeyframeAnimationOptions = { id: SLIDE, duration: 150, easing: 'ease-out' }
+
+/**
  * What the drag shows under the pointer: nothing. The dragged tab is already drawn where it
  * would land, and the browser's own half-transparent copy of it, floating over the bar, only
  * covered that up. Loaded once, up front — `setDragImage` takes only what is decoded by the
@@ -139,6 +152,8 @@ export class TabBar {
    * never gets its `dragend` — nor could the preview go on moving it.
    */
   private deferred?: Parameters<TabBar['render']>
+  /** Where a drop left everything, for the render that carries the drop out to start from. */
+  private carried?: Map<string, number>
 
   /**
    * `trailing` is put at the right end of the bar and survives every re-render —
@@ -170,6 +185,7 @@ export class TabBar {
       if (!source) return
       ev.preventDefault()
       const target = this.pending
+      if (target) this.carried = this.drawn()
       this.endDrag()
       if (target) this.handlers.onMove(source, target)
     })
@@ -180,6 +196,11 @@ export class TabBar {
       this.deferred = [items, activeId, page]
       return
     }
+    // Where everything was drawn, so that what the new bar puts elsewhere can glide there.
+    // A drop hands over what it measured before the drag's own render put things back.
+    const drawn = this.carried ?? this.drawn()
+    this.carried = undefined
+
     // Whatever was marked belongs to the bar that is about to be thrown away.
     this.into = undefined
 
@@ -212,6 +233,7 @@ export class TabBar {
     handle.id = 'draghandle'
 
     this.root.replaceChildren(strip, plus, handle, ...this.trailing)
+    this.glide(drawn, true)
   }
 
   private renderGroup(
@@ -436,7 +458,8 @@ export class TabBar {
   private restore(): void {
     this.setInto(undefined)
     this.pending = undefined
-    if (this.dragEl && this.origin) this.origin.parent.insertBefore(this.dragEl, this.origin.next)
+    const { dragEl, origin } = this
+    if (dragEl && origin) this.slide(() => origin.parent.insertBefore(dragEl, origin.next))
   }
 
   /**
@@ -456,18 +479,79 @@ export class TabBar {
         const group = this.groupEl(groupId)
         if (!group) return
         const next = [...group.children].find((m) => (m as HTMLElement).dataset.id === before)
-        group.insertBefore(el, next ?? null)
+        this.slide(() => group.insertBefore(el, next ?? null))
       } else {
         const next = before
           ? this.units().find((unit) => unit.first === before)?.el
           : strip.querySelector(':scope > .page-tab')
-        strip.insertBefore(el, next ?? null)
+        this.slide(() => strip.insertBefore(el, next ?? null))
       }
     }
 
     const origin = this.origin?.place
     const home = !drop.into && origin !== undefined && sameTarget(drop.target, origin)
     this.pending = home ? undefined : drop.target
+  }
+
+  /** Runs `move` and lets everything it shifted glide to its new place. */
+  private slide(move: () => void): void {
+    const drawn = this.drawn()
+    move()
+    this.glide(drawn)
+  }
+
+  /**
+   * Where each tab and group header is drawn right now, by a key that outlives a render.
+   * Drawn and not laid out: a part in the middle of a glide starts its next one from where
+   * the eye last saw it, instead of jumping.
+   */
+  private drawn(): Map<string, number> {
+    const drawn = new Map<string, number>()
+    for (const el of this.parts()) {
+      const key = partKey(el)
+      if (key) drawn.set(key, el.getBoundingClientRect().left)
+    }
+    return drawn
+  }
+
+  /**
+   * Lets every part that is now somewhere else than `drawn` says glide from there to here,
+   * so the eye can follow what made room for what. With `fadeIn`, a part that was not there
+   * before — a tab unfolded, opened or dropped in — fades in instead.
+   */
+  private glide(drawn: Map<string, number>, fadeIn = false): void {
+    if (drawn.size === 0) return
+    for (const el of this.parts()) {
+      const key = partKey(el)
+      if (!key) continue
+      for (const running of el.getAnimations()) if (running.id === SLIDE) running.cancel()
+      const from = drawn.get(key)
+      if (from === undefined) {
+        if (fadeIn) el.animate([{ opacity: 0 }, { opacity: 1 }], SLIDE_TIMING)
+        continue
+      }
+      const dx = from - this.box(el).left
+      if (Math.abs(dx) < 1) continue
+      el.animate([{ transform: `translateX(${dx}px)` }, { transform: 'none' }], SLIDE_TIMING)
+    }
+  }
+
+  private parts(): HTMLElement[] {
+    return this.strip ? [...this.strip.querySelectorAll<HTMLElement>('.tab, .tabgroup-head')] : []
+  }
+
+  /**
+   * Where an element sits in the layout, in viewport x, leaving any transform out. That is
+   * what hit-testing must use: while a tab glides, the frame it is drawn at is not its place,
+   * and aiming at the frame would move it again and again.
+   */
+  private box(el: HTMLElement): { left: number; right: number } {
+    let left = this.root.getBoundingClientRect().left
+    for (let at: HTMLElement | null = el; at && at !== this.root; ) {
+      left += at.offsetLeft
+      at = at.offsetParent as HTMLElement | null
+    }
+    return { left, right: left + el.offsetWidth }
   }
 
   private setInto(head: HTMLElement | undefined): void {
@@ -507,7 +591,7 @@ export class TabBar {
   private tabDropAt(x: number, units: Unit[]): Drop {
     const { unit, index } = this.unitAt(x, units)
     if (!unit) return { target: {} }
-    const rect = unit.el.getBoundingClientRect()
+    const rect = this.box(unit.el)
     const after = units[index + 1]?.first
     const group = unit.group
 
@@ -519,11 +603,11 @@ export class TabBar {
     const head = unit.el.firstElementChild as HTMLElement
     const atGroupEnd: Drop = { target: { before: after, groupId: group.id } }
     if (group.collapsed) return { ...atGroupEnd, into: head }
-    if (x <= head.getBoundingClientRect().right) return atGroupEnd
+    if (x <= this.box(head).right) return atGroupEnd
 
     const members = group.members
     for (let i = 0; i < members.length; i++) {
-      const box = members[i].getBoundingClientRect()
+      const box = this.box(members[i])
       if (x > box.right && i < members.length - 1) continue
       if (x < middle(box)) return { target: { before: members[i].dataset.id, groupId: group.id } }
       if (i === members.length - 1) return atGroupEnd
@@ -537,7 +621,7 @@ export class TabBar {
     // A unit clipped off past the strip's edge is not on screen to be aimed at.
     if (x > this.visibleRight()) return { index: units.length }
     for (let index = 0; index < units.length; index++) {
-      if (x <= units[index].el.getBoundingClientRect().right + 1) {
+      if (x <= this.box(units[index].el).right + 1) {
         return { unit: units[index], index }
       }
     }
@@ -548,7 +632,7 @@ export class TabBar {
   private slotAt(x: number, units: Unit[]): number {
     const { unit, index } = this.unitAt(x, units)
     if (!unit) return index
-    return x < middle(unit.el.getBoundingClientRect()) ? index : index + 1
+    return x < middle(this.box(unit.el)) ? index : index + 1
   }
 
   private visibleRight(): number {
@@ -604,7 +688,15 @@ export class TabBar {
   }
 }
 
-function middle(rect: DOMRect): number {
+/** What a part of the bar is called across renders: its tab, its group, or the page. */
+function partKey(el: HTMLElement): string | undefined {
+  if (el.dataset.id) return el.dataset.id
+  if (el.classList.contains('tabgroup-head')) return `group:${el.parentElement?.dataset.groupId}`
+  if (el.classList.contains('page-tab')) return 'page'
+  return undefined
+}
+
+function middle(rect: { left: number; right: number }): number {
   return (rect.left + rect.right) / 2
 }
 
