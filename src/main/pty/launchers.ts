@@ -50,20 +50,37 @@ export function resolveClaudeExe(): string | undefined {
   return existsSync(fallback) ? fallback : undefined
 }
 
-/** Path to the bundled PowerShell startup profile (dev and packaged alike). */
-export function profileScriptPath(): string {
+/** Path to a file shipped in `resources/` (dev and packaged alike). */
+export function resourceFile(name: string): string {
   return app.isPackaged
-    ? join(process.resourcesPath, 'aterm-profile.ps1')
-    : join(app.getAppPath(), 'resources', 'aterm-profile.ps1')
+    ? join(process.resourcesPath, name)
+    : join(app.getAppPath(), 'resources', name)
 }
 
-export function powershellLaunch(tabId: string, runtimeDir: string, useProfile: boolean): LaunchSpec {
+/** Path to the bundled PowerShell startup profile. */
+export function profileScriptPath(): string {
+  return resourceFile('aterm-profile.ps1')
+}
+
+/**
+ * `planSettings` is the settings file that registers aterm's plan review hook
+ * (`PlanReviewServer`), absent when the hook could not be set up.
+ */
+export function powershellLaunch(
+  tabId: string,
+  runtimeDir: string,
+  useProfile: boolean,
+  planSettings?: string
+): LaunchSpec {
   const file = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
   const env: NodeJS.ProcessEnv = {
     ...baseEnv(),
     ATERM_TAB_ID: tabId,
     ATERM_RUNTIME_DIR: runtimeDir
   }
+  // The profile's `claude` wrapper passes it on, so a session typed by hand gets the
+  // plan review too.
+  if (planSettings) env.ATERM_PLAN_SETTINGS = planSettings
 
   const script = profileScriptPath()
   if (useProfile && existsSync(script)) {
@@ -83,6 +100,7 @@ export function claudeLaunch(opts: {
   sessionId: string
   resume: boolean
   worktree?: boolean
+  planSettings?: string
 }): LaunchSpec {
   const exe = resolveClaudeExe()
   if (!exe) throw new Error('claude.exe not found (set PATH or ATERM_CLAUDE_PATH)')
@@ -90,6 +108,8 @@ export function claudeLaunch(opts: {
   const claudeArgs = opts.resume
     ? ['--resume', opts.sessionId]
     : ['--session-id', opts.sessionId]
+
+  if (opts.planSettings) claudeArgs.push('--settings', opts.planSettings)
 
   // Last, because `--worktree` takes an optional name: anything after it that
   // does not start with a dash would be swallowed as that name.

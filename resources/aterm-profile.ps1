@@ -17,6 +17,13 @@ function global:claude {
         return
     }
 
+    # aterm's plan review hook, unless the call names settings of its own.
+    $extra = @()
+    if ($env:ATERM_PLAN_SETTINGS -and (Test-Path -LiteralPath $env:ATERM_PLAN_SETTINGS) -and
+        -not ($args | Where-Object { ([string]$_) -like '--settings*' })) {
+        $extra = @('--settings', $env:ATERM_PLAN_SETTINGS)
+    }
+
     # If the call already carries its own session, nothing is added.
     $ownsSession = $false
     foreach ($a in $args) {
@@ -30,7 +37,7 @@ function global:claude {
     }
 
     if ($ownsSession -or -not $env:ATERM_TAB_ID -or -not $env:ATERM_RUNTIME_DIR) {
-        & $exe @args
+        & $exe @extra @args
         return
     }
 
@@ -51,5 +58,5 @@ function global:claude {
         # Reporting failed: aterm's transcript watcher still catches this session.
     }
 
-    & $exe --session-id $sessionId @args
+    & $exe --session-id $sessionId @extra @args
 }

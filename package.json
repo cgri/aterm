@@ -41,6 +41,10 @@
         "to": "aterm-profile.ps1"
       },
       {
+        "from": "resources/aterm-plan-hook.ps1",
+        "to": "aterm-plan-hook.ps1"
+      },
+      {
         "from": "resources/icon.png",
         "to": "icon.png"
       }

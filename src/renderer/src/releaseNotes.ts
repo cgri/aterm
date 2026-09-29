@@ -73,7 +73,8 @@ export function renderReleaseNotes(markdown: string): DocumentFragment {
 
 const INLINE = /\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|\*([^*\s][^*]*?)\*/g
 
-function appendInline(parent: HTMLElement, text: string): void {
+/** The inline half of it, shared with the plan review. */
+export function appendInline(parent: HTMLElement, text: string): void {
   let last = 0
   for (const m of text.matchAll(INLINE)) {
     const index = m.index ?? 0

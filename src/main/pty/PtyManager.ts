@@ -42,9 +42,15 @@ const EXIT_TIMEOUT_MS = 5000
  */
 export class PtyManager extends EventEmitter {
   private running = new Map<string, Running>()
+  /** The `--settings` file of the plan review hook, once `PlanReviewServer` has one. */
+  private planSettings?: string
 
   constructor(private readonly runtimeDir: string) {
     super()
+  }
+
+  setPlanSettings(file: string | undefined): void {
+    this.planSettings = file
   }
 
   start(spec: StartSpec): StartResult {
@@ -85,9 +91,10 @@ export class PtyManager extends EventEmitter {
               resume,
               // A resumed session already lives in its worktree; asking for
               // another one would create a second, empty branch.
-              worktree: spec.worktree && !resume
+              worktree: spec.worktree && !resume,
+              planSettings: this.planSettings
             })
-          : powershellLaunch(spec.tabId, this.runtimeDir, true)
+          : powershellLaunch(spec.tabId, this.runtimeDir, true, this.planSettings)
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }

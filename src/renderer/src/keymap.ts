@@ -173,9 +173,13 @@ export function installWheelZoom(changeFontSize: (delta: number) => void): void 
 function handle(ev: KeyboardEvent, ctx: KeymapContext, bindings: Bindings): boolean {
   // Overlays (the new-tab page, search) bring their own keyboard handling; only
   // combinations with Ctrl or Alt still get through there.
-  if (ctx.overlayOpen() && !ev.ctrlKey && !ev.altKey) return false
+  // The same holds for a plan review beside the terminal while it has the keyboard.
+  const elsewhere = focusOutsideTerminal()
+  if ((ctx.overlayOpen() || elsewhere) && !ev.ctrlKey && !ev.altKey) return false
 
   const hit = bindings.find((b) => matches(ev, b.combo))
+  // What edits text belongs to the element that has the focus, not to the terminal.
+  if (hit && elsewhere && TEXT_ACTIONS.has(hit.action)) return false
   if (hit) return dispatch(hit.action, ctx, ev)
 
   // Ctrl+C is context dependent: copy with a selection, interrupt without one
@@ -200,6 +204,19 @@ function handle(ev: KeyboardEvent, ctx: KeymapContext, bindings: Bindings): bool
   }
 
   return false
+}
+
+/** Bindings that write into the terminal or read its selection. */
+const TEXT_ACTIONS = new Set<Action>(['paste', 'copy', 'pasteImage', 'newline'])
+
+/**
+ * The keyboard is on something in the window other than a terminal — a plan review.
+ * Overlays are asked for separately through `overlayOpen`; this covers what sits in a
+ * pane beside the terminal.
+ */
+function focusOutsideTerminal(): boolean {
+  const el = document.activeElement
+  return el instanceof HTMLElement && el !== document.body && Boolean(el.closest('.plan-review'))
 }
 
 function dispatch(action: Action, ctx: KeymapContext, ev: KeyboardEvent): boolean {

@@ -4,6 +4,8 @@ import type {
   Appearance,
   ClipboardPayload,
   PersistedState,
+  PlanReviewAnswer,
+  PlanReviewRequest,
   PtyDataEvent,
   PtyExitEvent,
   RecentSession,
@@ -67,6 +69,19 @@ const api = {
     setAttention: (wanted: boolean): void => ipcRenderer.send(IPC.setAttention, wanted),
     writeClipboard: (text: string): Promise<void> =>
       ipcRenderer.invoke(IPC.clipboardWrite, text)
+  },
+  plan: {
+    /** A plan Claude Code wants approved. Acknowledge it at once, answer it later. */
+    onReview: (cb: (review: PlanReviewRequest) => void): void => {
+      ipcRenderer.on(IPC.planReview, (_e, payload: PlanReviewRequest) => cb(payload))
+    },
+    /** The hook went away unanswered: Esc in the terminal, or Claude Code's timeout. */
+    onClosed: (cb: (reviewId: string) => void): void => {
+      ipcRenderer.on(IPC.planReviewClosed, (_e, reviewId: string) => cb(reviewId))
+    },
+    acknowledge: (reviewId: string): void => ipcRenderer.send(IPC.planAck, reviewId),
+    answer: (reviewId: string, answer: PlanReviewAnswer): void =>
+      ipcRenderer.send(IPC.planAnswer, reviewId, answer)
   },
   update: {
     /** Newer releases on GitHub; `undefined` when GitHub could not be asked. */

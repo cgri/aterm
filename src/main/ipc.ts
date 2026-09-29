@@ -24,6 +24,8 @@ export const IPC = {
   ptyResize: 'pty:resize',
   setAppearance: 'app:set-appearance',
   setAttention: 'app:set-attention',
+  planAck: 'plan:ack',
+  planAnswer: 'plan:answer',
 
   // Main → Renderer
   ptyData: 'pty:data',
@@ -31,5 +33,7 @@ export const IPC = {
   sessionDetected: 'session:detected',
   agentActivity: 'agent:activity',
   openDirectory: 'app:open-directory',
-  updateProgress: 'update:progress'
+  updateProgress: 'update:progress',
+  planReview: 'plan:review',
+  planReviewClosed: 'plan:review-closed'
 } as const

@@ -198,3 +198,23 @@ export interface UpdateResult {
   ok: boolean
   error?: string
 }
+
+/**
+ * A plan Claude Code wants approved, caught by aterm's `ExitPlanMode` hook. The hook
+ * process waits until the review is answered, so every request gets exactly one answer.
+ */
+export interface PlanReviewRequest {
+  reviewId: string
+  tabId: string
+  /** The plan as Claude Code wrote it: Markdown. */
+  plan: string
+}
+
+/**
+ * `approve` lets the plan through, `revise` sends it back with the user's comments,
+ * and `pass` gives no decision at all, so Claude Code asks in the terminal as usual.
+ */
+export type PlanReviewAnswer =
+  | { kind: 'approve' }
+  | { kind: 'revise'; feedback: string }
+  | { kind: 'pass' }
