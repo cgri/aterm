@@ -8,6 +8,8 @@ import type {
   Appearance,
   ClipboardPayload,
   PersistedState,
+  PlanReviewAnswer,
+  PlanReviewRequest,
   PtyDataEvent,
   PtyExitEvent,
   SessionDetectedEvent,
@@ -25,6 +27,8 @@ import { SessionDetector } from './claude/SessionDetector'
 import { ProcessTree } from './proc/ProcessTree'
 import { reapOrphanTabs } from './proc/orphans'
 import { checkForUpdates, cleanupDownloads, downloadUpdate, installUpdate } from './update/installer'
+import { PlanReviewServer } from './plan/PlanReviewServer'
+import { resourceFile } from './pty/launchers'
 
 /**
  * A dev run gets its own userData directory. Otherwise it shares
@@ -53,6 +57,7 @@ const processTree = new ProcessTree()
 let detector: SessionDetector
 let ptys: PtyManager
 let store: SessionStore
+let plans: PlanReviewServer | undefined
 let win: BrowserWindow | undefined
 let agentRunning: Record<string, boolean> = {}
 
@@ -164,6 +169,9 @@ function createWindow(state: PersistedState): void {
   // to the foreground, whether or not the tab that asked for attention was ever
   // looked at. So the flash is re-armed on every blur for as long as one is still
   // unseen, and only the renderer clearing `attentionWanted` ends it for good.
+  // A reload loses every review the renderer held, and nobody would answer them.
+  win.webContents.on('did-start-loading', () => plans?.passAll())
+
   win.on('focus', () => updateFlash())
   win.on('blur', () => updateFlash())
 
@@ -336,6 +344,14 @@ function registerIpc(): void {
     updateFlash()
   })
 
+  // A plan goes to the renderer, which has to confirm it took it — see ACK_TIMEOUT_MS.
+  plans?.on('review', (review: PlanReviewRequest) => send(IPC.planReview, review))
+  plans?.on('closed', (reviewId: string) => send(IPC.planReviewClosed, reviewId))
+  ipcMain.on(IPC.planAck, (_e, reviewId: string) => plans?.acknowledge(reviewId))
+  ipcMain.on(IPC.planAnswer, (_e, reviewId: string, answer: PlanReviewAnswer) =>
+    plans?.answer(reviewId, answer)
+  )
+
   ipcMain.handle(IPC.sessionsRecent, () => history.recent())
   ipcMain.handle(IPC.sessionResumable, (_e, cwd: string, sessionId: string) =>
     hasConversation(cwd, sessionId)
@@ -422,6 +438,11 @@ app.whenReady().then(() => {
   ptys = new PtyManager(detector.dir())
   detector.start()
 
+  // Tabs started before the pipe is up go without the review; restored tabs are lazy,
+  // so in practice that is none of them.
+  plans = new PlanReviewServer(userData, resourceFile('aterm-plan-hook.ps1'))
+  void plans.start().then((settings) => ptys.setPlanSettings(settings))
+
   const state = store.load()
   registerIpc()
   createWindow(state)
@@ -441,5 +462,6 @@ app.on('before-quit', () => {
   history.dispose()
   detector?.stop()
   processTree.stop()
+  plans?.stop()
   ptys?.killAll()
 })

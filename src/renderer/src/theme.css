@@ -24,6 +24,12 @@
   --scrim: #0009;
   --shadow: #000a;
   --shadow-soft: #0007;
+  /* Plan review: the panel, its cards, and a passage that changed since the last round. */
+  --bg-review: #161920;
+  --bg-card: #1f232d;
+  --changed: #17291f;
+  --mark: #d9a4413d;
+  --mark-focus: #d9a44173;
   --font-ui: 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, monospace;
 
@@ -63,6 +69,11 @@
   --scrim: #3a404d40;
   --shadow: #00000033;
   --shadow-soft: #00000022;
+  --bg-review: #f8f9fa;
+  --bg-card: #ffffff;
+  --changed: #e2f3e7;
+  --mark: #a86a0833;
+  --mark-focus: #a86a0866;
 
   --group-grey: #6b7280;
   --group-blue: #1a6fe0;
@@ -1508,4 +1519,488 @@ body {
 .zoom-indicator.visible {
   opacity: 1;
   transition-duration: 60ms;
+}
+
+/* ---------- Plan review ---------- */
+
+/* Terminal and plan review side by side. The terminal keeps whatever the panel
+   leaves, and refits to it. */
+.pane-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.pane-body .term {
+  min-width: 0;
+}
+
+.plan-review {
+  display: none;
+  flex: 0 0 min(900px, 62%);
+  min-width: 0;
+  flex-direction: column;
+  background: var(--bg-review);
+  border-left: 1px solid var(--border);
+  outline: none;
+}
+
+.plan-review.visible {
+  display: flex;
+}
+
+.plan-review button {
+  font: inherit;
+  height: 30px;
+  padding: 0 13px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--bg-tab);
+  color: var(--fg);
+  cursor: default;
+  white-space: nowrap;
+}
+
+.plan-review button:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.plan-review button:disabled {
+  opacity: 0.55;
+}
+
+.plan-review button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.plan-review button.primary:hover {
+  background: var(--accent);
+  filter: brightness(1.12);
+}
+
+.plan-review button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.plan-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.plan-titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.plan-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.plan-sub {
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+.plan-spacer {
+  flex: 1 1 auto;
+}
+
+.plan-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+
+.plan-toggle[hidden] {
+  display: none;
+}
+
+.plan-toggle input {
+  margin: 0;
+}
+
+.plan-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.plan-body {
+  position: relative;
+  display: flex;
+  gap: 24px;
+  padding: 22px 20px 32px 34px;
+}
+
+/* ---------- The plan itself ---------- */
+
+.plan-doc {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 680px;
+  font-size: 14px;
+  line-height: 1.55;
+  user-select: text;
+}
+
+.plan-doc > :first-child {
+  margin-top: 0;
+}
+
+.plan-doc h1 {
+  font-size: 21px;
+  line-height: 1.35;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.plan-doc h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 22px 0 8px;
+}
+
+.plan-doc h3,
+.plan-doc h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 18px 0 6px;
+}
+
+.plan-doc p {
+  margin: 0 0 10px;
+}
+
+.plan-doc ul,
+.plan-doc ol {
+  margin: 0 0 10px;
+  padding-left: 22px;
+}
+
+.plan-doc li {
+  margin: 3px 0;
+}
+
+.plan-doc li > p {
+  margin: 4px 0;
+}
+
+.plan-doc code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-tab);
+}
+
+.plan-doc pre {
+  margin: 6px 0 12px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.plan-doc pre code {
+  padding: 0;
+  background: none;
+  line-height: 1.5;
+}
+
+.plan-doc blockquote {
+  margin: 0 0 10px;
+  padding: 0 0 0 12px;
+  border-left: 3px solid var(--edge);
+  color: var(--fg-dim);
+}
+
+.plan-doc table {
+  border-collapse: collapse;
+  margin: 6px 0 12px;
+  font-size: 13px;
+}
+
+.plan-doc th,
+.plan-doc td {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.plan-doc th {
+  background: var(--bg-tab);
+  font-weight: 600;
+}
+
+.plan-doc hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 16px 0;
+}
+
+.plan-doc a {
+  color: var(--accent);
+}
+
+/* A passage the previous round did not have: tinted, with a rule in the gutter
+   left of it. A shadow and an overlay rather than a border or padding, so the
+   text does not move when the marking is switched off. A list item's rule sits
+   left of its number, which the tint would otherwise run into. */
+.plan-doc.show-changes .changed {
+  position: relative;
+  background: var(--changed);
+  border-radius: 3px;
+  box-shadow: -6px 0 0 var(--changed);
+}
+
+.plan-doc.show-changes .changed::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -10px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--ok);
+}
+
+.plan-doc.show-changes li.changed::before {
+  left: -30px;
+}
+
+.plan-doc.show-changes tr.changed::before {
+  content: none;
+}
+
+::highlight(plan-comment) {
+  background-color: var(--mark);
+}
+
+::highlight(plan-comment-focus) {
+  background-color: var(--mark-focus);
+}
+
+/* ---------- Comments ---------- */
+
+.plan-margin {
+  flex: 0 0 230px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plan-cards {
+  position: relative;
+}
+
+.plan-card {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: var(--bg-card);
+  transition: top 120ms ease;
+}
+
+.plan-card:hover {
+  border-color: var(--warn);
+}
+
+.plan-card-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.plan-badge {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--warn);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.plan-card-quote {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+.plan-review .plan-card-remove {
+  flex: 0 0 auto;
+  height: 20px;
+  width: 20px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg-dim);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.plan-review .plan-card-remove:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.plan-card-text {
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.plan-previous:empty {
+  display: none;
+}
+
+.plan-previous {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plan-previous-head {
+  color: var(--fg-dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.plan-previous-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--bg-card);
+  color: var(--fg-dim);
+  font-size: 12.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.plan-tick {
+  color: var(--ok);
+  font-weight: 700;
+}
+
+.plan-dot {
+  color: var(--fg-dim);
+  font-weight: 700;
+}
+
+/* ---------- Composer ---------- */
+
+.plan-review .plan-comment-button {
+  display: none;
+  position: absolute;
+  z-index: 4;
+  height: 28px;
+  box-shadow: 0 4px 14px var(--shadow-soft);
+}
+
+.plan-review .plan-comment-button.visible {
+  display: block;
+}
+
+.plan-composer {
+  display: none;
+  position: absolute;
+  z-index: 5;
+  width: 380px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--bg-card);
+  box-shadow: 0 10px 30px var(--shadow);
+}
+
+.plan-composer.visible {
+  display: flex;
+}
+
+.plan-composer-quote {
+  color: var(--fg-dim);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-composer-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.plan-hint {
+  flex: 1 1 auto;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+.plan-label {
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+.plan-review textarea {
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  padding: 7px 9px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.plan-review textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.plan-foot {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--border);
 }

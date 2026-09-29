@@ -67,6 +67,7 @@ main/                      Node side: owns all processes, files and Claude Code 
   proc/orphans.ts          ends tab processes that outlived the aterm that spawned them
   update/releases.ts       newer GitHub releases than the running version
   update/installer.ts      downloads, verifies and silently runs the NSIS installer
+  plan/PlanReviewServer.ts the named pipe the ExitPlanMode hook hands plans to
   cli.ts                   the directory a launch names (--open-dir), Explorer's entry
   ipc.ts                   every channel name, shared with preload
 preload/index.ts           contextBridge → window.aterm
@@ -77,6 +78,8 @@ renderer/src/main.ts       tab lifecycle, panes, persistence — the controller
   TerminalView.ts          one xterm.js instance per running tab
   appearance.ts            light/dark/system, applied while the module is imported
   updates.ts               update check, tab-bar button and UpdateDialog
+  PlanReview.ts            the plan review panel beside a tab's terminal
+  planMarkdown.ts          the Markdown a plan is written in, as DOM
 ```
 
 `shared/types.ts` is imported by all three via the `@shared` alias (configured in both
@@ -511,6 +514,32 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   portable launcher sets, and gets the release page instead, as does a dev run.
   `ATERM_UPDATE_FROM=1.7.0` makes aterm compare as that version, which is the only way to
   see the flow against a real release; a dev run still stops at the release page.
+- **A plan is reviewed beside the terminal, through a hook aterm brings along.**
+  `PlanReviewServer` opens `\\.\pipe\aterm-plan-<pid>` and writes
+  `userData/plan-hook-settings.json`, which registers `resources/aterm-plan-hook.ps1` as a
+  `PreToolUse` hook on `ExitPlanMode`. Claude tabs get it as `--settings`, shell tabs as
+  `ATERM_PLAN_SETTINGS` for the profile's `claude` wrapper; the user's own settings are
+  never touched. The script sends the hook input and `ATERM_TAB_ID` down the pipe and blocks
+  until the renderer answers. Three answers: comments go back as `deny` with the feedback as
+  reason, which Claude reads and presents a revised plan; approve is `allow`; Esc is no
+  decision at all. **`allow` does not skip Claude Code's own "Ready to code?" question** —
+  measured in 2.1.284, the dialog still appears in the terminal, which is what the panel
+  hands over to. Claude Code shows a `deny` reason as a red "hook error"; nothing to do
+  about that.
+  Anything that goes wrong has to end in "no decision", because a hook that never returns
+  holds the terminal until its timeout (a day): no aterm or a broken pipe makes the script
+  exit silently; a review the renderer does not acknowledge within five seconds — sent while
+  it was loading — is passed back, and so is every open one on a reload. Esc in the terminal
+  kills the hook, the pipe closes, and `plan:review-closed` takes the panel down.
+  `ExitPlanMode` does not exist under `claude -p`; measure this with an interactive session.
+  **An open review counts as waiting** (`isWaiting` in `main.ts`), for the tab bar and the
+  taskbar alike: while a hook runs, Claude Code's title still shows the spinner of the turn.
+  **Comments are anchored by character offsets into the plan's text**, drawn with the CSS
+  Custom Highlight API rather than `<mark>`, because a passage may run across list items and
+  code spans. The next round is compared by block (`changed`), and a previous comment gets a
+  tick when its quoted passage no longer appears — it says where to look, not that it was
+  answered. The keymap leaves every key to the panel while it has the focus
+  (`focusOutsideTerminal`), or Ctrl+V would paste into the terminal behind it.
 - **Keyboard handling is one capture-phase listener on `document`.** What it handles never
   reaches xterm.js. `Alt+V` is forwarded as `ESC v` so Claude Code's own image paste runs,
   and `Shift+Enter` sends `ESC CR`. There is no Electron application menu, because its

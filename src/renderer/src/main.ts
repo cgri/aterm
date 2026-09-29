@@ -3,6 +3,8 @@ import './theme.css'
 import {
   TAB_GROUP_COLORS,
   type PersistedState,
+  type PlanReviewAnswer,
+  type PlanReviewRequest,
   type RecentSession,
   type TabGroup,
   type TabGroupColor,
@@ -22,6 +24,7 @@ import { ThemeToggle } from './ThemeToggle'
 import { Updates } from './updates'
 import { currentAppearance, onThemeChange } from './appearance'
 import { folderName, projectDir } from './paths'
+import { PlanReview, type PlanRound } from './PlanReview'
 
 /** Font size the zoom percentage is relative to, and the target of a reset. */
 const BASE_FONT_SIZE = 14
@@ -64,6 +67,20 @@ interface Pane {
    * then, and must not put up the "Process exited" bar between the two.
    */
   restarting: boolean
+  /** Terminal and plan review side by side. */
+  body: HTMLDivElement
+  /** Made the first time a plan arrives for this tab. */
+  review?: PlanReview
+  /**
+   * The plan review the hook is waiting on. The tab waits for the user for as long as
+   * it is set, whatever Claude Code's title says: while a hook runs, the title still
+   * shows the spinner of the turn that called it.
+   */
+  reviewId?: string
+  /** The round last sent back to Claude, which the next plan answers. */
+  lastRound?: PlanRound
+  /** What was written on a plan the user stepped out of with Esc. */
+  draft?: PlanRound
 }
 
 /** Claude Code says what it is up to in front of its window title. */
@@ -163,6 +180,8 @@ async function boot(): Promise<void> {
   api.sessions.onDetected(({ tabId, sessionId }) => onSessionDetected(tabId, sessionId))
   api.sessions.onAgentActivity(({ running }) => onAgentActivity(running))
   api.system.onOpenDirectory((dir) => void createTab('claude', dir))
+  api.plan.onReview((review) => onPlanReview(review))
+  api.plan.onClosed((reviewId) => onPlanReviewClosed(reviewId))
 
   const overrides = (await api.system.keymap()) as Partial<Record<Action, string[]>>
 
@@ -266,6 +285,10 @@ function addPane(tab: TabState): Pane {
   const termHost = document.createElement('div')
   termHost.style.display = 'contents'
 
+  const body = document.createElement('div')
+  body.className = 'pane-body'
+  body.appendChild(termHost)
+
   const placeholder = document.createElement('div')
   placeholder.className = 'placeholder'
   placeholder.addEventListener('mousedown', () => {
@@ -276,7 +299,7 @@ function addPane(tab: TabState): Pane {
   const bar = document.createElement('div')
   bar.className = 'bar'
 
-  el.append(termHost, placeholder, bar)
+  el.append(body, placeholder, bar)
   paneRoot.appendChild(el)
 
   const pane: Pane = {
@@ -288,7 +311,8 @@ function addPane(tab: TabState): Pane {
     status: 'stopped',
     agentRunning: false,
     awaitingSeen: false,
-    restarting: false
+    restarting: false,
+    body
   }
   panes.set(tab.id, pane)
   if (!order.includes(tab.id)) order.push(tab.id)
@@ -384,6 +408,7 @@ async function removeTab(id: string): Promise<void> {
   const pane = panes.get(id)
   if (!pane) return
 
+  if (pane.reviewId) api.plan.answer(pane.reviewId, { kind: 'pass' })
   await api.pty.kill(id)
   // Two tabs can end in the same moment, and the kill above is a turn of the event loop.
   if (!panes.has(id)) return
@@ -601,7 +626,7 @@ function activate(id: string | undefined, opts: { start: boolean; reveal?: boole
     void startPane(pane)
   } else {
     pane.view?.refit()
-    pane.view?.focus()
+    focusPane(pane)
   }
   searchBar.detach()
   noteSeen()
@@ -962,6 +987,7 @@ async function startPane(pane: Pane): Promise<void> {
     pane.ptyTitle = undefined
     pane.ptyState = undefined
     pane.awaitingSeen = false
+    dropReview(pane)
   }
 
   if (tab.kind === 'claude' && !tab.claudeSessionId) {
@@ -1024,6 +1050,8 @@ function onExit(tabId: string, exitCode: number, killed: boolean): void {
   pane.ptyTitle = undefined
   pane.ptyState = undefined
   pane.awaitingSeen = false
+  // The hook died with the process that ran it; there is nobody left to answer.
+  dropReview(pane)
 
   // A restart asked for this exit and starts the tab again once it is through.
   if (pane.restarting) {
@@ -1096,7 +1124,7 @@ function isOnScreen(pane: Pane): boolean {
  */
 function noteSeen(): void {
   const pane = activePane()
-  if (pane && windowFocused && pane.ptyState === 'awaiting') pane.awaitingSeen = true
+  if (pane && windowFocused && isWaiting(pane)) pane.awaitingSeen = true
 }
 
 /**
@@ -1109,9 +1137,7 @@ let attentionSent = false
 function updateAttention(): void {
   // The same condition `tabModel` draws as a tab's alarm, deliberately: there is one
   // thing aterm asks about, and the taskbar and the tab bar must not disagree on it.
-  const wanted = [...panes.values()].some(
-    (pane) => pane.ptyState === 'awaiting' && !pane.awaitingSeen
-  )
+  const wanted = [...panes.values()].some((pane) => isWaiting(pane) && !pane.awaitingSeen)
   if (wanted === attentionSent) return
   attentionSent = wanted
   api.system.setAttention(wanted)
@@ -1131,6 +1157,98 @@ function installAttentionTracking(): void {
   window.addEventListener('blur', () => {
     windowFocused = false
   })
+}
+
+/**
+ * The tab is waiting for the user: Claude Code says so in its title, or a plan review
+ * is open. The one condition behind the amber tab and the flashing taskbar button.
+ */
+function isWaiting(pane: Pane): boolean {
+  return pane.ptyState === 'awaiting' || pane.reviewId !== undefined
+}
+
+/**
+ * Only the move into and out of waiting touches `awaitingSeen`. Leaving retires it, so
+ * the next wait is news again; entering it is already answered if the user is looking at
+ * the tab. Re-deciding it on every title would undo a tab the user has since left,
+ * because Claude Code keeps rewriting the text while it waits.
+ */
+function settleWaiting(pane: Pane, waited: boolean): void {
+  if (!isWaiting(pane)) pane.awaitingSeen = false
+  else if (!waited) pane.awaitingSeen = isOnScreen(pane)
+}
+
+/* ---------------------------------------------------------- Plan review */
+
+/**
+ * Claude Code presented a plan in one of the tabs, and the hook is holding it until the
+ * user answers here. A plan for a tab that is not running any more, or that this
+ * window never had, goes straight back without a decision, so the terminal asks.
+ */
+function onPlanReview(request: PlanReviewRequest): void {
+  const pane = panes.get(request.tabId)
+  if (!pane || pane.status !== 'running') {
+    api.plan.answer(request.reviewId, { kind: 'pass' })
+    return
+  }
+  api.plan.acknowledge(request.reviewId)
+  // Only one hook can be waiting per tab; an older one would be stale.
+  if (pane.reviewId) api.plan.answer(pane.reviewId, { kind: 'pass' })
+
+  const waited = isWaiting(pane)
+  pane.reviewId = request.reviewId
+  pane.review ??= createReview(pane)
+  pane.review.show(request.plan, { previous: pane.lastRound, draft: pane.draft })
+  settleWaiting(pane, waited)
+  pane.view?.refit()
+  if (pane === activePane()) pane.review.focus()
+  render()
+}
+
+function createReview(pane: Pane): PlanReview {
+  const review = new PlanReview({
+    approve: () => answerReview(pane, { kind: 'approve' }),
+    revise: (feedback, round) => answerReview(pane, { kind: 'revise', feedback }, round),
+    pass: (draft) => {
+      answerReview(pane, { kind: 'pass' })
+      pane.draft = draft
+    },
+    confirm: (message, confirmLabel) => confirmDialog.ask({ message, confirmLabel })
+  })
+  pane.body.appendChild(review.el)
+  return review
+}
+
+/** `round` is what a revision sent back, which the next plan will be answering. */
+function answerReview(pane: Pane, answer: PlanReviewAnswer, round?: PlanRound): void {
+  if (!pane.reviewId) return
+  api.plan.answer(pane.reviewId, answer)
+  pane.lastRound = round
+  pane.draft = undefined
+  dropReview(pane)
+  if (pane === activePane()) pane.view?.focus()
+  render()
+}
+
+/** The hook went away unanswered: Esc in the terminal, or Claude Code gave up on it. */
+function onPlanReviewClosed(reviewId: string): void {
+  const pane = [...panes.values()].find((p) => p.reviewId === reviewId)
+  if (!pane) return
+  const draft = dropReview(pane)
+  if (draft && (draft.comments.length > 0 || draft.general.trim())) pane.draft = draft
+  if (pane === activePane()) pane.view?.focus()
+  render()
+}
+
+/** Takes the panel down without answering. Renders nothing; every caller does. */
+function dropReview(pane: Pane): PlanRound | undefined {
+  if (!pane.reviewId) return undefined
+  const waited = isWaiting(pane)
+  pane.reviewId = undefined
+  settleWaiting(pane, waited)
+  const draft = pane.review?.hide()
+  pane.view?.refit()
+  return draft
 }
 
 /* ------------------------------------------------------------ Rendering */
@@ -1199,10 +1317,10 @@ function tabModel(pane: Pane): TabViewModel {
     // is an agent tab too.
     agent: pane.agentRunning || pane.tab.kind === 'claude',
     running: pane.status === 'running',
-    working: pane.ptyState === 'working',
+    working: pane.ptyState === 'working' && !pane.reviewId,
     // Word for word the condition `updateAttention` sends to the taskbar. That is the
     // point: the window and the taskbar button say the same thing, or neither does.
-    alarm: pane.ptyState === 'awaiting' && !pane.awaitingSeen
+    alarm: isWaiting(pane) && !pane.awaitingSeen
   }
 }
 
@@ -1344,14 +1462,10 @@ function tabSummary(pane: Pane): string | undefined {
 function setPtyTitle(pane: Pane, raw: string): void {
   const next = readPtyTitle(raw)
   if (next.title === pane.ptyTitle && next.state === pane.ptyState) return
-  // Only the move into and out of waiting touches this. Leaving retires it, so
-  // the next wait is news again; entering it is already answered if the user is
-  // looking at the tab. Re-deciding it on every title would undo a tab the user
-  // has since left, because Claude Code keeps rewriting the text while it waits.
-  if (next.state !== 'awaiting') pane.awaitingSeen = false
-  else if (pane.ptyState !== 'awaiting') pane.awaitingSeen = isOnScreen(pane)
+  const waited = isWaiting(pane)
   pane.ptyTitle = next.title
   pane.ptyState = next.state
+  settleWaiting(pane, waited)
   // Nothing persisted changed — the title belongs to the process, not the tab.
   render()
 }
@@ -1511,7 +1625,16 @@ function currentCwd(): string {
 /** Where the keyboard goes once an overlay is gone: the page, or the terminal in front. */
 function focusFront(): void {
   if (pageActive) page.focus()
-  else activePane()?.view?.focus()
+  else {
+    const pane = activePane()
+    if (pane) focusPane(pane)
+  }
+}
+
+/** A tab's keyboard goes to its plan review while one is open, to the terminal otherwise. */
+function focusPane(pane: Pane): void {
+  if (pane.review?.isOpen()) pane.review.focus()
+  else pane.view?.focus()
 }
 
 function activePane(): Pane | undefined {
