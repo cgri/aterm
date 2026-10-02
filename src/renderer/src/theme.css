@@ -1598,7 +1598,7 @@ body {
 .plan-titles {
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  white-space: nowrap;
 }
 
 .plan-title {
@@ -1611,8 +1611,13 @@ body {
   font-size: 12px;
 }
 
-.plan-spacer {
+.plan-actions {
   flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px 10px;
 }
 
 .plan-toggle {

@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { writeFileSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
 import { join } from 'node:path'
-import type { PlanReviewAnswer, PlanReviewRequest } from '@shared/types'
+import type { PlanReviewAnswer, PlanReviewRequest, PlanStartMode } from '@shared/types'
 
 /**
  * How long Claude Code lets the hook wait for the user. A plan may sit there over
@@ -22,15 +22,47 @@ const MAX_REQUEST = 8 * 1024 * 1024
  */
 const ACK_TIMEOUT_MS = 5000
 
+/**
+ * The PermissionRequest hook answers at once from what the review left behind; it never
+ * waits for anyone, so it gets no more time than a slow PowerShell start needs.
+ */
+const MENU_HOOK_TIMEOUT_S = 30
+
+/**
+ * How long an approval waits for the menu it answers. The menu follows the review within
+ * a fraction of a second; an approval still lying around after this is not meant for
+ * whatever menu comes next.
+ */
+const APPROVAL_TTL_MS = 30_000
+
 interface Pending {
   socket: Socket
   ack?: NodeJS.Timeout
+  /** Set for a review, so an approval knows which tab and which plan it answers. */
+  tabId?: string
+  plan?: string
+}
+
+/** A plan approved in the panel, waiting for Claude Code's menu to come up. */
+interface Approval {
+  plan: string
+  mode: PlanStartMode
+  notes?: string
+  expires: number
 }
 
 /**
  * The aterm end of the `ExitPlanMode` hook. Tabs are started with `--settings` naming
- * a file written here, which registers `resources/aterm-plan-hook.ps1` as a PreToolUse
- * hook; that script connects to this pipe with the plan and waits for the answer.
+ * a file written here, which registers `resources/aterm-plan-hook.ps1` twice: as a
+ * PreToolUse hook, which is the review — the script connects to this pipe with the plan
+ * and waits for the answer — and as a PermissionRequest hook, which answers Claude
+ * Code's "Would you like to proceed?" menu for a plan the review approved.
+ *
+ * It takes both because neither does the whole job. PreToolUse runs before the menu is
+ * drawn and Esc in the terminal ends it, but its `allow` still leaves the menu up. The
+ * PermissionRequest hook can answer the menu, mode and all, but runs *beside* it: a menu
+ * answered in the terminal leaves that hook running, and a review held there would stay
+ * open for nothing until its timeout. Measured in 2.1.287.
  *
  * Events: `review` (PlanReviewRequest) when a plan arrives, `closed` (reviewId) when the
  * hook went away before it was answered — Claude Code timed it out, or the user pressed
@@ -39,6 +71,8 @@ interface Pending {
 export class PlanReviewServer extends EventEmitter {
   private server?: Server
   private readonly pending = new Map<string, Pending>()
+  /** By tab id: one review per tab, so at most one approval per tab. */
+  private readonly approvals = new Map<string, Approval>()
   /** Per process, so a dev run and the installed app each get their own pipe. */
   private readonly pipeName = `aterm-plan-${process.pid}`
 
@@ -82,12 +116,25 @@ export class PlanReviewServer extends EventEmitter {
     entry.ack = undefined
   }
 
+  /**
+   * An approval is not answered here: `allow` from PreToolUse does not get past Claude
+   * Code's own menu, so it is put aside for the PermissionRequest hook that menu fires,
+   * and the review itself ends without a decision.
+   */
   answer(reviewId: string, answer: PlanReviewAnswer): void {
     const entry = this.pending.get(reviewId)
     if (!entry) return
-    this.pending.delete(reviewId)
-    if (entry.ack) clearTimeout(entry.ack)
-    entry.socket.end(`${hookOutput(answer)}\n`)
+    if (answer.kind === 'approve' && entry.tabId && entry.plan !== undefined) {
+      this.approvals.set(entry.tabId, {
+        plan: entry.plan,
+        mode: answer.mode,
+        notes: answer.notes,
+        expires: Date.now() + APPROVAL_TTL_MS
+      })
+      this.reply(reviewId, '')
+      return
+    }
+    this.reply(reviewId, answer.kind === 'revise' ? reviseOutput(answer.feedback) : '')
   }
 
   /** Every open review goes back without a decision — the renderer that held them is gone. */
@@ -128,13 +175,41 @@ export class PlanReviewServer extends EventEmitter {
   private receive(reviewId: string, line: string): void {
     const request = parseRequest(line)
     if (!request) {
-      this.answer(reviewId, { kind: 'pass' })
+      this.reply(reviewId, '')
       return
     }
+    if (request.event === 'PermissionRequest') {
+      this.reply(reviewId, this.takeApproval(request))
+      return
+    }
+    // A new round: whatever was approved before it can no longer be meant.
+    this.approvals.delete(request.tabId)
     const entry = this.pending.get(reviewId)!
+    entry.tabId = request.tabId
+    entry.plan = request.plan
     entry.ack = setTimeout(() => this.answer(reviewId, { kind: 'pass' }), ACK_TIMEOUT_MS)
-    const review: PlanReviewRequest = { reviewId, ...request }
+    const review: PlanReviewRequest = { reviewId, tabId: request.tabId, plan: request.plan }
     this.emit('review', review)
+  }
+
+  /**
+   * The menu's answer, when the review approved this very plan a moment ago. Anything
+   * else — no approval, an old one, another plan — is no decision, and the menu stays up
+   * for the user to answer in the terminal.
+   */
+  private takeApproval(request: HookRequest): string {
+    const approval = this.approvals.get(request.tabId)
+    this.approvals.delete(request.tabId)
+    if (!approval || approval.expires < Date.now() || approval.plan !== request.plan) return ''
+    return menuOutput(request.toolInput, approval)
+  }
+
+  private reply(reviewId: string, line: string): void {
+    const entry = this.pending.get(reviewId)
+    if (!entry) return
+    this.pending.delete(reviewId)
+    if (entry.ack) clearTimeout(entry.ack)
+    entry.socket.end(`${line}\n`)
   }
 
   private writeSettings(): string {
@@ -159,6 +234,12 @@ export class PlanReviewServer extends EventEmitter {
             matcher: 'ExitPlanMode',
             hooks: [{ type: 'command', command, timeout: HOOK_TIMEOUT_S }]
           }
+        ],
+        PermissionRequest: [
+          {
+            matcher: 'ExitPlanMode',
+            hooks: [{ type: 'command', command, timeout: MENU_HOOK_TIMEOUT_S }]
+          }
         ]
       }
     }
@@ -168,20 +249,63 @@ export class PlanReviewServer extends EventEmitter {
   }
 }
 
+interface HookRequest {
+  event: 'PreToolUse' | 'PermissionRequest'
+  tabId: string
+  plan: string
+  /** The tool input as Claude Code sent it, handed back whole with the approved plan. */
+  toolInput: Record<string, unknown>
+}
+
 /** What the hook sent, reduced to what a review needs. Anything else is no plan. */
-function parseRequest(line: string): Omit<PlanReviewRequest, 'reviewId'> | undefined {
+function parseRequest(line: string): HookRequest | undefined {
   try {
     const data = JSON.parse(line) as {
       tabId?: unknown
-      hook?: { tool_name?: unknown; tool_input?: { plan?: unknown } }
+      hook?: { hook_event_name?: unknown; tool_name?: unknown; tool_input?: unknown }
     }
-    const plan = data.hook?.tool_input?.plan
+    const event = data.hook?.hook_event_name
+    if (event !== 'PreToolUse' && event !== 'PermissionRequest') return undefined
     if (typeof data.tabId !== 'string' || data.hook?.tool_name !== 'ExitPlanMode') return undefined
+    const toolInput = data.hook.tool_input
+    if (!toolInput || typeof toolInput !== 'object') return undefined
+    const plan = (toolInput as { plan?: unknown }).plan
     if (typeof plan !== 'string' || !plan.trim()) return undefined
-    return { tabId: data.tabId, plan }
+    return { event, tabId: data.tabId, plan, toolInput: toolInput as Record<string, unknown> }
   } catch {
     return undefined
   }
+}
+
+/** Comments go back as the reason the plan was turned down; Claude revises it. */
+function reviseOutput(feedback: string): string {
+  return hookLine({
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: feedback
+    }
+  })
+}
+
+/**
+ * The answer to Claude Code's "Would you like to proceed?" menu. The comments are
+ * appended to the plan itself, because that is what Claude carries out \u2014 and an `allow`
+ * without `updatedInput` was measured to be ignored, menu and all, so the input always
+ * goes back, changed or not.
+ */
+function menuOutput(toolInput: Record<string, unknown>, approval: Approval): string {
+  const plan = approval.notes ? `${approval.plan.trimEnd()}\n\n${approval.notes}` : approval.plan
+  return hookLine({
+    hookSpecificOutput: {
+      hookEventName: 'PermissionRequest',
+      decision: {
+        behavior: 'allow',
+        updatedInput: { ...toolInput, plan },
+        updatedPermissions: [{ type: 'setMode', mode: approval.mode, destination: 'session' }]
+      }
+    }
+  })
 }
 
 /**
@@ -189,16 +313,7 @@ function parseRequest(line: string): Omit<PlanReviewRequest, 'reviewId'> | undef
  * escaped, so no console code page between here and Claude Code can mangle an umlaut in
  * the user's comments. An empty line is "no decision".
  */
-function hookOutput(answer: PlanReviewAnswer): string {
-  if (answer.kind === 'pass') return ''
-  const output = {
-    hookSpecificOutput: {
-      hookEventName: 'PreToolUse',
-      permissionDecision: answer.kind === 'approve' ? 'allow' : 'deny',
-      permissionDecisionReason:
-        answer.kind === 'approve' ? 'The user approved the plan in aterm.' : answer.feedback
-    }
-  }
+function hookLine(output: object): string {
   return JSON.stringify(output).replace(
     /[\u007f-\uffff]/g,
     (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`

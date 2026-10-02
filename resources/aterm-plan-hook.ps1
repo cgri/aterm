@@ -1,11 +1,13 @@
-# aterm - PreToolUse hook for ExitPlanMode.
+# aterm - PreToolUse and PermissionRequest hook for ExitPlanMode.
 #
-# Claude Code runs this when it presents a plan. The hook hands the plan to the
-# aterm that started the tab, over a named pipe, and waits for the user's answer
-# there. aterm replies with the exact JSON Claude Code expects on stdout, or with
-# an empty line for "no decision". Anything unexpected - no aterm, no tab id, a
-# broken pipe - ends the hook without a decision, and Claude Code then asks in
-# the terminal as if the hook did not exist.
+# Claude Code runs this when it presents a plan, and again when it puts up its
+# "Would you like to proceed?" menu. The hook hands what it got to the aterm that
+# started the tab, over a named pipe: the first call waits there for the user's
+# review, the second is answered at once from it. aterm replies with the exact
+# JSON Claude Code expects on stdout, or with an empty line for "no decision".
+# Anything unexpected - no aterm, no tab id, a broken pipe - ends the hook
+# without a decision, and Claude Code then asks in the terminal as if the hook
+# did not exist.
 
 param([string]$Pipe)
 

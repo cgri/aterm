@@ -1207,13 +1207,12 @@ function onPlanReview(request: PlanReviewRequest): void {
 
 function createReview(pane: Pane): PlanReview {
   const review = new PlanReview({
-    approve: () => answerReview(pane, { kind: 'approve' }),
+    approve: (mode, notes) => answerReview(pane, { kind: 'approve', mode, notes }),
     revise: (feedback, round) => answerReview(pane, { kind: 'revise', feedback }, round),
     pass: (draft) => {
       answerReview(pane, { kind: 'pass' })
       pane.draft = draft
-    },
-    confirm: (message, confirmLabel) => confirmDialog.ask({ message, confirmLabel })
+    }
   })
   pane.body.appendChild(review.el)
   return review
