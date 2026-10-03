@@ -211,10 +211,17 @@ export interface PlanReviewRequest {
 }
 
 /**
- * `approve` lets the plan through, `revise` sends it back with the user's comments,
- * and `pass` gives no decision at all, so Claude Code asks in the terminal as usual.
+ * The permission mode an approved plan is carried out in — the first two choices of
+ * Claude Code's own "Would you like to proceed?" menu. `default` asks before each edit.
+ */
+export type PlanStartMode = 'auto' | 'default'
+
+/**
+ * `approve` lets the plan through in `mode`, with the user's comments appended to the
+ * plan as `notes`; `revise` sends it back with them; `pass` gives no decision at all,
+ * so Claude Code asks in the terminal as usual.
  */
 export type PlanReviewAnswer =
-  | { kind: 'approve' }
+  | { kind: 'approve'; mode: PlanStartMode; notes?: string }
   | { kind: 'revise'; feedback: string }
   | { kind: 'pass' }

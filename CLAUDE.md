@@ -521,11 +521,22 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `ATERM_PLAN_SETTINGS` for the profile's `claude` wrapper; the user's own settings are
   never touched. The script sends the hook input and `ATERM_TAB_ID` down the pipe and blocks
   until the renderer answers. Three answers: comments go back as `deny` with the feedback as
-  reason, which Claude reads and presents a revised plan; approve is `allow`; Esc is no
-  decision at all. **`allow` does not skip Claude Code's own "Ready to code?" question** —
-  measured in 2.1.284, the dialog still appears in the terminal, which is what the panel
-  hands over to. Claude Code shows a `deny` reason as a red "hook error"; nothing to do
-  about that.
+  reason, which Claude reads and presents a revised plan; approve starts the plan in a mode;
+  Esc is no decision at all. Claude Code shows a `deny` reason as a red "hook error";
+  nothing to do about that.
+  **Approving takes two hooks, because neither does it alone.** A PreToolUse `allow` does
+  not get past Claude Code's own "Would you like to proceed?" menu — it is drawn anyway.
+  A `PermissionRequest` hook can answer that menu, with `updatedPermissions` setting the
+  mode (`setMode`, `auto` or `default`) and `updatedInput` the plan, but it runs *beside*
+  the menu: answered in the terminal, the menu goes away and the hook goes on running, so
+  a review held there would sit open, and amber, until the timeout. So the review stays in
+  PreToolUse, and an approval ends it with *no decision* and is put aside
+  (`PlanReviewServer.approvals`, by tab, checked against the plan, gone after 30 s); the
+  same script registered as PermissionRequest hook picks it up and answers the menu at
+  once. The menu is drawn for about a tenth of a second. The comments are appended to the
+  plan as `## Review comments`, since the plan is what Claude carries out, and the plan
+  file keeps them. An `allow` without `updatedInput` is ignored outright, menu and all,
+  so the input always goes back. All measured in 2.1.287.
   Anything that goes wrong has to end in "no decision", because a hook that never returns
   holds the terminal until its timeout (a day): no aterm or a broken pipe makes the script
   exit silently; a review the renderer does not acknowledge within five seconds — sent while

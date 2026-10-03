@@ -1,3 +1,4 @@
+import type { PlanStartMode } from '@shared/types'
 import { renderPlan } from './planMarkdown'
 
 /** A comment on a passage, anchored by character offsets into the plan's text. */
@@ -18,11 +19,11 @@ export interface PlanRound {
 }
 
 export interface PlanReviewHandlers {
-  approve(): void
+  /** `notes` are the comments, written up to be appended to the plan. */
+  approve(mode: PlanStartMode, notes?: string): void
   revise(feedback: string, round: PlanRound): void
   /** Esc: no decision, the terminal asks. What was written so far is handed back. */
   pass(draft: PlanRound): void
-  confirm(message: string, confirmLabel: string): Promise<boolean>
 }
 
 /**
@@ -41,7 +42,7 @@ const QUOTE_LIMIT = 160
 
 /**
  * The review panel of one tab: the plan on the left, comments in the margin beside the
- * passage they are about, and the three ways out in the head. It sits next to the
+ * passage they are about, and the four ways out in the head. It sits next to the
  * terminal rather than over it, so Claude's output stays readable while the plan is.
  */
 export class PlanReview {
@@ -50,6 +51,8 @@ export class PlanReview {
   private readonly changesToggle: HTMLLabelElement
   private readonly changesBox: HTMLInputElement
   private readonly sendButton: HTMLButtonElement
+  private readonly manualButton: HTMLButtonElement
+  private readonly autoButton: HTMLButtonElement
   private readonly scroller: HTMLDivElement
   private readonly body: HTMLDivElement
   private readonly doc: HTMLElement
@@ -103,12 +106,22 @@ export class PlanReview {
     passButton.title = 'Esc — Claude Code asks in the terminal instead'
     this.sendButton = this.button('Send comments', () => void this.send())
     this.sendButton.title = 'Ctrl+Enter — Claude revises the plan and presents it again'
-    const approveButton = this.button('Approve plan', () => void this.approve())
-    approveButton.className = 'primary'
+    // The first two choices of Claude Code's own menu, which these answer for it.
+    this.manualButton = this.button('Start, approve edits', () => this.approve('default'))
+    this.autoButton = this.button('Start in auto mode', () => this.approve('auto'))
+    this.autoButton.className = 'primary'
 
-    const spacer = document.createElement('div')
-    spacer.className = 'plan-spacer'
-    head.append(titles, spacer, this.changesToggle, passButton, this.sendButton, approveButton)
+    // Its own row of the head, so a narrow panel wraps the buttons rather than the title.
+    const actions = document.createElement('div')
+    actions.className = 'plan-actions'
+    actions.append(
+      this.changesToggle,
+      passButton,
+      this.sendButton,
+      this.manualButton,
+      this.autoButton
+    )
+    head.append(titles, actions)
 
     this.scroller = document.createElement('div')
     this.scroller.className = 'plan-scroll'
@@ -236,16 +249,9 @@ export class PlanReview {
 
   /* ---------------------------------------------------------- Answers */
 
-  private async approve(): Promise<void> {
-    const pending = this.pendingCount()
-    if (pending > 0) {
-      const ok = await this.handlers.confirm(
-        `Approve the plan and drop ${pending === 1 ? 'your comment' : `your ${pending} comments`}?`,
-        'Approve plan'
-      )
-      if (!ok || !this.open) return
-    }
-    this.handlers.approve()
+  /** The comments are not dropped: they go along with the plan as what to do differently. */
+  private approve(mode: PlanStartMode): void {
+    this.handlers.approve(mode, this.pendingCount() > 0 ? this.notes() : undefined)
   }
 
   private send(): void {
@@ -264,14 +270,31 @@ export class PlanReview {
    */
   private feedback(): string {
     const parts = [
-      'The user reviewed this plan in aterm and left comments. Revise the plan to address them, then present the revised plan again.'
+      'The user chose to stay in plan mode and continue planning. They reviewed this plan in aterm and left comments. Revise the plan to address them, then present the revised plan again.'
     ]
-    this.comments.forEach((comment, index) => {
-      parts.push(`${index + 1}. On "${comment.quote}":\n${indent(comment.text)}`)
-    })
+    if (this.comments.length) parts.push('Comments on the plan:')
+    return [...parts, ...this.commentParts()].join('\n\n')
+  }
+
+  /**
+   * What an approval appends to the plan: Claude carries out the plan, so that is where
+   * the comments have to stand, and the plan file keeps them too.
+   */
+  private notes(): string {
+    return [
+      '## Review comments',
+      'The user approved this plan in aterm with the comments below. Where a comment differs from the plan above, follow the comment.',
+      ...this.commentParts()
+    ].join('\n\n')
+  }
+
+  private commentParts(): string[] {
+    const parts = this.comments.map(
+      (comment, index) => `${index + 1}. On "${comment.quote}":\n${indent(comment.text)}`
+    )
     const general = this.general.value.trim()
     if (general) parts.push(`On the plan as a whole:\n${indent(general)}`)
-    return parts.join('\n\n')
+    return parts
   }
 
   private snapshot(): PlanRound {
@@ -291,6 +314,9 @@ export class PlanReview {
     const n = this.pendingCount()
     this.sendButton.disabled = n === 0
     this.sendButton.textContent = n === 0 ? 'Send comments' : n === 1 ? 'Send 1 comment' : `Send ${n} comments`
+    const along = n === 0 ? '' : n === 1 ? ' — your comment goes along' : ` — your ${n} comments go along`
+    this.manualButton.title = `Claude carries out the plan and asks before each edit${along}`
+    this.autoButton.title = `Claude carries out the plan in auto mode${along}`
   }
 
   /* --------------------------------------------------------- Keyboard */
