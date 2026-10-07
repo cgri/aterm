@@ -9,7 +9,7 @@ export interface TabViewModel {
   id: string
   /** The whole name, folder and summary together — what the tooltip shows. */
   title: string
-  /** The directory the tab works in, drawn in front and stepped back. */
+  /** The directory the tab works in, drawn small above the summary. */
   folder: string
   /** What the session is about, if anything is known about it yet. */
   summary?: string
@@ -359,18 +359,13 @@ export class TabBar {
     el.appendChild(mark)
 
     // Folder and summary are wrapped together so the tab's own gap stays between
-    // dot, name and close button — inside the name, the separator does the
-    // spacing. The separator belongs to the folder: it steps back with it, and it
-    // is gone with it when there is no summary to separate from.
+    // mark, name and close button. They are two lines, folder above, so no separator.
     const name = document.createElement('span')
     name.className = 'name'
 
     const folder = document.createElement('span')
     folder.className = 'folder'
-    // The space after the dash has to be a non-breaking one: the folder is a flex
-    // item of its own, and a trailing ordinary space at the end of a line box is
-    // dropped, which would glue the summary to the dash.
-    folder.textContent = tab.summary ? `${tab.folder} - ` : tab.folder
+    folder.textContent = tab.folder
     name.appendChild(folder)
 
     if (tab.summary) {

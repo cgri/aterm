@@ -62,12 +62,12 @@ let win: BrowserWindow | undefined
 let agentRunning: Record<string, boolean> = {}
 
 /**
- * Height of the window controls overlay: the tab bar (`#tabbar` in theme.css, 38px)
+ * Height of the window controls overlay: the tab bar (`#tabbar` in theme.css, 46px)
  * minus its 1px lower edge. The caption buttons are opaque, so an overlay as tall as
  * the bar covered the edge and cut it off where the buttons begin; one pixel shorter,
  * the edge runs on underneath them across the whole window.
  */
-const TITLE_BAR_HEIGHT = 37
+const TITLE_BAR_HEIGHT = 45
 
 /**
  * The window controls are drawn by Windows, not by CSS, so their colours have to
