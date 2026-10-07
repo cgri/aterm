@@ -602,7 +602,8 @@ body {
   flex: 0 0 auto;
   align-self: center;
   /* Centred in the bar it sits on the bar's middle, which is where the tab labels are
-     too. The side margins keep it clear of the tabs beside it.
+     too. The side margins keep it clear of the tabs beside it, as far as the bar's
+     edges are above and below it: 10px plus the strip's 2px gap, against 12.5px.
 
      Proportions taken from Chrome's own header, side by side: a rounded rectangle rather
      than a pill, a little taller than the label needs, and a regular-weight label at
@@ -613,7 +614,7 @@ body {
      keeps room for descenders, so a label centred in the whole chip put its capitals a
      pixel closer to the bottom than to the top. The extra pixel goes below, and the 1px
      top margin keeps the label where it was, on the bar's middle. */
-  margin: 1px 5px 0;
+  margin: 1px 10px 0;
   min-width: 28px;
   max-width: 160px;
   height: 21px;
