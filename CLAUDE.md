@@ -202,13 +202,16 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   layer 4 learned, because behind `cmd.exe` the pty ending is not `claude` ending. While
   `Pane.restarting` is set, `onExit` puts up no bar and `startPane` refuses to run, so Enter
   in that gap cannot start the tab twice.
-- **A tab is called `<folder> - <summary>`, and only the summary changes.** The folder comes
+- **A tab is named by its folder and a summary, and only the summary changes.** The folder comes
   from the tab's `cwd` at render time, the summary from `TabState.summary` — or, while a
   process is running, from the title it set for itself. A tab without a summary is named by
   the folder alone, which is all a shell tab ever gets. `paneTitle` in
-  `renderer/src/main.ts` composes both; `TabBar` draws them as two elements so the folder
-  can be stepped back, and a tab whose folder is its whole name keeps it at full strength
-  (`.folder:not(:only-child)` in `theme.css`).
+  `renderer/src/main.ts` composes both as `<folder> - <summary>` for the tooltip; `TabBar` draws
+  them as two lines, the folder small and stepped back above the summary, and a tab whose
+  folder is its whole name keeps it as one line at full size (`.folder:not(:only-child)` in
+  `theme.css`). Side by side they shared one tab's width, and a full bar cut both down to
+  two letters and an ellipsis; stacked, each gets the whole width. That is what the bar's
+  46px are for.
 - **A tab group is a run in `order`, and `normalizeOrder` is the only thing that sorts.**
   `order` is the whole truth about what is drawn where; a group's members have to sit in it
   as one uninterrupted run, which is what lets `render` cut the bar into segments in a
@@ -295,9 +298,9 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   same chip at its `min-width` rather than a bare dot. It is `align-self: center`, so it is
   a chip sitting in the bar rather than a tab reaching the bottom of it, and the group's
   line passes under it.
-- **Everything in the bar is centred on y 19, the middle of the 38px bar**, because that is
+- **Everything in the bar is centred on y 23, the middle of the 46px bar**, because that is
   where Windows draws the caption buttons and nothing moves those. A tab's label gets there
-  through `padding-bottom: 6px`, which answers the 4px margin and 2px border above it — the
+  through `padding-bottom: 7px`, which answers the 5px margin and 2px border above it — the
   last attempt instead pushed the chip and the buttons *down* to a label that sat 2.5px low,
   and they ended up below the caption buttons. The chip is centred with one extra pixel
   below its label (`margin-top: 1px`, `padding-bottom: 1px`), because the line box keeps
@@ -307,7 +310,7 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   could line them up. Worth measuring rather than eyeballing: with a dev run started as
   `npx electron-vite dev --remoteDebuggingPort 9229`, the page is reachable over CDP, and
   the middles of `.tab .name`, `.tabgroup-name` and each button's `svg` off
-  `getBoundingClientRect` should all read 19. The caption buttons are not in a page
+  `getBoundingClientRect` should all read 23. The caption buttons are not in a page
   screenshot — Windows draws them.
   **A folded group is the chip and nothing else**: no line (`.tabgroup[data-collapsed]::after`
   is `content: none` — a line ties members together and none are on show) and no tab count.
