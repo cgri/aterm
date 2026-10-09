@@ -558,6 +558,13 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   reaches xterm.js. `Alt+V` is forwarded as `ESC v` so Claude Code's own image paste runs,
   and `Shift+Enter` sends `ESC CR`. There is no Electron application menu, because its
   accelerators would steal keys from the terminal.
+- **Only the tab in front holds a WebGL context.** Chromium drops the oldest context once
+  a page holds about sixteen, and a GPU reset drops them all; a terminal whose context is
+  gone draws nothing — not after a resize, not after a restart, which reuses the view. So
+  `TerminalView.hide()` gives the context up and the DOM renderer draws behind the scenes,
+  `show()` takes a new one, and a context lost while in front is replaced at once
+  (`onContextLoss`, which xterm.js fires three seconds after the loss if Chromium has not
+  restored it by then).
 - **Unicode 11 width tables are mandatory** (`@xterm/addon-unicode11` plus
   `term.unicode.activeVersion = '11'`). Under the xterm.js default, emoji like ✅ ❌ 📁 count
   as one column but draw as two, so the following space is covered and text sticks to the

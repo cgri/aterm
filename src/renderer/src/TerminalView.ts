@@ -48,6 +48,9 @@ export class TerminalView {
   readonly search = new SearchAddon()
   private readonly fit = new FitAddon()
   private observer?: ResizeObserver
+  private webgl?: WebglAddon
+  // A view is opened for the tab in front.
+  private visible = true
 
   constructor(
     readonly tabId: string,
@@ -87,16 +90,53 @@ export class TerminalView {
   open(parent: HTMLElement): void {
     parent.appendChild(this.element)
     this.term.open(this.element)
-
-    try {
-      this.term.loadAddon(new WebglAddon())
-    } catch {
-      // Without WebGL, xterm.js keeps rendering through the DOM — just slower.
-    }
+    this.attachWebgl()
 
     this.observer = new ResizeObserver(() => this.refit())
     this.observer.observe(this.element)
     this.refit()
+  }
+
+  /**
+   * A WebGL context can be taken away — Chromium drops the oldest once a page holds
+   * about sixteen, and a GPU reset drops them all. The addon then draws nothing until
+   * it is disposed, which hands the terminal back to the DOM renderer. Only the tab in
+   * front holds a context, so the limit is never reached; one lost there anyway is a
+   * GPU reset, and a new context is taken at once.
+   */
+  private attachWebgl(): void {
+    if (this.webgl || !this.visible) return
+    try {
+      const webgl = new WebglAddon()
+      webgl.onContextLoss(() => {
+        if (this.webgl !== webgl) return
+        this.detachWebgl()
+        this.attachWebgl()
+      })
+      this.term.loadAddon(webgl)
+      this.webgl = webgl
+    } catch {
+      // Without WebGL, xterm.js keeps rendering through the DOM — just slower.
+    }
+  }
+
+  private detachWebgl(): void {
+    const webgl = this.webgl
+    this.webgl = undefined
+    webgl?.dispose()
+  }
+
+  /** The tab came to the front. */
+  show(): void {
+    this.visible = true
+    this.attachWebgl()
+    this.refit()
+  }
+
+  /** The tab went behind another; it gives its WebGL context up. */
+  hide(): void {
+    this.visible = false
+    this.detachWebgl()
   }
 
   /** Matches the PTY size to the window size. Reports real changes only. */
