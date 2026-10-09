@@ -619,13 +619,14 @@ function activate(id: string | undefined, opts: { start: boolean; reveal?: boole
 
   for (const [paneId, pane] of panes) {
     pane.el.classList.toggle('active', paneId === id)
+    if (paneId !== id) pane.view?.hide()
   }
 
   const pane = panes.get(id)!
   if (opts.start && pane.status !== 'running') {
     void startPane(pane)
   } else {
-    pane.view?.refit()
+    pane.view?.show()
     focusPane(pane)
   }
   searchBar.detach()
@@ -981,6 +982,7 @@ async function startPane(pane: Pane): Promise<void> {
     )
     pane.view = view
     view.open(pane.termHost)
+    if (tab.id !== activeId) view.hide()
   } else {
     pane.view.term.reset()
     // The next process names itself; until then the tab is back to its own name.
@@ -1577,7 +1579,10 @@ function openNewTabPage(): void {
   const cwd = currentCwd()
   returnId = activeId
   activeId = undefined
-  for (const pane of panes.values()) pane.el.classList.remove('active')
+  for (const pane of panes.values()) {
+    pane.el.classList.remove('active')
+    pane.view?.hide()
+  }
   searchBar.detach()
 
   if (pageOpen) page.reveal()
