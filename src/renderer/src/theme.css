@@ -14,6 +14,8 @@
   --ok: #4bbf73;
   --warn: #d9a441;
   --err: #e05561;
+  /* The breath of a working tab. */
+  --busy: #5b9cff;
   --border: #262b36;
   /* The bar's lower edge and the outline of the loose tab in front, which are one stroke.
      Stronger than --border because the terminal and the bar are close in the dark. */
@@ -61,6 +63,7 @@
   --ok: #1f8a4c;
   --warn: #a86a08;
   --err: #c02a37;
+  --busy: #3d86f0;
   --border: #d3d7de;
   --edge: #c5cad3;
   --hover: #cdd2da;
@@ -386,10 +389,13 @@ body {
   animation-iteration-count: infinite;
 }
 
-/* Busy. Neutral and barely there: it says the tab is alive, and nothing more. */
+/* Busy. A faint blue, barely there: it says the tab is alive, and nothing more. It fades
+   out towards the foot, so the bottom of the tab keeps its own colour and the tab in front
+   still opens into the terminal mid-breath. A flat wash of --fg darkened the whole active
+   tab in the light palette until it ran into the bar's edge and looked like any other. */
 .tab.working::after,
 .tabgroup[data-collapsed].working::before {
-  background: var(--fg);
+  background: linear-gradient(to bottom, var(--busy), #0000 85%);
   animation-name: breathe-working;
 }
 
@@ -438,7 +444,7 @@ body {
     opacity: 0;
   }
   50% {
-    opacity: 0.16;
+    opacity: 0.3;
   }
 }
 
