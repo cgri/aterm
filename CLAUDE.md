@@ -444,7 +444,7 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   **A title that names Claude Code itself is not a title.** Until a conversation has a
   summary the app sits at `Claude Code`, and the launcher announces `claude` a second before
   that. Both replaced the name the tab already had - the session title that
-  `refreshClaudeTitles` reads out of history.jsonl - with a word that says nothing about the
+  `refreshClaudeTitles` reads from the session list - with a word that says nothing about the
   tab, and a long-running session can stay on the placeholder indefinitely (measured in
   2.1.263: a tab that had been working for hours was still called `Claude Code`).
   `APP_TITLES` counts both as no title at all, while the state marker in front of them still

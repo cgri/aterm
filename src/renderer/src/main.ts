@@ -1502,7 +1502,7 @@ const AWAITING_MARKER = /^\u2733(?:\s+|$)/
  * the launcher before the app is up, and `Claude Code` from the app itself for a
  * conversation it has not summarised. Neither names the tab, and taking one as a
  * title costs the tab the name it already had - the session's own title, which
- * `refreshClaudeTitles` reads out of history.jsonl. So they count as no title at
+ * `refreshClaudeTitles` reads from the session list. So they count as no title at
  * all, while the state marker in front of them still counts.
  */
 const APP_TITLES = new Set(['claude', 'claude code'])
@@ -1536,7 +1536,7 @@ async function refreshClaudeTitles(): Promise<void> {
   let changed = false
 
   for (const pane of panes.values()) {
-    // Only agent tabs take the prompt as their summary. A shell tab stays named
+    // Only agent tabs take the session title as their summary. A shell tab stays named
     // after its directory alone — its session shows up in the inline bar.
     if (pane.tab.kind !== 'claude') continue
     const title = pane.tab.claudeSessionId

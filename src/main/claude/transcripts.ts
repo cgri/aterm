@@ -74,6 +74,36 @@ export function transcriptOrigin(file: string): TranscriptOrigin | undefined {
  * tab resumes another session. Reads the tail only.
  */
 export function transcriptTail(file: string): TranscriptOrigin | undefined {
+  const lines = tailLines(file)
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const origin = originOf(lines[i])
+    if (origin) return origin
+  }
+  return undefined
+}
+
+/**
+ * The name Claude Code shows for the conversation: a `/rename` (`custom-title`)
+ * or its own summary (`ai-title`). Both are written again every few lines, the
+ * latest one wins, so the tail answers it.
+ */
+export function transcriptTitle(file: string): string | undefined {
+  const lines = tailLines(file)
+  for (let i = lines.length - 1; i >= 0; i--) {
+    // Cheap test first: most lines are large and none of these.
+    if (!lines[i].includes('-title"')) continue
+    const entry = parseJson<{ type?: string; customTitle?: string; aiTitle?: string }>(lines[i])
+    const title =
+      entry?.type === 'custom-title' ? entry.customTitle
+        : entry?.type === 'ai-title' ? entry.aiTitle
+          : undefined
+    if (title?.trim()) return title
+  }
+  return undefined
+}
+
+/** The whole lines in the last `TAIL_BYTES` of a file. */
+function tailLines(file: string): string[] {
   let fd: number | undefined
   try {
     fd = openSync(file, 'r')
@@ -84,13 +114,9 @@ export function transcriptTail(file: string): TranscriptOrigin | undefined {
     const lines = buffer.toString('utf8').split('\n')
     // Unless the whole file fitted, the first line is cut in half.
     if (length < size) lines.shift()
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const origin = originOf(lines[i])
-      if (origin) return origin
-    }
-    return undefined
+    return lines
   } catch {
-    return undefined
+    return []
   } finally {
     if (fd !== undefined) closeSync(fd)
   }
