@@ -412,11 +412,13 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   if one of them ever grows a case the other lacks, that is the bug.
   **Both live states breathe, and colour is what separates them.** The alarm does not sit
   still: a still alarm beside a moving activity would put the motion on the one thing the
-  user is allowed to ignore. They are told apart by colour (neutral vs `--warn`) and by
+  user is allowed to ignore. They are told apart by colour (`--busy` vs `--warn`) and by
   amplitude — the alarm swings about three times as far, and both were measured against
   each other in the running window rather than picked. The wash is a `::after` over the
   tab, not a keyframe on `background`, because a tab may be active, grouped or plain and a
-  keyframe would have to know which colour is underneath. Under `prefers-reduced-motion`
+  keyframe would have to know which colour is underneath. The working wash fades out
+  towards the tab's foot: a flat one darkened the active tab in the light palette until it
+  could not be told from the others. Under `prefers-reduced-motion`
   the working wash goes to nothing and the alarm holds its amber — the colour was carrying
   the meaning all along.
 - **The terminal title carries a state marker.** A program naming itself through OSC 0/2
