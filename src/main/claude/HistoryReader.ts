@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, watch, type FSWatcher } from 'node:fs'
+import { existsSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs'
 import type { RecentSession } from '@shared/types'
 import { parseJson } from '../util/json'
 import { historyFile, transcriptPath } from './paths'
+import { transcriptTitle } from './transcripts'
 
 interface HistoryLine {
   display?: string
@@ -19,6 +20,8 @@ const CACHE_MS = 5000
  */
 export class HistoryReader {
   private cache?: { at: number; value: RecentSession[] }
+  /** Transcript titles by file, valid while the file's size and mtime stay. */
+  private titles = new Map<string, { stamp: string; title?: string }>()
   private watcher?: FSWatcher
 
   constructor() {
@@ -49,7 +52,7 @@ export class HistoryReader {
     return value
   }
 
-  /** Title of a known session (its first prompt), if there is one. */
+  /** Title of a known session, if there is one. */
   titleFor(sessionId: string): string | undefined {
     return this.recent().find((s) => s.sessionId === sessionId)?.title
   }
@@ -95,10 +98,32 @@ export class HistoryReader {
       }
     }
 
-    return [...byId.values()]
-      .filter((s) => existsSync(transcriptPath(s.cwd, s.sessionId)))
-      .map(({ firstAt: _firstAt, ...rest }) => rest)
-      .sort((a, b) => b.lastUsed - a.lastUsed)
+    const sessions: RecentSession[] = []
+    for (const { firstAt: _firstAt, ...session } of byId.values()) {
+      const file = transcriptPath(session.cwd, session.sessionId)
+      let stamp: string
+      try {
+        const stat = statSync(file)
+        stamp = `${stat.size}:${stat.mtimeMs}`
+      } catch {
+        continue
+      }
+      const title = this.transcriptTitle(file, stamp)
+      sessions.push(title ? { ...session, title: cleanTitle(title) } : session)
+    }
+    return sessions.sort((a, b) => b.lastUsed - a.lastUsed)
+  }
+
+  /**
+   * The name Claude Code itself shows — the one the tab carries while the session
+   * runs. The first prompt is only what is left when the transcript names none.
+   */
+  private transcriptTitle(file: string, stamp: string): string | undefined {
+    const cached = this.titles.get(file)
+    if (cached?.stamp === stamp) return cached.title
+    const title = transcriptTitle(file)
+    this.titles.set(file, { stamp, title })
+    return title
   }
 }
 
