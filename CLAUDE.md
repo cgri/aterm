@@ -571,6 +571,18 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `term.unicode.activeVersion = '11'`). Under the xterm.js default, emoji like ✅ ❌ 📁 count
   as one column but draw as two, so the following space is covered and text sticks to the
   symbol.
+- **Tabs run on node-pty's own ConPTY, not Windows'.** `useConptyDll` loads the
+  `conpty.dll` + `OpenConsole.exe` node-pty ships (1.23), which `setup-native.mjs` copies
+  into `build/Release/conpty` because `--ignore-scripts` skips node-pty's own install step.
+  The ConPTY in Windows 11 23H2 swallows the OSC 11 background query and every answer to
+  DEC mode 2031, and that is all Claude Code's "auto" theme has to go on: it asks OSC 11
+  at start and again whenever the terminal reports a switch (`CSI ? 997 ; 1|2 n`).
+  xterm.js answers OSC 11 from its theme by itself; mode 2031 it does not know, so
+  `TerminalView` implements it, and `setAppearance` reports to every tab that set it.
+  Measured with 1.23 against what the notes here rely on: titles and the spinner marker,
+  Shift+Enter, the exit code 0 that closes a tab, restart, and a hard kill of aterm —
+  after which nothing is left running, because OpenConsole takes its clients down with it.
+  It also asks the terminal for win32-input-mode (`?9001h`), which xterm.js ignores.
 
 ### Session detection
 
@@ -631,7 +643,8 @@ hardened-Windows quirks: `NoDefaultCurrentDirectoryInExePath=1` breaks winpty's 
 missing Spectre-mitigated MSVC libraries trigger MSB8040, and electron-builder's
 `winCodeSign` archive contains macOS symlinks Windows refuses to create. The build config
 sets `electronDist` and `npmRebuild: false` so electron-builder neither re-downloads
-Electron nor recompiles node-pty.
+Electron nor recompiles node-pty. `setup-native.mjs` also provides node-pty's bundled
+ConPTY (see the note on it above); without it every tab fails to start.
 
 `build/installer.nsh` is pulled in through `nsis.include` and writes the Explorer
 context-menu entry. It uses `SHCTX`, electron-builder's hive macro, which is HKCU here

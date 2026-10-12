@@ -13,9 +13,12 @@
  * 3. Electron downloads its binary straight from github.com, which fails
  *    silently behind a proxy. The download therefore falls back to curl, which
  *    honours the system proxy.
+ *
+ * It also puts node-pty's bundled ConPTY where node-pty looks for it, a step its
+ * own install script would take and `--ignore-scripts` skips.
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, rmSync, cpSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -144,6 +147,17 @@ function buildPty(version) {
   return run(nodeGyp, ['build', ...common], { cwd: ptyDir })
 }
 
+/** `useConptyDll` loads build/Release/conpty/conpty.dll and fails the spawn without it. */
+function provideConpty() {
+  const versions = readdirSync(join(ptyDir, 'third_party', 'conpty'))
+  if (versions.length !== 1) return false
+  const from = join(ptyDir, 'third_party', 'conpty', versions[0], 'win10-x64')
+  const to = join(ptyDir, 'build', 'Release', 'conpty')
+  mkdirSync(to, { recursive: true })
+  cpSync(from, to, { recursive: true })
+  return existsSync(join(to, 'conpty.dll')) && existsSync(join(to, 'OpenConsole.exe'))
+}
+
 const version = electronVersion()
 
 if (!ensureElectronBinary(version)) {
@@ -153,11 +167,14 @@ if (!ensureElectronBinary(version)) {
 
 if (existsSync(join(ptyDir, 'build', 'Release', 'pty.node')) && !process.argv.includes('--force')) {
   console.log('[setup-native] node-pty is already built (--force rebuilds it).')
-  process.exit(0)
+} else if (!buildPty(version)) {
+  console.error('[setup-native] could not build node-pty.')
+  process.exit(1)
 }
 
-if (!buildPty(version)) {
-  console.error('[setup-native] could not build node-pty.')
+// After the build, which may have cleared build/Release.
+if (!provideConpty()) {
+  console.error('[setup-native] could not provide the conpty.dll bundled with node-pty.')
   process.exit(1)
 }
 
