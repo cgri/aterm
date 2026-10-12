@@ -51,6 +51,9 @@ export class TerminalView {
   private webgl?: WebglAddon
   // A view is opened for the tab in front.
   private visible = true
+  private appearance: Appearance
+  // The program asked to hear about theme changes (DEC mode 2031).
+  private themeReports = false
 
   constructor(
     readonly tabId: string,
@@ -60,6 +63,7 @@ export class TerminalView {
     private readonly onResize: (cols: number, rows: number) => void,
     private readonly onTitle: (title: string) => void
   ) {
+    this.appearance = appearance
     this.element = document.createElement('div')
     this.element.className = 'term'
 
@@ -85,6 +89,34 @@ export class TerminalView {
     // OSC 0 / OSC 2 — how a program names its own window. Claude Code keeps this
     // up to date with whatever it is working on.
     this.term.onTitleChange((title) => this.onTitle(title))
+
+    this.handleThemeReports()
+  }
+
+  /**
+   * DEC mode 2031, which xterm.js does not know: a program that sets it is told
+   * whenever the terminal switches between dark and light (`CSI ? 997 ; 1 n` dark,
+   * `; 2 n` light), and `CSI ? 996 n` asks for the current one. Claude Code's
+   * "auto" theme sets it and answers each report by asking OSC 11 for the
+   * background again, which xterm.js answers from the theme by itself.
+   */
+  private handleThemeReports(): void {
+    const setMode = (on: boolean) => (params: (number | number[])[]) => {
+      if (params.includes(2031)) this.themeReports = on
+      // Other modes in the same sequence are still xterm.js's to handle.
+      return false
+    }
+    this.term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, setMode(true))
+    this.term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, setMode(false))
+    this.term.parser.registerCsiHandler({ prefix: '?', final: 'n' }, (params) => {
+      if (params.length !== 1 || params[0] !== 996) return false
+      this.reportTheme()
+      return true
+    })
+  }
+
+  private reportTheme(): void {
+    this.onInput(`[?997;${this.appearance === 'dark' ? 1 : 2}n`)
   }
 
   open(parent: HTMLElement): void {
@@ -168,7 +200,16 @@ export class TerminalView {
   }
 
   setAppearance(appearance: Appearance): void {
+    if (appearance === this.appearance) return
+    this.appearance = appearance
     this.term.options.theme = THEMES[appearance]
+    if (this.themeReports) this.reportTheme()
+  }
+
+  /** Back to a blank terminal for the next process. */
+  reset(): void {
+    this.term.reset()
+    this.themeReports = false
   }
 
   write(data: string): void {

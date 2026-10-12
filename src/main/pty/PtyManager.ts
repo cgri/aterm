@@ -107,7 +107,11 @@ export class PtyManager extends EventEmitter {
         rows: Math.max(spec.rows, 5),
         cwd: launchCwd,
         env: launch.env as Record<string, string>,
-        useConpty: true
+        useConpty: true,
+        // node-pty's own ConPTY rather than Windows': the one in Windows 11 23H2
+        // swallows OSC 11 and the answers to mode 2031, so Claude Code's "auto"
+        // theme could never learn whether the terminal is dark or light.
+        useConptyDll: true
       })
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }

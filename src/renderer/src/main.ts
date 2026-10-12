@@ -984,7 +984,7 @@ async function startPane(pane: Pane): Promise<void> {
     view.open(pane.termHost)
     if (tab.id !== activeId) view.hide()
   } else {
-    pane.view.term.reset()
+    pane.view.reset()
     // The next process names itself; until then the tab is back to its own name.
     pane.ptyTitle = undefined
     pane.ptyState = undefined
