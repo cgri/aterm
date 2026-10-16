@@ -4,6 +4,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebglAddon } from '@xterm/addon-webgl'
 import type { Appearance } from '@shared/types'
+import { icon } from './icons'
 
 /**
  * The dark theme leaves the ANSI palette to xterm.js, whose default is built for
@@ -54,6 +55,8 @@ export class TerminalView {
   private appearance: Appearance
   // The program asked to hear about theme changes (DEC mode 2031).
   private themeReports = false
+  // Offered beside a selection the mouse just made: quote it into the prompt.
+  private readonly quoteChip: HTMLButtonElement
 
   constructor(
     readonly tabId: string,
@@ -61,7 +64,8 @@ export class TerminalView {
     appearance: Appearance,
     private readonly onInput: (data: string) => void,
     private readonly onResize: (cols: number, rows: number) => void,
-    private readonly onTitle: (title: string) => void
+    private readonly onTitle: (title: string) => void,
+    private readonly onQuote: (text: string) => void
   ) {
     this.appearance = appearance
     this.element = document.createElement('div')
@@ -91,6 +95,86 @@ export class TerminalView {
     this.term.onTitleChange((title) => this.onTitle(title))
 
     this.handleThemeReports()
+
+    this.quoteChip = this.makeQuoteChip()
+  }
+
+  /**
+   * The chip is a sibling of xterm's own element, not inside it, so pressing it never
+   * reaches xterm's selection handling — which would clear the selection on mousedown
+   * before the click could read it. A click on the selection itself is not the
+   * trigger: that is how a selection is dismissed, and a drag from inside it starts a
+   * new one.
+   */
+  private makeQuoteChip(): HTMLButtonElement {
+    const chip = document.createElement('button')
+    chip.className = 'quote-chip'
+    chip.tabIndex = -1
+    chip.title = 'Quote the selection into the prompt (Ctrl+Shift+Q)'
+    chip.append(icon('comment'), 'Comment')
+    // Keeps the focus on the terminal and the selection where it is.
+    chip.addEventListener('mousedown', (ev) => {
+      ev.preventDefault()
+      ev.stopPropagation()
+    })
+    chip.addEventListener('click', () => this.quote())
+    this.element.appendChild(chip)
+
+    // Deferred, so a selection xterm finishes on its own mouseup is complete.
+    this.element.addEventListener('mouseup', (ev) => {
+      if (ev.button !== 0 || chip.contains(ev.target as Node)) return
+      setTimeout(() => {
+        if (this.term.hasSelection()) this.showQuoteChip(ev.clientX, ev.clientY)
+      })
+    })
+    this.element.addEventListener('mousedown', (ev) => {
+      if (!chip.contains(ev.target as Node)) this.hideQuoteChip()
+    })
+    this.element.addEventListener('wheel', () => this.hideQuoteChip(), { passive: true })
+    this.term.onSelectionChange(() => {
+      if (!this.term.hasSelection()) this.hideQuoteChip()
+    })
+    // New output moves the selection with the buffer, away from where the chip sits.
+    this.term.onScroll(() => this.hideQuoteChip())
+    this.term.onKey(() => this.hideQuoteChip())
+    return chip
+  }
+
+  private showQuoteChip(clientX: number, clientY: number): void {
+    const chip = this.quoteChip
+    const box = this.element.getBoundingClientRect()
+    chip.classList.add('visible')
+    const { offsetWidth: w, offsetHeight: h } = chip
+    let x = clientX - box.left + 8
+    let y = clientY - box.top + 14
+    if (x + w > box.width - 4) x = Math.max(4, clientX - box.left - w - 8)
+    if (y + h > box.height - 4) y = Math.max(4, clientY - box.top - h - 14)
+    chip.style.left = `${x}px`
+    chip.style.top = `${y}px`
+  }
+
+  private hideQuoteChip(): void {
+    this.quoteChip.classList.remove('visible')
+  }
+
+  /**
+   * The selection as one line. Claude Code wraps its output itself, so a line break in
+   * it is layout rather than content — and one typed into the prompt would submit it.
+   */
+  quotableSelection(): string | undefined {
+    const text = this.term.getSelection().replace(/\s*\n\s*/g, ' ').trim()
+    return text || undefined
+  }
+
+  /** Hands the selection to `onQuote` and lets go of it. false without one. */
+  quote(): boolean {
+    const text = this.quotableSelection()
+    this.hideQuoteChip()
+    if (!text) return false
+    this.term.clearSelection()
+    this.onQuote(text)
+    this.focus()
+    return true
   }
 
   /**
@@ -168,12 +252,14 @@ export class TerminalView {
   /** The tab went behind another; it gives its WebGL context up. */
   hide(): void {
     this.visible = false
+    this.hideQuoteChip()
     this.detachWebgl()
   }
 
   /** Matches the PTY size to the window size. Reports real changes only. */
   refit(): void {
     if (!this.element.isConnected || this.element.clientHeight === 0) return
+    this.hideQuoteChip()
     try {
       const dims = this.fit.proposeDimensions()
       if (!dims || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows)) return

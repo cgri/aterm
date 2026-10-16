@@ -736,9 +736,39 @@ body {
 }
 
 .pane .term {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+}
+
+/* Offered beside a fresh selection: quote it into the prompt. */
+.quote-chip {
+  position: absolute;
+  z-index: 10;
+  display: none;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-chrome);
+  color: var(--fg);
+  font: 12px/1.2 system-ui, sans-serif;
+  box-shadow: 0 2px 8px var(--shadow-soft);
+  cursor: default;
+}
+
+.quote-chip.visible {
+  display: flex;
+}
+
+.quote-chip svg {
+  color: var(--accent);
+}
+
+.quote-chip:hover {
+  border-color: var(--accent);
 }
 
 /* xterm brings no padding of its own — the inset lives here. */

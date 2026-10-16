@@ -560,6 +560,17 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   reaches xterm.js. `Alt+V` is forwarded as `ESC v` so Claude Code's own image paste runs,
   and `Shift+Enter` sends `ESC CR`. There is no Electron application menu, because its
   accelerators would steal keys from the terminal.
+- **A selection is quoted into the prompt through a chip, never by clicking it.** A mouse
+  selection puts a "Comment" chip beside the pointer (`TerminalView.makeQuoteChip`), and it
+  or `Ctrl+Shift+Q` types `"<selection>": ` into the prompt. A click on the selection was
+  the obvious trigger and is the wrong one: in xterm.js that is how a selection is
+  dismissed, and a drag from inside it starts a new one. The chip sits beside xterm's
+  element, not in it, and prevents its mousedown, or xterm clears the selection before the
+  click can read it. The text is joined into one line, because Claude Code wraps its own
+  output and a typed newline would submit, and it is typed rather than pasted, because
+  Claude Code folds a long paste into "[Pasted text]". A second quote before Enter starts
+  with `ESC CR` (`Pane.quotePending`), but only where Claude reads the input — PowerShell
+  takes ESC as "clear the line".
 - **Only the tab in front holds a WebGL context.** Chromium drops the oldest context once
   a page holds about sixteen, and a GPU reset drops them all; a terminal whose context is
   gone draws nothing — not after a resize, not after a restart, which reuses the view. So

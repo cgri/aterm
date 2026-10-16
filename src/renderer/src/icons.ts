@@ -25,6 +25,10 @@ const PATHS = {
     '<circle cx="6.5" cy="6.5" r="2.5"/>' +
       '<path d="M6.5 0v2M6.5 11v2M0 6.5h2M11 6.5h2M1.9 1.9l1.4 1.4M9.7 9.7l1.4 1.4M1.9 11.1l1.4-1.4M9.7 3.3l1.4-1.4"/>'
   ],
+  comment: [
+    13,
+    '<path d="M1.5 1.5h10v7h-6l-3 3v-3h-1z" stroke-linejoin="round"/>'
+  ],
   dark: [12, '<path d="M10.5 7.6A5 5 0 0 1 4.4 1.5a5 5 0 1 0 6.1 6.1z" stroke-linejoin="round"/>']
 } as const
 

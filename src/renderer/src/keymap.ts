@@ -21,6 +21,8 @@ export interface KeymapContext {
   toggleActiveGroup(): void
   /** Enter on a tab that has not started → start it. true when it did. */
   startActiveTab(): boolean
+  /** Types the active tab's selection into its prompt as a quote. false without one. */
+  quoteSelection(): boolean
   overlayOpen(): boolean
 }
 
@@ -39,6 +41,7 @@ export type Action =
   | 'search'
   | 'paste'
   | 'copy'
+  | 'quoteSelection'
   | 'pasteImage'
   | 'newline'
   | 'fontLarger'
@@ -62,6 +65,7 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   search: ['Ctrl+Shift+F'],
   paste: ['Ctrl+V', 'Ctrl+Shift+V'],
   copy: ['Ctrl+Shift+C'],
+  quoteSelection: ['Ctrl+Shift+Q'],
   // ESC v — this triggers Claude Code's own image paste.
   pasteImage: ['Alt+V'],
   // ESC CR — newline in the prompt instead of submitting.
@@ -207,7 +211,7 @@ function handle(ev: KeyboardEvent, ctx: KeymapContext, bindings: Bindings): bool
 }
 
 /** Bindings that write into the terminal or read its selection. */
-const TEXT_ACTIONS = new Set<Action>(['paste', 'copy', 'pasteImage', 'newline'])
+const TEXT_ACTIONS = new Set<Action>(['paste', 'copy', 'quoteSelection', 'pasteImage', 'newline'])
 
 /**
  * The keyboard is on something in the window other than a terminal — a plan review.
@@ -264,6 +268,9 @@ function dispatch(action: Action, ctx: KeymapContext, ev: KeyboardEvent): boolea
       if (!ctx.activeView()) return false
       void copySelection(ctx)
       return true
+    // Without a selection the key goes on to the terminal.
+    case 'quoteSelection':
+      return ctx.quoteSelection()
     case 'pasteImage':
       ctx.write('\x1bv')
       return true
