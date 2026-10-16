@@ -219,6 +219,13 @@ export class TerminalView {
     return text || undefined
   }
 
+  /** What the cursor's line holds in front of the cursor. */
+  textBeforeCursor(): string {
+    const buffer = this.term.buffer.active
+    const line = buffer.getLine(buffer.baseY + buffer.cursorY)
+    return line?.translateToString(true, 0, buffer.cursorX) ?? ''
+  }
+
   /** Hands the selection to `onQuote` and lets go of it. false without one. */
   quote(): boolean {
     const text = this.quotableSelection()

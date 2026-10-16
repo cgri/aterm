@@ -568,8 +568,10 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   element, not in it, and prevents its mousedown, or xterm clears the selection before the
   click can read it. The text is joined into one line, because Claude Code wraps its own
   output and a typed newline would submit, and it is typed rather than pasted, because
-  Claude Code folds a long paste into "[Pasted text]". A second quote before Enter starts
-  with `ESC CR` (`Pane.quotePending`), but only where Claude reads the input — PowerShell
+  Claude Code folds a long paste into "[Pasted text]". A quote starts with `ESC CR` when
+  the cursor's line already holds text, read off the screen (`textBeforeCursor`) — a flag
+  set by the last quote was tried first and left an empty line whenever the prompt was
+  emptied some other way than Enter. Only where Claude reads the input, too: PowerShell
   takes ESC as "clear the line".
   **Claude Code's fullscreen mode has no xterm.js selection at all.** It turns mouse
   tracking on (`mouseTrackingMode: "any"`, 2.1.301), so a drag goes to Claude Code, which

@@ -81,11 +81,6 @@ interface Pane {
   lastRound?: PlanRound
   /** What was written on a plan the user stepped out of with Esc. */
   draft?: PlanRound
-  /**
-   * A quoted selection sits in the prompt, not yet sent. The next quote then starts
-   * on a line of its own. Belongs to one prompt of one process, so never persisted.
-   */
-  quotePending: boolean
 }
 
 /** Claude Code says what it is up to in front of its window title. */
@@ -318,8 +313,7 @@ function addPane(tab: TabState): Pane {
     agentRunning: false,
     awaitingSeen: false,
     restarting: false,
-    body,
-    quotePending: false
+    body
   }
   panes.set(tab.id, pane)
   if (!order.includes(tab.id)) order.push(tab.id)
@@ -972,16 +966,19 @@ function groupSeed(groupId: string): { kind: TabKind; cwd: string } {
 
 /**
  * Types `"<selection>": ` into the prompt, typed rather than pasted: Claude Code folds a
- * long paste into "[Pasted text]", and the quote is meant to stay readable. A second
- * quote into the same prompt is put on a new line with ESC CR, Claude Code's
- * Shift+Enter — only where Claude reads the input, since a shell takes ESC differently.
+ * long paste into "[Pasted text]", and the quote is meant to stay readable. Where the
+ * cursor's line already holds text, the quote goes on a new line with ESC CR, Claude
+ * Code's Shift+Enter — only where Claude reads the input, since a shell takes ESC
+ * differently. The screen is asked rather than a flag kept: a prompt is emptied in too
+ * many ways (Esc Esc, Ctrl+U, backspace) for a flag to follow.
  */
 function quoteIntoPrompt(pane: Pane, text: string): void {
-  if (pane.status !== 'running') return
+  if (pane.status !== 'running' || !pane.view) return
   const claude = pane.agentRunning || pane.tab.kind === 'claude'
-  const newline = claude && pane.quotePending ? '\x1b\r' : ''
+  // Claude Code's input line starts with its prompt marker.
+  const typed = pane.view.textBeforeCursor().replace(/^\s*❯?\s*/, '')
+  const newline = claude && typed ? '\x1b\r' : ''
   api.pty.write(pane.tab.id, `${newline}"${text}": `)
-  pane.quotePending = true
 }
 
 /* ------------------------------------------------------ Process start */
@@ -997,11 +994,7 @@ async function startPane(pane: Pane): Promise<void> {
       tab.id,
       fontSize,
       currentAppearance(),
-      (data) => {
-        // Sent or abandoned: the prompt the quotes were in is gone.
-        if (/[\r\x03]/.test(data)) pane.quotePending = false
-        api.pty.write(tab.id, data)
-      },
+      (data) => api.pty.write(tab.id, data),
       (cols, rows) => api.pty.resize(tab.id, cols, rows),
       (title) => setPtyTitle(pane, title),
       (text) => quoteIntoPrompt(pane, text)
@@ -1017,8 +1010,6 @@ async function startPane(pane: Pane): Promise<void> {
     pane.awaitingSeen = false
     dropReview(pane)
   }
-
-  pane.quotePending = false
 
   if (tab.kind === 'claude' && !tab.claudeSessionId) {
     tab.claudeSessionId = await api.sessions.newId()
