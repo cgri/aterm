@@ -42,6 +42,9 @@ const THEMES: Record<Appearance, ITheme> = {
   }
 }
 
+/** How long after a mouseup the selection it ended may still be offered. */
+const SELECTION_REPORT_MS = 1000
+
 /** One xterm.js instance and its container — exactly one per running tab. */
 export class TerminalView {
   readonly element: HTMLDivElement
@@ -57,6 +60,12 @@ export class TerminalView {
   private themeReports = false
   // Offered beside a selection the mouse just made: quote it into the prompt.
   private readonly quoteChip: HTMLButtonElement
+  // What a program in mouse-tracking mode reported as selected (OSC 52), while the
+  // chip offers it.
+  private programSelection?: string
+  private lastMouseUp?: { x: number; y: number; at: number }
+  // The last OSC 52 since the mouse went down.
+  private reported?: string
 
   constructor(
     readonly tabId: string,
@@ -97,6 +106,7 @@ export class TerminalView {
     this.handleThemeReports()
 
     this.quoteChip = this.makeQuoteChip()
+    this.handleClipboardWrites()
   }
 
   /**
@@ -123,21 +133,61 @@ export class TerminalView {
     // Deferred, so a selection xterm finishes on its own mouseup is complete.
     this.element.addEventListener('mouseup', (ev) => {
       if (ev.button !== 0 || chip.contains(ev.target as Node)) return
+      this.lastMouseUp = { x: ev.clientX, y: ev.clientY, at: Date.now() }
       setTimeout(() => {
         if (this.term.hasSelection()) this.showQuoteChip(ev.clientX, ev.clientY)
+        else if (this.reported) this.offerProgramSelection(this.reported)
       })
     })
     this.element.addEventListener('mousedown', (ev) => {
-      if (!chip.contains(ev.target as Node)) this.hideQuoteChip()
+      if (chip.contains(ev.target as Node)) return
+      this.hideQuoteChip()
+      this.reported = undefined
+      this.lastMouseUp = undefined
     })
     this.element.addEventListener('wheel', () => this.hideQuoteChip(), { passive: true })
     this.term.onSelectionChange(() => {
-      if (!this.term.hasSelection()) this.hideQuoteChip()
+      if (!this.term.hasSelection() && this.programSelection === undefined) this.hideQuoteChip()
     })
     // New output moves the selection with the buffer, away from where the chip sits.
     this.term.onScroll(() => this.hideQuoteChip())
     this.term.onKey(() => this.hideQuoteChip())
     return chip
+  }
+
+  /**
+   * OSC 52, a program writing to the clipboard. Claude Code's fullscreen mode turns
+   * mouse tracking on, so a drag goes to Claude Code rather than to xterm.js: it draws
+   * the selection itself and sends the text here when the button is released. xterm.js
+   * knows no OSC 52, so it is the clipboard write — and, when it follows a mouseup in
+   * this terminal, the selection the chip quotes. A query (`?`) is never answered:
+   * the clipboard is not the program's to read.
+   */
+  private handleClipboardWrites(): void {
+    this.term.parser.registerOscHandler(52, (data) => {
+      const payload = data.slice(data.indexOf(';') + 1)
+      if (!payload || payload === '?') return true
+      let text: string
+      try {
+        text = new TextDecoder().decode(Uint8Array.from(atob(payload), (c) => c.charCodeAt(0)))
+      } catch {
+        return true
+      }
+      void window.aterm.system.writeClipboard(text)
+      // Claude Code sends it while the drag is still on as well as after it; whichever
+      // comes last, mouseup or report, offers it.
+      this.reported = text
+      if (this.lastMouseUp) this.offerProgramSelection(text)
+      return true
+    })
+  }
+
+  /** Only the report of a drag that just ended in this terminal, never a stray one. */
+  private offerProgramSelection(text: string): void {
+    const up = this.lastMouseUp
+    if (!up || Date.now() - up.at > SELECTION_REPORT_MS || this.term.hasSelection()) return
+    this.programSelection = text
+    this.showQuoteChip(up.x, up.y)
   }
 
   private showQuoteChip(clientX: number, clientY: number): void {
@@ -155,14 +205,17 @@ export class TerminalView {
 
   private hideQuoteChip(): void {
     this.quoteChip.classList.remove('visible')
+    this.programSelection = undefined
   }
 
   /**
-   * The selection as one line. Claude Code wraps its output itself, so a line break in
-   * it is layout rather than content — and one typed into the prompt would submit it.
+   * The selection as one line — xterm's own, or the one the program reported. Claude
+   * Code wraps its output itself, so a line break in it is layout rather than content,
+   * and one typed into the prompt would submit it.
    */
   quotableSelection(): string | undefined {
-    const text = this.term.getSelection().replace(/\s*\n\s*/g, ' ').trim()
+    const raw = this.term.hasSelection() ? this.term.getSelection() : (this.programSelection ?? '')
+    const text = raw.replace(/\s*\n\s*/g, ' ').trim()
     return text || undefined
   }
 

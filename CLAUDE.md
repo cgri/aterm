@@ -571,6 +571,15 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   Claude Code folds a long paste into "[Pasted text]". A second quote before Enter starts
   with `ESC CR` (`Pane.quotePending`), but only where Claude reads the input — PowerShell
   takes ESC as "clear the line".
+  **Claude Code's fullscreen mode has no xterm.js selection at all.** It turns mouse
+  tracking on (`mouseTrackingMode: "any"`, 2.1.301), so a drag goes to Claude Code, which
+  draws the highlight itself and sends the text as OSC 52 when the button comes up. xterm.js
+  knows no OSC 52, so `handleClipboardWrites` writes the clipboard — Claude Code's own copy
+  went nowhere before — and offers the chip for a report that follows a mouseup in this
+  terminal within a second. The report has been seen to arrive a few ms after the mouseup,
+  but both orders are handled. A Shift+drag still makes an xterm.js selection there.
+  Measured with synthetic CDP mouse events, which need a hover move and many small steps
+  before Claude Code reports the selection at all.
 - **Only the tab in front holds a WebGL context.** Chromium drops the oldest context once
   a page holds about sixteen, and a GPU reset drops them all; a terminal whose context is
   gone draws nothing — not after a resize, not after a restart, which reuses the view. So
