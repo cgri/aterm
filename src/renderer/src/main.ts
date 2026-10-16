@@ -975,8 +975,9 @@ function groupSeed(groupId: string): { kind: TabKind; cwd: string } {
 function quoteIntoPrompt(pane: Pane, text: string): void {
   if (pane.status !== 'running' || !pane.view) return
   const claude = pane.agentRunning || pane.tab.kind === 'claude'
-  // Claude Code's input line starts with its prompt marker.
-  const typed = pane.view.textBeforeCursor().replace(/^\s*❯?\s*/, '')
+  // Claude Code's input line starts with its prompt marker, which is `❯` or `>`
+  // depending on the environment it was started from — any one symbol counts.
+  const typed = pane.view.textBeforeCursor().replace(/^\s*[^\p{L}\p{N}\s"']?\s*/u, '')
   const newline = claude && typed ? '\x1b\r' : ''
   api.pty.write(pane.tab.id, `${newline}"${text}": `)
 }
