@@ -225,6 +225,7 @@ async function boot(): Promise<void> {
         void startPane(pane)
         return true
       },
+      quoteSelection: () => activePane()?.view?.quote() ?? false,
       overlayOpen: () =>
         pageActive ||
         searchBar.isOpen() ||
@@ -963,6 +964,23 @@ function groupSeed(groupId: string): { kind: TabKind; cwd: string } {
   return { kind: last?.tab.kind ?? 'claude', cwd: last?.tab.cwd ?? currentCwd() }
 }
 
+/**
+ * Types `"<selection>": ` into the prompt, typed rather than pasted: Claude Code folds a
+ * long paste into "[Pasted text]", and the quote is meant to stay readable. Where the
+ * cursor's line already holds text, the quote goes on a new line with ESC CR, Claude
+ * Code's Shift+Enter — only where Claude reads the input, since a shell takes ESC
+ * differently. The screen is asked rather than a flag kept: a prompt is emptied in too
+ * many ways (Esc Esc, Ctrl+U, backspace) for a flag to follow.
+ */
+function quoteIntoPrompt(pane: Pane, text: string): void {
+  if (pane.status !== 'running' || !pane.view) return
+  const claude = pane.agentRunning || pane.tab.kind === 'claude'
+  // Claude Code's input line starts with its prompt marker.
+  const typed = pane.view.textBeforeCursor().replace(/^\s*❯?\s*/, '')
+  const newline = claude && typed ? '\x1b\r' : ''
+  api.pty.write(pane.tab.id, `${newline}"${text}": `)
+}
+
 /* ------------------------------------------------------ Process start */
 
 async function startPane(pane: Pane): Promise<void> {
@@ -978,7 +996,8 @@ async function startPane(pane: Pane): Promise<void> {
       currentAppearance(),
       (data) => api.pty.write(tab.id, data),
       (cols, rows) => api.pty.resize(tab.id, cols, rows),
-      (title) => setPtyTitle(pane, title)
+      (title) => setPtyTitle(pane, title),
+      (text) => quoteIntoPrompt(pane, text)
     )
     pane.view = view
     view.open(pane.termHost)

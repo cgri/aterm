@@ -560,6 +560,28 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   reaches xterm.js. `Alt+V` is forwarded as `ESC v` so Claude Code's own image paste runs,
   and `Shift+Enter` sends `ESC CR`. There is no Electron application menu, because its
   accelerators would steal keys from the terminal.
+- **A selection is quoted into the prompt through a chip, never by clicking it.** A mouse
+  selection puts a "Comment" chip beside the pointer (`TerminalView.makeQuoteChip`), and it
+  or `Ctrl+Shift+Q` types `"<selection>": ` into the prompt. A click on the selection was
+  the obvious trigger and is the wrong one: in xterm.js that is how a selection is
+  dismissed, and a drag from inside it starts a new one. The chip sits beside xterm's
+  element, not in it, and prevents its mousedown, or xterm clears the selection before the
+  click can read it. The text is joined into one line, because Claude Code wraps its own
+  output and a typed newline would submit, and it is typed rather than pasted, because
+  Claude Code folds a long paste into "[Pasted text]". A quote starts with `ESC CR` when
+  the cursor's line already holds text, read off the screen (`textBeforeCursor`) — a flag
+  set by the last quote was tried first and left an empty line whenever the prompt was
+  emptied some other way than Enter. Only where Claude reads the input, too: PowerShell
+  takes ESC as "clear the line".
+  **Claude Code's fullscreen mode has no xterm.js selection at all.** It turns mouse
+  tracking on (`mouseTrackingMode: "any"`, 2.1.301), so a drag goes to Claude Code, which
+  draws the highlight itself and sends the text as OSC 52 when the button comes up. xterm.js
+  knows no OSC 52, so `handleClipboardWrites` writes the clipboard — Claude Code's own copy
+  went nowhere before — and offers the chip for a report that follows a mouseup in this
+  terminal within a second. The report has been seen to arrive a few ms after the mouseup,
+  but both orders are handled. A Shift+drag still makes an xterm.js selection there.
+  Measured with synthetic CDP mouse events, which need a hover move and many small steps
+  before Claude Code reports the selection at all.
 - **Only the tab in front holds a WebGL context.** Chromium drops the oldest context once
   a page holds about sixteen, and a GPU reset drops them all; a terminal whose context is
   gone draws nothing — not after a resize, not after a restart, which reuses the view. So
