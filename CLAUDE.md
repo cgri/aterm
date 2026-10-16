@@ -569,7 +569,9 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   click can read it. The text is joined into one line, because Claude Code wraps its own
   output and a typed newline would submit, and it is typed rather than pasted, because
   Claude Code folds a long paste into "[Pasted text]". A quote starts with `ESC CR` when
-  the cursor's line already holds text, read off the screen (`textBeforeCursor`) — a flag
+  the cursor's line already holds text, read off the screen (`textBeforeCursor`), less the
+  prompt marker in front — `❯` in a dev run, `>` in the installed app, so any one symbol
+  counts as the marker; matching `❯` alone put a newline before every quote there. A flag
   set by the last quote was tried first and left an empty line whenever the prompt was
   emptied some other way than Enter. Only where Claude reads the input, too: PowerShell
   takes ESC as "clear the line".
