@@ -155,7 +155,8 @@ const searchBar = new SearchBar(() => activePane()?.view)
 const zoomIndicator = new ZoomIndicator(document.body)
 
 const page = new NewTabPage(paneRoot, {
-  start: (kind, cwd, opts) => void createTab(kind, cwd, { worktree: opts?.worktree }),
+  start: (kind, cwd, opts) =>
+    void createTab(kind, cwd, { worktree: opts?.worktree, beside: besideFor(cwd) }),
   startInFolder: (kind) => void createTabWithPicker(kind),
   open: (session) => void openSession(session),
   // The page asked for a tab that exists already — it is done, and goes.
@@ -192,7 +193,10 @@ async function boot(): Promise<void> {
         const pane = activePane()
         if (pane && pane.status === 'running') api.pty.write(pane.tab.id, data)
       },
-      newTab: (kind) => void createTab(kind, currentCwd()),
+      newTab: (kind) => {
+        const cwd = currentCwd()
+        void createTab(kind, cwd, { beside: besideFor(cwd) })
+      },
       openNewTabPage: () => openNewTabPage(),
       closeActiveTab: () => {
         if (pageActive) closePage()
@@ -333,8 +337,11 @@ async function createTab(
     worktree?: boolean
     /** Only "New tab in group" sets this; a tab made any other way is loose. */
     groupId?: string
+    /** The tab the new one goes right behind, joining its group if it has one. */
+    beside?: string
   } = {}
 ): Promise<void> {
+  const neighbour = opts.beside ? panes.get(opts.beside) : undefined
   // Whatever is started while the page is in front takes the page's place.
   if (pageActive) leavePage()
   const tab: TabState = {
@@ -345,9 +352,10 @@ async function createTab(
     claudeSessionId: opts.claudeSessionId,
     // When resuming an existing session, the very first start must use --resume.
     everStarted: Boolean(opts.resume),
-    groupId: opts.groupId,
+    groupId: opts.groupId ?? neighbour?.tab.groupId,
     order: order.length
   }
+  if (neighbour) order.splice(order.indexOf(neighbour.tab.id) + 1, 0, tab.id)
   const pane = addPane(tab)
   pane.worktree = opts.worktree
   activate(tab.id, { start: false })
@@ -360,7 +368,8 @@ async function openSession(session: RecentSession): Promise<void> {
   await createTab('claude', session.cwd, {
     claudeSessionId: session.sessionId,
     summary: session.title,
-    resume: true
+    resume: true,
+    beside: besideFor(session.cwd)
   })
 }
 
@@ -1638,12 +1647,28 @@ function closePage(): void {
 
 async function createTabWithPicker(kind: TabKind): Promise<void> {
   const dir = await api.system.pickFolder(currentCwd())
-  if (dir) await createTab(kind, dir)
+  if (dir) await createTab(kind, dir, { beside: besideFor(dir) })
 }
 
 /** The folder of the tab in front — or, while the page is, of the tab it came from. */
 function currentCwd(): string {
   return activePane()?.tab.cwd ?? (returnId && panes.get(returnId)?.tab.cwd) ?? homeDir
+}
+
+/**
+ * A new tab in the project of the tab it was started from goes right behind that tab;
+ * any other project goes to the end of the bar.
+ */
+function besideFor(cwd: string): string | undefined {
+  const from = activeId ?? returnId
+  const fromCwd = from && panes.get(from)?.tab.cwd
+  return fromCwd && sameProject(fromCwd, cwd) ? from : undefined
+}
+
+/** Windows paths: case and a trailing separator do not make another directory. */
+function sameProject(a: string, b: string): boolean {
+  const key = (cwd: string) => projectDir(cwd).replace(/[\\/]+$/, '').toLowerCase()
+  return key(a) === key(b)
 }
 
 /** Where the keyboard goes once an overlay is gone: the page, or the terminal in front. */
