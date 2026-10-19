@@ -1213,7 +1213,7 @@ function isWaiting(pane: Pane): boolean {
   return pane.ptyState === 'awaiting' || pane.reviewId !== undefined
 }
 
-/** Waiting and not looked at since: the amber tab, the flashing taskbar, Ctrl+Shift+A. */
+/** Waiting and not looked at since: the amber tab, the flashing taskbar, Ctrl+Q. */
 function wantsUser(pane: Pane): boolean {
   return isWaiting(pane) && !pane.awaitingSeen
 }

@@ -104,7 +104,7 @@ behind them.
 | `Ctrl+W` | Close tab |
 | `Ctrl+Shift+R` | Restart tab — a Claude tab resumes its conversation |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab (also `Ctrl+PageDown` / `Ctrl+PageUp`) |
-| `Ctrl+Shift+A` | Next tab waiting for you (amber) |
+| `Ctrl+Q` | Next tab waiting for you (amber) |
 | `Ctrl+1…9` | Jump to a tab |
 | `Enter` | On a tab that has not started yet: open it |
 | `Ctrl+Shift+O` | New-tab page (it holds the session list) |

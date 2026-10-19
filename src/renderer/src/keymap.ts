@@ -64,7 +64,7 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   toggleGroup: [],
   nextTab: ['Ctrl+Tab', 'Ctrl+PageDown'],
   previousTab: ['Ctrl+Shift+Tab', 'Ctrl+PageUp'],
-  nextWaitingTab: ['Ctrl+Shift+A'],
+  nextWaitingTab: ['Ctrl+Q'],
   sessionPicker: ['Ctrl+Shift+O'],
   search: ['Ctrl+Shift+F'],
   paste: ['Ctrl+V', 'Ctrl+Shift+V'],
