@@ -206,6 +206,7 @@ async function boot(): Promise<void> {
         if (activeId) void restartTab(activeId)
       },
       cycleTab: (delta) => cycleTab(delta),
+      nextWaitingTab: () => nextWaitingTab(),
       selectTabByIndex: (index) => {
         // Counts what is on screen, so a folded-up group is skipped whole rather
         // than swallowing numbers the user cannot see.
@@ -654,6 +655,20 @@ function cycleTab(delta: number): void {
   const next = ring[index < 0 ? 0 : (index + delta + ring.length) % ring.length]
   if (next === PAGE_ID) openNewTabPage()
   else activate(next, { start: true })
+}
+
+/**
+ * The next tab right of the one in front that the bar draws in amber, wrapping round.
+ * Walks `order` rather than what is on screen: a wait inside a folded group counts, and
+ * `activate` unfolds it.
+ */
+function nextWaitingTab(): void {
+  const from = activeId ? order.indexOf(activeId) : -1
+  for (let step = 1; step <= order.length; step++) {
+    const id = order[(from + step + order.length) % order.length]
+    const pane = panes.get(id)
+    if (pane && wantsUser(pane)) return activate(id, { start: true })
+  }
 }
 
 /* ------------------------------------------------------------ Tab groups */
@@ -1168,7 +1183,7 @@ let attentionSent = false
 function updateAttention(): void {
   // The same condition `tabModel` draws as a tab's alarm, deliberately: there is one
   // thing aterm asks about, and the taskbar and the tab bar must not disagree on it.
-  const wanted = [...panes.values()].some((pane) => isWaiting(pane) && !pane.awaitingSeen)
+  const wanted = [...panes.values()].some(wantsUser)
   if (wanted === attentionSent) return
   attentionSent = wanted
   api.system.setAttention(wanted)
@@ -1196,6 +1211,11 @@ function installAttentionTracking(): void {
  */
 function isWaiting(pane: Pane): boolean {
   return pane.ptyState === 'awaiting' || pane.reviewId !== undefined
+}
+
+/** Waiting and not looked at since: the amber tab, the flashing taskbar, Ctrl+Q. */
+function wantsUser(pane: Pane): boolean {
+  return isWaiting(pane) && !pane.awaitingSeen
 }
 
 /**
@@ -1350,7 +1370,7 @@ function tabModel(pane: Pane): TabViewModel {
     working: pane.ptyState === 'working' && !pane.reviewId,
     // Word for word the condition `updateAttention` sends to the taskbar. That is the
     // point: the window and the taskbar button say the same thing, or neither does.
-    alarm: isWaiting(pane) && !pane.awaitingSeen
+    alarm: wantsUser(pane)
   }
 }
 
