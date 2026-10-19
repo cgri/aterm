@@ -12,6 +12,8 @@ export interface KeymapContext {
   /** Ends the active tab's process and starts it again — Claude resumes its session. */
   restartActiveTab(): void
   cycleTab(delta: number): void
+  /** To the next tab that is waiting for the user and not yet looked at. */
+  nextWaitingTab(): void
   selectTabByIndex(index: number): void
   toggleSearch(): void
   changeFontSize(delta: number | 'reset'): void
@@ -37,6 +39,7 @@ export type Action =
   | 'toggleGroup'
   | 'nextTab'
   | 'previousTab'
+  | 'nextWaitingTab'
   | 'sessionPicker'
   | 'search'
   | 'paste'
@@ -61,6 +64,7 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   toggleGroup: [],
   nextTab: ['Ctrl+Tab', 'Ctrl+PageDown'],
   previousTab: ['Ctrl+Shift+Tab', 'Ctrl+PageUp'],
+  nextWaitingTab: ['Ctrl+Shift+A'],
   sessionPicker: ['Ctrl+Shift+O'],
   search: ['Ctrl+Shift+F'],
   paste: ['Ctrl+V', 'Ctrl+Shift+V'],
@@ -254,6 +258,9 @@ function dispatch(action: Action, ctx: KeymapContext, ev: KeyboardEvent): boolea
       return true
     case 'previousTab':
       ctx.cycleTab(-1)
+      return true
+    case 'nextWaitingTab':
+      ctx.nextWaitingTab()
       return true
     case 'search':
       ctx.toggleSearch()

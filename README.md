@@ -104,6 +104,7 @@ behind them.
 | `Ctrl+W` | Close tab |
 | `Ctrl+Shift+R` | Restart tab — a Claude tab resumes its conversation |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab (also `Ctrl+PageDown` / `Ctrl+PageUp`) |
+| `Ctrl+Shift+A` | Next tab waiting for you (amber) |
 | `Ctrl+1…9` | Jump to a tab |
 | `Enter` | On a tab that has not started yet: open it |
 | `Ctrl+Shift+O` | New-tab page (it holds the session list) |
@@ -128,7 +129,7 @@ action entirely; an empty array disables it:
 ```
 
 Actions: `newTabMenu`, `newClaudeTab`, `newShellTab`, `closeTab`, `restartTab`,
-`nextTab`, `previousTab`, `sessionPicker`, `search`, `paste`, `copy`, `pasteImage`,
+`nextTab`, `previousTab`, `nextWaitingTab`, `sessionPicker`, `search`, `paste`, `copy`, `pasteImage`,
 `newline`, `fontLarger`, `fontSmaller`, `fontReset`. `newTabMenu` and `sessionPicker`
 both open the new-tab page; the names are kept so existing keymaps go on working.
 `newClaudeTab` has no default — `Ctrl+T` opens the page instead — so bind it if you want
