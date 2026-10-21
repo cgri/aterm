@@ -12,6 +12,9 @@ import type {
   SessionDetectedEvent,
   StartSpec,
   StartResult,
+  TabCloseRequest,
+  TabOpenRequest,
+  TabRequestAnswer,
   UpdateCheck,
   UpdateProgress,
   UpdateResult
@@ -44,6 +47,10 @@ const api = {
     newId: (): Promise<string> => ipcRenderer.invoke(IPC.newSessionId),
     onDetected: (cb: (e: SessionDetectedEvent) => void): void => {
       ipcRenderer.on(IPC.sessionDetected, (_e, payload: SessionDetectedEvent) => cb(payload))
+    },
+    /** A Claude tab's session has registered with Claude Code: it got past its startup questions. */
+    onRegistered: (cb: (tabId: string) => void): void => {
+      ipcRenderer.on(IPC.sessionRegistered, (_e, tabId: string) => cb(tabId))
     },
     onAgentActivity: (cb: (e: AgentActivityEvent) => void): void => {
       ipcRenderer.on(IPC.agentActivity, (_e, payload: AgentActivityEvent) => cb(payload))
@@ -82,6 +89,18 @@ const api = {
     acknowledge: (reviewId: string): void => ipcRenderer.send(IPC.planAck, reviewId),
     answer: (reviewId: string, answer: PlanReviewAnswer): void =>
       ipcRenderer.send(IPC.planAnswer, reviewId, answer)
+  },
+  tabs: {
+    /** A Claude session asked for a tab of its own. Answer it exactly once. */
+    onOpen: (cb: (request: TabOpenRequest) => void): void => {
+      ipcRenderer.on(IPC.tabsOpen, (_e, payload: TabOpenRequest) => cb(payload))
+    },
+    /** A Claude session asked to close a tab it opened. Answer it exactly once. */
+    onClose: (cb: (request: TabCloseRequest) => void): void => {
+      ipcRenderer.on(IPC.tabsClose, (_e, payload: TabCloseRequest) => cb(payload))
+    },
+    answer: (requestId: string, answer: TabRequestAnswer): void =>
+      ipcRenderer.send(IPC.tabsAnswer, requestId, answer)
   },
   update: {
     /** Newer releases on GitHub; `undefined` when GitHub could not be asked. */

@@ -8,7 +8,10 @@ import {
   type RecentSession,
   type TabGroup,
   type TabGroupColor,
+  type TabCloseRequest,
   type TabKind,
+  type TabOpenRequest,
+  type TabRequestAnswer,
   type TabState
 } from '@shared/types'
 import { TabBar, type DropTarget, type StripItem, type TabViewModel } from './TabBar'
@@ -29,6 +32,16 @@ import { PlanReview, type PlanRound } from './PlanReview'
 /** Font size the zoom percentage is relative to, and the target of a reset. */
 const BASE_FONT_SIZE = 14
 
+/** How many tabs one Claude session may have open through `open_tab` at a time. */
+const MAX_OPENED_TABS = 8
+
+/**
+ * How long a Claude tab may run without its session registering before it counts as
+ * waiting for the user. A session that starts normally registers within a second;
+ * one that has not after this is holding a question, see `Pane.heldAtStart`.
+ */
+const REGISTER_GRACE_MS = 3000
+
 interface Pane {
   tab: TabState
   el: HTMLDivElement
@@ -45,6 +58,12 @@ interface Pane {
    * restart — a restored tab would otherwise branch off a second time.
    */
   worktree?: boolean
+  /**
+   * The first prompt for the next start, from the session that opened this tab. Like
+   * `worktree` it describes one start and is never persisted: a restart resumes the
+   * conversation, which already holds it.
+   */
+  initialPrompt?: string
   /**
    * The title the running process set for itself. Deliberately not part of
    * TabState: it belongs to the process, not to the tab, so it must neither be
@@ -67,6 +86,16 @@ interface Pane {
    * then, and must not put up the "Process exited" bar between the two.
    */
   restarting: boolean
+  /**
+   * The Claude process runs, but its session has not registered with Claude Code after
+   * `REGISTER_GRACE_MS`: it is holding a question before it starts — whether to trust
+   * the folder, most of all — and sets no title until it is answered, so the title says
+   * nothing. Counts as waiting. Not part of TabState: it describes one start.
+   */
+  heldAtStart: boolean
+  /** Settled once the session has registered; cleared by every start. */
+  registered: boolean
+  startTimer?: ReturnType<typeof setTimeout>
   /** Terminal and plan review side by side. */
   body: HTMLDivElement
   /** Made the first time a plan arrives for this tab. */
@@ -179,10 +208,13 @@ async function boot(): Promise<void> {
   api.pty.onData(({ tabId, data }) => panes.get(tabId)?.view?.write(data))
   api.pty.onExit(({ tabId, exitCode, killed }) => onExit(tabId, exitCode, killed))
   api.sessions.onDetected(({ tabId, sessionId }) => onSessionDetected(tabId, sessionId))
+  api.sessions.onRegistered((tabId) => onSessionRegistered(tabId))
   api.sessions.onAgentActivity(({ running }) => onAgentActivity(running))
   api.system.onOpenDirectory((dir) => void createTab('claude', dir))
   api.plan.onReview((review) => onPlanReview(review))
   api.plan.onClosed((reviewId) => onPlanReviewClosed(reviewId))
+  api.tabs.onOpen((request) => void answerTabRequest(request.requestId, openRequestedTab(request)))
+  api.tabs.onClose((request) => void answerTabRequest(request.requestId, closeRequestedTab(request)))
 
   const overrides = (await api.system.keymap()) as Partial<Record<Action, string[]>>
 
@@ -318,6 +350,8 @@ function addPane(tab: TabState): Pane {
     agentRunning: false,
     awaitingSeen: false,
     restarting: false,
+    heldAtStart: false,
+    registered: false,
     body
   }
   panes.set(tab.id, pane)
@@ -340,11 +374,16 @@ async function createTab(
     groupId?: string
     /** The tab the new one goes right behind, joining its group if it has one. */
     beside?: string
+    /** The tab whose session asked for this one, see `TabState.openedBy`. */
+    openedBy?: string
+    initialPrompt?: string
+    /** Started behind the active tab rather than in front of it. */
+    background?: boolean
   } = {}
-): Promise<void> {
+): Promise<Pane> {
   const neighbour = opts.beside ? panes.get(opts.beside) : undefined
   // Whatever is started while the page is in front takes the page's place.
-  if (pageActive) leavePage()
+  if (pageActive && !opts.background) leavePage()
   const tab: TabState = {
     id: crypto.randomUUID(),
     kind,
@@ -354,15 +393,80 @@ async function createTab(
     // When resuming an existing session, the very first start must use --resume.
     everStarted: Boolean(opts.resume),
     groupId: opts.groupId ?? neighbour?.tab.groupId,
+    openedBy: opts.openedBy,
     order: order.length
   }
   if (neighbour) order.splice(order.indexOf(neighbour.tab.id) + 1, 0, tab.id)
   const pane = addPane(tab)
   pane.worktree = opts.worktree
-  activate(tab.id, { start: false })
+  pane.initialPrompt = opts.initialPrompt
+  if (!opts.background) activate(tab.id, { start: false })
   await startPane(pane)
   render()
   persist()
+  return pane
+}
+
+/* ------------------------------------------------- Tabs a session asks for */
+
+async function answerTabRequest(requestId: string, work: Promise<TabRequestAnswer>): Promise<void> {
+  let answer: TabRequestAnswer
+  try {
+    answer = await work
+  } catch (err) {
+    answer = { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+  api.tabs.answer(requestId, answer)
+}
+
+/**
+ * A Claude session's `open_tab`. The new tab joins the caller's group, right behind its
+ * last member, and the caller gets a group named after its folder if it has none, so
+ * the tabs a session opened stay together and fold away together. It starts at once but
+ * behind the active tab: the user is reading the session that asked for it.
+ */
+async function openRequestedTab(request: TabOpenRequest): Promise<TabRequestAnswer> {
+  const parent = panes.get(request.parentTabId)
+  if (!parent) return { ok: false, error: 'The calling tab is not known to aterm.' }
+  if (parent.tab.openedBy) {
+    return { ok: false, error: 'A tab opened by another session cannot open tabs of its own.' }
+  }
+  const opened = [...panes.values()].filter((p) => p.tab.openedBy === parent.tab.id).length
+  if (opened >= MAX_OPENED_TABS) {
+    return { ok: false, error: `This session already has ${opened} tabs open. Ask the user to close some first.` }
+  }
+
+  if (!parent.tab.groupId) {
+    const group = createGroup(nextGroupColor(), folderName(projectDir(parent.tab.cwd)))
+    setTabGroup(parent.tab.id, group.id)
+  }
+  const pane = await createTab('claude', request.cwd, {
+    summary: request.title,
+    worktree: request.worktree,
+    beside: lastMember(parent.tab.groupId!, '') ?? parent.tab.id,
+    openedBy: parent.tab.id,
+    initialPrompt: request.prompt,
+    background: true
+  })
+  if (pane.status !== 'running') return { ok: false, error: 'The session could not be started.' }
+  return { ok: true, tabId: pane.tab.id, claudeSessionId: pane.tab.claudeSessionId }
+}
+
+/**
+ * A Claude session's `close_tab`: only a tab it opened, and not while that one is busy —
+ * working, or holding a plan the user is reviewing. No dialog: the session was asked by
+ * the user, and a conversation that is closed can be resumed from the session list.
+ */
+async function closeRequestedTab(request: TabCloseRequest): Promise<TabRequestAnswer> {
+  const pane = panes.get(request.tabId)
+  if (!pane || pane.tab.openedBy !== request.parentTabId) {
+    return { ok: false, error: 'This session opened no tab with that id.' }
+  }
+  if (pane.ptyState === 'working' || pane.reviewId) {
+    return { ok: false, error: 'That session is busy. Close it once it waits for input.' }
+  }
+  await removeTab(pane.tab.id)
+  return { ok: true, tabId: request.tabId }
 }
 
 async function openSession(session: RecentSession): Promise<void> {
@@ -1049,9 +1153,12 @@ async function startPane(pane: Pane): Promise<void> {
     claudeSessionId: tab.claudeSessionId,
     resume: tab.kind === 'claude' && tab.everStarted,
     worktree: pane.worktree,
+    initialPrompt: pane.initialPrompt,
     cols: size.cols,
     rows: size.rows
   })
+  // Handed over once; whatever starts this tab again resumes the conversation.
+  pane.initialPrompt = undefined
 
   if (!result.ok) {
     pane.status = 'exited'
@@ -1076,10 +1183,12 @@ async function startPane(pane: Pane): Promise<void> {
   pane.worktree = false
   pane.status = 'running'
   pane.exitCode = undefined
+  if (tab.kind === 'claude') watchRegistration(pane)
   hideBar(pane)
   updatePlaceholder(pane)
   pane.view.refit()
-  pane.view.focus()
+  // A tab started behind the active one must not take the keyboard from it.
+  if (tab.id === activeId) pane.view.focus()
   offerResume(pane)
   render()
   persist()
@@ -1090,6 +1199,8 @@ async function startPane(pane: Pane): Promise<void> {
 function onExit(tabId: string, exitCode: number, killed: boolean): void {
   const pane = panes.get(tabId)
   if (!pane) return
+  clearTimeout(pane.startTimer)
+  pane.heldAtStart = false
   pane.status = 'exited'
   pane.exitCode = exitCode
   pane.agentRunning = false
@@ -1210,7 +1321,37 @@ function installAttentionTracking(): void {
  * is open. The one condition behind the amber tab and the flashing taskbar button.
  */
 function isWaiting(pane: Pane): boolean {
-  return pane.ptyState === 'awaiting' || pane.reviewId !== undefined
+  return pane.ptyState === 'awaiting' || pane.reviewId !== undefined || pane.heldAtStart
+}
+
+/**
+ * A Claude process has started: until its session registers it may be holding a
+ * question nobody sees — a tab opened behind the active one, above all. Nothing on the
+ * screen is read for it; the registry is what tells.
+ */
+function watchRegistration(pane: Pane): void {
+  clearTimeout(pane.startTimer)
+  pane.registered = false
+  pane.heldAtStart = false
+  pane.startTimer = setTimeout(() => {
+    if (pane.registered || pane.status !== 'running') return
+    const waited = isWaiting(pane)
+    pane.heldAtStart = true
+    settleWaiting(pane, waited)
+    render()
+  }, REGISTER_GRACE_MS)
+}
+
+function onSessionRegistered(tabId: string): void {
+  const pane = panes.get(tabId)
+  if (!pane || pane.registered) return
+  clearTimeout(pane.startTimer)
+  pane.registered = true
+  if (!pane.heldAtStart) return
+  const waited = isWaiting(pane)
+  pane.heldAtStart = false
+  settleWaiting(pane, waited)
+  render()
 }
 
 /** Waiting and not looked at since: the amber tab, the flashing taskbar, Ctrl+Q. */
@@ -1359,8 +1500,11 @@ function tabModel(pane: Pane): TabViewModel {
   return {
     id: pane.tab.id,
     // The two halves are drawn apart so the folder can step back visually;
-    // `title` is the whole name, for the tooltip.
-    title: paneTitle(pane),
+    // `title` is the whole name, for the tooltip — and says why a tab held at its start
+    // is waiting, because its terminal is all the tab has to show for it.
+    title: pane.heldAtStart
+      ? `${paneTitle(pane)} — Claude Code asks something before it starts`
+      : paneTitle(pane),
     folder: tabFolder(pane),
     summary: tabSummary(pane),
     // What is in the tab, not what it was started as: a shell someone ran `claude` in
@@ -1515,6 +1659,13 @@ function setPtyTitle(pane: Pane, raw: string): void {
   const waited = isWaiting(pane)
   pane.ptyTitle = next.title
   pane.ptyState = next.state
+  // A state marker is Claude Code at work, so it is past its startup questions too —
+  // which keeps a `claude` that writes no registry from being held for good.
+  if (next.state) {
+    clearTimeout(pane.startTimer)
+    pane.registered = true
+    pane.heldAtStart = false
+  }
   settleWaiting(pane, waited)
   // Nothing persisted changed — the title belongs to the process, not the tab.
   render()

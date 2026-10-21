@@ -45,6 +45,10 @@
         "to": "aterm-plan-hook.ps1"
       },
       {
+        "from": "resources/aterm-tabs-mcp.js",
+        "to": "aterm-tabs-mcp.js"
+      },
+      {
         "from": "resources/icon.png",
         "to": "icon.png"
       }

@@ -13,7 +13,10 @@ import type {
   PtyDataEvent,
   PtyExitEvent,
   SessionDetectedEvent,
-  StartSpec
+  StartSpec,
+  TabCloseRequest,
+  TabOpenRequest,
+  TabRequestAnswer
 } from '@shared/types'
 import { IPC } from './ipc'
 import { directoryFromArgv } from './cli'
@@ -28,6 +31,7 @@ import { ProcessTree } from './proc/ProcessTree'
 import { reapOrphanTabs } from './proc/orphans'
 import { checkForUpdates, cleanupDownloads, downloadUpdate, installUpdate } from './update/installer'
 import { PlanReviewServer } from './plan/PlanReviewServer'
+import { TabSpawnServer } from './tabs/TabSpawnServer'
 import { resourceFile } from './pty/launchers'
 
 /**
@@ -58,6 +62,7 @@ let detector: SessionDetector
 let ptys: PtyManager
 let store: SessionStore
 let plans: PlanReviewServer | undefined
+let tabSpawner: TabSpawnServer | undefined
 let win: BrowserWindow | undefined
 let agentRunning: Record<string, boolean> = {}
 
@@ -170,7 +175,10 @@ function createWindow(state: PersistedState): void {
   // looked at. So the flash is re-armed on every blur for as long as one is still
   // unseen, and only the renderer clearing `attentionWanted` ends it for good.
   // A reload loses every review the renderer held, and nobody would answer them.
-  win.webContents.on('did-start-loading', () => plans?.passAll())
+  win.webContents.on('did-start-loading', () => {
+    plans?.passAll()
+    tabSpawner?.failAll('aterm reloaded before it could answer.')
+  })
 
   win.on('focus', () => updateFlash())
   win.on('blur', () => updateFlash())
@@ -297,6 +305,7 @@ function registerIpc(): void {
     syncTabs()
   })
 
+  detector.on('registered', (tabId: string) => send(IPC.sessionRegistered, tabId))
   detector.on('detected', (e: SessionDetectedEvent) => {
     rememberConversation(e)
     send(IPC.sessionDetected, e)
@@ -350,6 +359,20 @@ function registerIpc(): void {
   ipcMain.on(IPC.planAck, (_e, reviewId: string) => plans?.acknowledge(reviewId))
   ipcMain.on(IPC.planAnswer, (_e, reviewId: string, answer: PlanReviewAnswer) =>
     plans?.answer(reviewId, answer)
+  )
+
+  // A tab a Claude session asked for, made or refused by the renderer. Before the
+  // renderer has subscribed, nobody would answer it, so it is refused outright.
+  tabSpawner?.on('open', (request: TabOpenRequest) => {
+    if (rendererReady) send(IPC.tabsOpen, request)
+    else tabSpawner?.answer(request.requestId, { ok: false, error: 'aterm is still starting.' })
+  })
+  tabSpawner?.on('close', (request: TabCloseRequest) => {
+    if (rendererReady) send(IPC.tabsClose, request)
+    else tabSpawner?.answer(request.requestId, { ok: false, error: 'aterm is still starting.' })
+  })
+  ipcMain.on(IPC.tabsAnswer, (_e, requestId: string, answer: TabRequestAnswer) =>
+    tabSpawner?.answer(requestId, answer)
   )
 
   ipcMain.handle(IPC.sessionsRecent, () => history.recent())
@@ -442,6 +465,12 @@ app.whenReady().then(() => {
   // so in practice that is none of them.
   plans = new PlanReviewServer(userData, resourceFile('aterm-plan-hook.ps1'))
   void plans.start().then((settings) => ptys.setPlanSettings(settings))
+  const spawner = new TabSpawnServer(userData, resourceFile('aterm-tabs-mcp.js'), {
+    dirs: () => ptys.cwds(),
+    ended: (tabId) => ptys.endedProcess(tabId)
+  })
+  tabSpawner = spawner
+  void spawner.start().then((up) => ptys.setMcpConfig(up ? (tabId) => spawner.configFor(tabId) : undefined))
 
   const state = store.load()
   registerIpc()
@@ -463,5 +492,6 @@ app.on('before-quit', () => {
   detector?.stop()
   processTree.stop()
   plans?.stop()
+  tabSpawner?.stop()
   ptys?.killAll()
 })

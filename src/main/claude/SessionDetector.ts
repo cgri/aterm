@@ -323,7 +323,11 @@ export class SessionDetector extends EventEmitter {
     const target = this.claudeTabFor(entry)
     if (!target) return
 
+    // The first entry for this process: the session is past whatever Claude Code asks
+    // before it starts, which is when it registers — the trust question, most of all.
+    const known = this.registryPids.get(target.tabId)?.ptyPid === target.pid
     this.registryPids.set(target.tabId, { ptyPid: target.pid, claudePid: entry.pid })
+    if (!known) this.emit('registered', target.tabId)
     if (target.conversationId === entry.sessionId) return
 
     target.conversationId = entry.sessionId

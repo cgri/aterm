@@ -26,14 +26,18 @@ export const IPC = {
   setAttention: 'app:set-attention',
   planAck: 'plan:ack',
   planAnswer: 'plan:answer',
+  tabsAnswer: 'tabs:answer',
 
   // Main → Renderer
   ptyData: 'pty:data',
   ptyExit: 'pty:exit',
   sessionDetected: 'session:detected',
+  sessionRegistered: 'session:registered',
   agentActivity: 'agent:activity',
   openDirectory: 'app:open-directory',
   updateProgress: 'update:progress',
   planReview: 'plan:review',
-  planReviewClosed: 'plan:review-closed'
+  planReviewClosed: 'plan:review-closed',
+  tabsOpen: 'tabs:open',
+  tabsClose: 'tabs:close'
 } as const

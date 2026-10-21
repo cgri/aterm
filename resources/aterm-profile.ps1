@@ -23,6 +23,12 @@ function global:claude {
         -not ($args | Where-Object { ([string]$_) -like '--settings*' })) {
         $extra = @('--settings', $env:ATERM_PLAN_SETTINGS)
     }
+    # aterm's tab tools. Attached with '=', or the option would swallow the prompt
+    # that follows it as a second config file.
+    if ($env:ATERM_MCP_CONFIG -and (Test-Path -LiteralPath $env:ATERM_MCP_CONFIG) -and
+        -not ($args | Where-Object { ([string]$_) -like '--strict-mcp-config*' })) {
+        $extra += "--mcp-config=$($env:ATERM_MCP_CONFIG)"
+    }
 
     # If the call already carries its own session, nothing is added.
     $ownsSession = $false

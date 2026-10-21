@@ -68,6 +68,7 @@ main/                      Node side: owns all processes, files and Claude Code 
   update/releases.ts       newer GitHub releases than the running version
   update/installer.ts      downloads, verifies and silently runs the NSIS installer
   plan/PlanReviewServer.ts the named pipe the ExitPlanMode hook hands plans to
+  tabs/TabSpawnServer.ts   the named pipe behind the `aterm` MCP tools: open_tab, close_tab
   cli.ts                   the directory a launch names (--open-dir), Explorer's entry
   ipc.ts                   every channel name, shared with preload
 preload/index.ts           contextBridge → window.aterm
@@ -556,6 +557,51 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   tick when its quoted passage no longer appears — it says where to look, not that it was
   answered. The keymap leaves every key to the panel while it has the focus
   (`focusOutsideTerminal`), or Ctrl+V would paste into the terminal behind it.
+- **A Claude session can open tabs, and aterm does nothing else for it.** Every Claude
+  session in a tab gets an MCP server, `resources/aterm-tabs-mcp.js`, with two tools:
+  `open_tab` starts a tab with a session of its own and a task as its first prompt, and
+  `close_tab` closes one the caller opened. Finding and messaging each other is Claude Code's
+  own `ListAgents` and `SendMessage` — aterm must not grow a mailbox or a list tool beside
+  them. The server is aterm's own exe run with `ELECTRON_RUN_AS_NODE`, dependency-free, and
+  hands each call down `\\.\pipe\aterm-tabs-<pid>` to `TabSpawnServer`.
+  **The tab id comes from the config, never from the environment.** Each tab gets its own
+  `userData/runtime/mcp/<tabId>.json` naming it, because what environment Claude Code hands
+  an MCP server is its business. The calling session is the server's `process.ppid`, which
+  is the `claude` pid its registry file is named after — that is where the parent's name
+  comes from, for the child's first prompt and the result.
+  **`--mcp-config` is attached with `=`.** It takes any number of values, so in the separate
+  form it swallows every bare argument after it — in the profile's wrapper, the prompt the
+  user typed after `claude`. Measured in 2.1.306.
+  **The task is a positional argument and the first prompt**, so it stays in the transcript
+  and a resumed child still knows who it reports to; it is given once, never on a resume.
+  node-pty was measured to pass quotes, line breaks and umlauts through unchanged. cmd.exe
+  is not, so behind `claude.cmd` it goes into a file. aterm appends a paragraph telling the
+  child it works *with the user* and reports when the task is done — not after its first
+  reply, which is how a delegated task reads otherwise.
+  **Isolation is main's decision, not Claude's.** `auto` gives a worktree when the working
+  tree has changes or any session — Claude's anywhere, a shell tab's in aterm, the caller's
+  own — runs in it, the directory itself otherwise. Opens run one at a time, or two calls at
+  once would both find a clean repository free.
+  **A worktree needs a trusted folder.** `claude --worktree` in a folder whose trust question
+  was never answered exits 1 at once ("Workspace trust not yet accepted"), and an exited tab
+  restarts on the next click — without its task and its worktree, which belong to the first
+  start. So `open_tab` waits for the child to show up in the registry and, if its process
+  ends first, closes the tab again and returns what it printed (`PtyManager.endedProcess`).
+  A child started in place in such a folder sits at the trust question instead; `open_tab`
+  gives up waiting after 20 s and says so — see the next entry for how the tab shows it.
+  Children go behind the active tab, never in front, and into the caller's group, which is
+  made for it if the caller has none. `TabState.openedBy` is what `close_tab` checks, and a
+  tab that has it opens no tabs of its own.
+- **A Claude tab that has not registered is waiting for the user.** A session puts its file
+  into `~/.claude/sessions/` only once it is past whatever Claude Code asks before it starts
+  — the trust question of a folder it does not know, above all — and it sets no title until
+  then, so the title cannot tell. A normal start registers within a second (measured,
+  2.1.306). So a Claude tab whose session has not registered `REGISTER_GRACE_MS` (3 s) after
+  its start is `heldAtStart`, which `isWaiting` counts: amber tab, flashing taskbar, Ctrl+Q.
+  It matters for a tab opened behind the active one, which would otherwise sit there
+  unnoticed. `SessionDetector` reports `registered` the first time it learns a tab's `claude`
+  pid. A state marker in the title counts as well, so a `claude` that writes no registry is
+  never held for good. Nothing on the screen is read for any of it.
 - **Keyboard handling is one capture-phase listener on `document`.** What it handles never
   reaches xterm.js. `Alt+V` is forwarded as `ESC v` so Claude Code's own image paste runs,
   and `Shift+Enter` sends `ESC CR`. There is no Electron application menu, because its
