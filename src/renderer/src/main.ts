@@ -762,17 +762,23 @@ function cycleTab(delta: number): void {
 }
 
 /**
- * The next tab right of the one in front that the bar draws in amber, wrapping round.
- * Walks `order` rather than what is on screen: a wait inside a folded group counts, and
- * `activate` unfolds it.
+ * The next tab right of the one in front that the bar draws in amber, wrapping round —
+ * or, while none is amber, the next one that breathes. Walks `order` rather than what is
+ * on screen: a wait inside a folded group counts, and `activate` unfolds it.
  */
 function nextWaitingTab(): void {
+  const next = nextTabWhere(wantsUser) ?? nextTabWhere(isWorking)
+  if (next) activate(next, { start: true })
+}
+
+function nextTabWhere(test: (pane: Pane) => boolean): string | undefined {
   const from = activeId ? order.indexOf(activeId) : -1
   for (let step = 1; step <= order.length; step++) {
     const id = order[(from + step + order.length) % order.length]
     const pane = panes.get(id)
-    if (pane && wantsUser(pane)) return activate(id, { start: true })
+    if (pane && test(pane)) return id
   }
+  return undefined
 }
 
 /* ------------------------------------------------------------ Tab groups */
@@ -1354,6 +1360,11 @@ function onSessionRegistered(tabId: string): void {
   render()
 }
 
+/** Working, and not held by a plan review: the breath, and Ctrl+Q while nothing is amber. */
+function isWorking(pane: Pane): boolean {
+  return pane.ptyState === 'working' && !pane.reviewId
+}
+
 /** Waiting and not looked at since: the amber tab, the flashing taskbar, Ctrl+Q. */
 function wantsUser(pane: Pane): boolean {
   return isWaiting(pane) && !pane.awaitingSeen
@@ -1511,7 +1522,7 @@ function tabModel(pane: Pane): TabViewModel {
     // is an agent tab too.
     agent: pane.agentRunning || pane.tab.kind === 'claude',
     running: pane.status === 'running',
-    working: pane.ptyState === 'working' && !pane.reviewId,
+    working: isWorking(pane),
     // Word for word the condition `updateAttention` sends to the taskbar. That is the
     // point: the window and the taskbar button say the same thing, or neither does.
     alarm: wantsUser(pane)
