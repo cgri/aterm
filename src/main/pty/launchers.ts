@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, delimiter } from 'node:path'
 import { app } from 'electron'
 
@@ -64,13 +65,15 @@ export function profileScriptPath(): string {
 
 /**
  * `planSettings` is the settings file that registers aterm's plan review hook
- * (`PlanReviewServer`), absent when the hook could not be set up.
+ * (`PlanReviewServer`), `mcpConfig` the one that brings aterm's tab tools
+ * (`TabSpawnServer`); either is absent when it could not be set up.
  */
 export function powershellLaunch(
   tabId: string,
   runtimeDir: string,
   useProfile: boolean,
-  planSettings?: string
+  planSettings?: string,
+  mcpConfig?: string
 ): LaunchSpec {
   const file = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
   const env: NodeJS.ProcessEnv = {
@@ -81,6 +84,7 @@ export function powershellLaunch(
   // The profile's `claude` wrapper passes it on, so a session typed by hand gets the
   // plan review too.
   if (planSettings) env.ATERM_PLAN_SETTINGS = planSettings
+  if (mcpConfig) env.ATERM_MCP_CONFIG = mcpConfig
 
   const script = profileScriptPath()
   if (useProfile && existsSync(script)) {
@@ -101,15 +105,28 @@ export function claudeLaunch(opts: {
   resume: boolean
   worktree?: boolean
   planSettings?: string
+  mcpConfig?: string
+  /** The first prompt of a new session, see `StartSpec.initialPrompt`. */
+  prompt?: string
 }): LaunchSpec {
   const exe = resolveClaudeExe()
   if (!exe) throw new Error('claude.exe not found (set PATH or ATERM_CLAUDE_PATH)')
+  const cmdShim = /\.(cmd|bat)$/i.test(exe)
 
   const claudeArgs = opts.resume
     ? ['--resume', opts.sessionId]
     : ['--session-id', opts.sessionId]
 
+  // Right behind the session, where nothing can take it for an option's value. It never
+  // starts with a dash: `TabSpawnServer` puts a line of its own in front.
+  if (opts.prompt && !opts.resume) {
+    claudeArgs.push(cmdShim ? promptFileArg(opts.tabId, opts.prompt) : opts.prompt)
+  }
+
   if (opts.planSettings) claudeArgs.push('--settings', opts.planSettings)
+  // Attached with `=`: `--mcp-config` takes any number of values, and in the separate
+  // form it swallows every bare argument that follows it.
+  if (opts.mcpConfig) claudeArgs.push(`--mcp-config=${opts.mcpConfig}`)
 
   // Last, because `--worktree` takes an optional name: anything after it that
   // does not start with a dash would be swallowed as that name.
@@ -118,9 +135,21 @@ export function claudeLaunch(opts: {
   const env: NodeJS.ProcessEnv = { ...baseEnv(), ATERM_TAB_ID: opts.tabId }
 
   // .cmd/.bat need an interpreter; the .exe is started directly.
-  if (/\.(cmd|bat)$/i.test(exe)) {
+  if (cmdShim) {
     const cmd = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'cmd.exe')
     return { file: cmd, args: ['/c', exe, ...claudeArgs], env }
   }
   return { file: exe, args: claudeArgs, env }
+}
+
+/**
+ * cmd.exe ends a command at the first line break, so behind `claude.cmd` a prompt cannot
+ * be passed as it is. It goes into a file, and the session is asked to read it.
+ */
+function promptFileArg(tabId: string, prompt: string): string {
+  const dir = join(tmpdir(), 'aterm')
+  mkdirSync(dir, { recursive: true })
+  const file = join(dir, `task-${tabId}.md`)
+  writeFileSync(file, prompt)
+  return `Read your task from ${file} and work on it.`
 }

@@ -14,6 +14,11 @@ export interface LiveSession {
    * directory the tab was started in, so it is no use for matching a tab.
    */
   cwd: string
+  /**
+   * What other sessions address this one by (`SendMessage`). Claude Code derives it from
+   * the directory unless the user named the session, and it may change while it runs.
+   */
+  name?: string
 }
 
 const PID_JSON = /^(\d+)\.json$/
@@ -24,6 +29,7 @@ interface Raw {
   sessionId?: string
   cwd?: string
   kind?: string
+  name?: string
 }
 
 /**
@@ -42,7 +48,8 @@ export function readLiveSession(pid: number): LiveSession | undefined {
   // ever register it here — is not this tab's.
   if (raw.kind && raw.kind !== 'interactive') return undefined
   if (!raw.sessionId || !UUID.test(raw.sessionId)) return undefined
-  return { pid: raw.pid ?? pid, sessionId: raw.sessionId, cwd: raw.cwd ?? '' }
+  const name = typeof raw.name === 'string' && raw.name ? raw.name : undefined
+  return { pid: raw.pid ?? pid, sessionId: raw.sessionId, cwd: raw.cwd ?? '', name }
 }
 
 /** Every session currently registered. A handful of small files. */
@@ -61,6 +68,11 @@ export function listLiveSessions(): LiveSession[] {
     if (entry) out.push(entry)
   }
   return out
+}
+
+/** The running session that is in conversation `sessionId`, if one is registered. */
+export function findLiveSession(sessionId: string): LiveSession | undefined {
+  return listLiveSessions().find((entry) => entry.sessionId === sessionId)
 }
 
 /** The pid a registry file name names, or undefined if it is not one of them. */

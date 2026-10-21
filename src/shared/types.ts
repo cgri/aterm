@@ -29,6 +29,11 @@ export interface TabState {
   everStarted: boolean
   /** The group this tab belongs to, if any. Absent is the normal case. */
   groupId?: string
+  /**
+   * The tab whose Claude session opened this one through aterm's `open_tab` tool. Only
+   * that tab may close it again, and a tab opened that way opens no tabs of its own.
+   */
+  openedBy?: string
   order: number
 }
 
@@ -149,6 +154,8 @@ export interface StartSpec {
    * honoured on a first start; resuming a session must not branch off again.
    */
   worktree?: boolean
+  /** The first prompt of a new session. Never used for a resume. */
+  initialPrompt?: string
   cols: number
   rows: number
 }
@@ -225,3 +232,29 @@ export type PlanReviewAnswer =
   | { kind: 'approve'; mode: PlanStartMode; notes?: string }
   | { kind: 'revise'; feedback: string }
   | { kind: 'pass' }
+
+/**
+ * A Claude session asks for a tab of its own through aterm's `open_tab` tool. The main
+ * process has settled the directory, the isolation and the prompt; the renderer makes
+ * the tab, or refuses it, and answers exactly once.
+ */
+export interface TabOpenRequest {
+  requestId: string
+  /** The tab whose session called the tool. */
+  parentTabId: string
+  cwd: string
+  prompt: string
+  worktree: boolean
+  title?: string
+}
+
+/** The renderer's answer to a `TabOpenRequest`, or to closing a tab it opened. */
+export type TabRequestAnswer =
+  | { ok: true; tabId: string; claudeSessionId?: string }
+  | { ok: false; error: string }
+
+export interface TabCloseRequest {
+  requestId: string
+  parentTabId: string
+  tabId: string
+}

@@ -28,7 +28,19 @@ interface Running {
   killed?: boolean
   /** Settles when this process has ended — what a restart has to wait for. */
   exited: Promise<void>
+  /** The first output of the process, up to `HEAD_LIMIT`: why it ended, if it ended early. */
+  head: string
 }
+
+/** How a tab's last process ended: its exit code and the first thing it wrote. */
+export interface EndedProcess {
+  exitCode: number
+  killed: boolean
+  head: string
+}
+
+/** Enough for an error message and the screen around it; nothing a session writes later. */
+const HEAD_LIMIT = 8 * 1024
 
 /**
  * How long `kill` waits for a process to be gone. Ending a ConPTY takes a few dozen
@@ -44,6 +56,10 @@ export class PtyManager extends EventEmitter {
   private running = new Map<string, Running>()
   /** The `--settings` file of the plan review hook, once `PlanReviewServer` has one. */
   private planSettings?: string
+  /** Writes a tab's `--mcp-config` file for aterm's tab tools, once `TabSpawnServer` is up. */
+  private mcpConfig?: (tabId: string) => string | undefined
+  /** How each tab's last process ended, until the tab starts again. */
+  private ended = new Map<string, EndedProcess>()
 
   constructor(private readonly runtimeDir: string) {
     super()
@@ -53,8 +69,13 @@ export class PtyManager extends EventEmitter {
     this.planSettings = file
   }
 
+  setMcpConfig(configFor: ((tabId: string) => string | undefined) | undefined): void {
+    this.mcpConfig = configFor
+  }
+
   start(spec: StartSpec): StartResult {
     void this.kill(spec.tabId)
+    this.ended.delete(spec.tabId)
 
     const cwd = existsSync(spec.cwd) ? spec.cwd : homedir()
 
@@ -81,6 +102,7 @@ export class PtyManager extends EventEmitter {
       hasTranscript(cwd, sessionId!)
     if (taken) sessionId = randomUUID()
 
+    const mcpConfig = this.mcpConfig?.(spec.tabId)
     let launch
     try {
       launch =
@@ -92,9 +114,11 @@ export class PtyManager extends EventEmitter {
               // A resumed session already lives in its worktree; asking for
               // another one would create a second, empty branch.
               worktree: spec.worktree && !resume,
-              planSettings: this.planSettings
+              planSettings: this.planSettings,
+              mcpConfig,
+              prompt: spec.initialPrompt
             })
-          : powershellLaunch(spec.tabId, this.runtimeDir, true, this.planSettings)
+          : powershellLaunch(spec.tabId, this.runtimeDir, true, this.planSettings, mcpConfig)
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
@@ -124,15 +148,22 @@ export class PtyManager extends EventEmitter {
       cwd: launchCwd,
       kind: spec.kind,
       sessionId,
-      exited: new Promise((resolve) => (settleExit = resolve))
+      exited: new Promise((resolve) => (settleExit = resolve)),
+      head: ''
     }
     this.running.set(spec.tabId, entry)
 
-    proc.onData((data) => this.emit('data', { tabId: spec.tabId, data }))
+    proc.onData((data) => {
+      if (entry.head.length < HEAD_LIMIT) entry.head += data.slice(0, HEAD_LIMIT - entry.head.length)
+      this.emit('data', { tabId: spec.tabId, data })
+    })
     proc.onExit(({ exitCode }) => {
       // Only clean up while the same process is still registered — a restart
       // that happened in between must not be torn down.
-      if (this.running.get(spec.tabId)?.proc === proc) this.running.delete(spec.tabId)
+      if (this.running.get(spec.tabId)?.proc === proc) {
+        this.running.delete(spec.tabId)
+        this.ended.set(spec.tabId, { exitCode, killed: Boolean(entry.killed), head: entry.head })
+      }
       this.emit('exit', { tabId: spec.tabId, exitCode, killed: Boolean(entry.killed) })
       settleExit()
     })
@@ -161,6 +192,7 @@ export class PtyManager extends EventEmitter {
    * still holds it destroys the conversation, so a restart waits for this.
    */
   kill(tabId: string): Promise<boolean> {
+    this.ended.delete(tabId)
     const entry = this.running.get(tabId)
     if (!entry) return Promise.resolve(true)
     entry.killed = true
@@ -176,6 +208,11 @@ export class PtyManager extends EventEmitter {
   /** Nothing is waited for: this runs while aterm quits. */
   killAll(): void {
     for (const tabId of [...this.running.keys()]) void this.kill(tabId)
+  }
+
+  /** How the tab's last process ended, while the tab has not been started again. */
+  endedProcess(tabId: string): EndedProcess | undefined {
+    return this.ended.get(tabId)
   }
 
   isRunning(tabId: string): boolean {
@@ -203,6 +240,13 @@ export class PtyManager extends EventEmitter {
         out.push({ tabId, cwd: entry.cwd, pid: entry.pid, sessionId: entry.sessionId })
       }
     }
+    return out
+  }
+
+  /** tabId → the directory each running tab started in. */
+  cwds(): Map<string, string> {
+    const out = new Map<string, string>()
+    for (const [tabId, entry] of this.running) out.set(tabId, entry.cwd)
     return out
   }
 
