@@ -87,6 +87,11 @@ interface Pane {
    */
   restarting: boolean
   /**
+   * A start is under way. The tab only counts as running once its process exists, and a
+   * second start in that gap would replace the first process with a duplicate.
+   */
+  starting: boolean
+  /**
    * The Claude process runs, but its session has not registered with Claude Code after
    * `REGISTER_GRACE_MS`: it is holding a question before it starts — whether to trust
    * the folder, most of all — and sets no title until it is answered, so the title says
@@ -350,6 +355,7 @@ function addPane(tab: TabState): Pane {
     agentRunning: false,
     awaitingSeen: false,
     restarting: false,
+    starting: false,
     heldAtStart: false,
     registered: false,
     body
@@ -1119,10 +1125,32 @@ function quoteIntoPrompt(pane: Pane, text: string): void {
 /* ------------------------------------------------------ Process start */
 
 async function startPane(pane: Pane): Promise<void> {
-  const { tab } = pane
   // Between the kill and the start of a restart the tab looks exited, and Enter or
   // switching to it would start it while the old process may still hold the session.
-  if (pane.restarting) return
+  if (pane.restarting || pane.starting) return
+  pane.starting = true
+  try {
+    await launchPane(pane)
+  } finally {
+    pane.starting = false
+  }
+  if (pane.status === 'running') startTeam(pane)
+}
+
+/**
+ * The tabs a session opened start with it. Restore leaves every tab a placeholder, and
+ * `ListAgents` only lists sessions that run: a session that looked for its team after a
+ * restart took it for gone and opened the same tasks again, beside the placeholders that
+ * still held them. Only tabs that have not run yet: one that ended stays as it ended.
+ */
+function startTeam(pane: Pane): void {
+  for (const member of panes.values()) {
+    if (member.tab.openedBy === pane.tab.id && member.status === 'stopped') void startPane(member)
+  }
+}
+
+async function launchPane(pane: Pane): Promise<void> {
+  const { tab } = pane
 
   if (!pane.view) {
     const view = new TerminalView(

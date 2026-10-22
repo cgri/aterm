@@ -153,6 +153,11 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   Enter, including the tab that was active last. The one exception is a directory the
   launch itself named — that tab is started and made active, because that is what
   clicking the Explorer entry asked for.
+  **A tab starts the tabs it opened** (`startTeam`), those that have not run yet. A
+  session looking for its team after a restart asks `ListAgents`, which lists only running
+  sessions; it took the placeholders' sessions for gone and opened the same tasks again
+  with `open_tab`, two sessions to a worktree. `Pane.starting` keeps a tab from being
+  started twice while its first start is still under way.
 - **There is one aterm per userData directory.** The Explorer context menu runs the exe
   again for every click, and a second aterm on the same `state.json` is the disaster the
   dev-userData comment describes: it restores the tabs that are already open and starts a
