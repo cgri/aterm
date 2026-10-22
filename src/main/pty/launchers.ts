@@ -117,11 +117,8 @@ export function claudeLaunch(opts: {
     ? ['--resume', opts.sessionId]
     : ['--session-id', opts.sessionId]
 
-  // Right behind the session, where nothing can take it for an option's value. It never
-  // starts with a dash: `TabSpawnServer` puts a line of its own in front.
-  if (opts.prompt && !opts.resume) {
-    claudeArgs.push(cmdShim ? promptFileArg(opts.tabId, opts.prompt) : opts.prompt)
-  }
+  // Right behind the session, where nothing can take it for an option's value.
+  if (opts.prompt && !opts.resume) claudeArgs.push(promptFileArg(opts.tabId, opts.prompt))
 
   if (opts.planSettings) claudeArgs.push('--settings', opts.planSettings)
   // Attached with `=`: `--mcp-config` takes any number of values, and in the separate
@@ -143,8 +140,11 @@ export function claudeLaunch(opts: {
 }
 
 /**
- * cmd.exe ends a command at the first line break, so behind `claude.cmd` a prompt cannot
- * be passed as it is. It goes into a file, and the session is asked to read it.
+ * A task never goes onto the command line itself. Endpoint protection reads command
+ * lines: G DATA's BEAST took a C++ name like `ePassportCrypto::verify` for Mimikatz's
+ * `crypto::` module and killed aterm with every tab. cmd.exe would also end it at the
+ * first line break. So it goes into a file, and the session is asked to read it; the
+ * Read result keeps the full task in the transcript, so a resume does not need the file.
  */
 function promptFileArg(tabId: string, prompt: string): string {
   const dir = join(tmpdir(), 'aterm')

@@ -572,10 +572,15 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   **`--mcp-config` is attached with `=`.** It takes any number of values, so in the separate
   form it swallows every bare argument after it — in the profile's wrapper, the prompt the
   user typed after `claude`. Measured in 2.1.306.
-  **The task is a positional argument and the first prompt**, so it stays in the transcript
-  and a resumed child still knows who it reports to; it is given once, never on a resume.
-  node-pty was measured to pass quotes, line breaks and umlauts through unchanged. cmd.exe
-  is not, so behind `claude.cmd` it goes into a file. aterm appends a paragraph telling the
+  **The task goes into a file, never onto the command line.** The first prompt only asks the
+  child to read `%TEMP%\aterm\task-<tabId>.md`; the Read result puts the task into the
+  transcript, so a resumed child still knows who it reports to without the file. It is given
+  once, never on a resume. It used to be the positional argument itself, until G DATA's
+  BEAST matched `ePassportCrypto::Signature::verify` in a task against its Mimikatz rule
+  (`crypto::`, `Generic.Sigma.WinMimikatzCommandLine`): it killed aterm with every tab,
+  rolled back the files they had written — `~/.claude.json` among them — and quarantined
+  `aterm.exe`. Endpoint protection reads command lines; a task is free text and can contain
+  anything. cmd.exe would also cut it at the first line break. aterm appends a paragraph telling the
   child it works *with the user* and reports when the task is done — not after its first
   reply, which is how a delegated task reads otherwise.
   **Isolation is main's decision, not Claude's.** `auto` gives a worktree when the working
