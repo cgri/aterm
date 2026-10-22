@@ -323,14 +323,13 @@ function isDirectory(path: string): boolean {
 }
 
 /**
- * The task as the new session gets it. It is the first prompt, so it stays in the
- * transcript and a resumed session still knows who it reports to. The session is told
- * outright that it works with the user, because the obvious reading of a delegated task
- * is to finish it in one reply and report.
+ * The task as the new session gets it, through a file it is asked to read (`claudeLaunch`).
+ * The Read result keeps it in the transcript, so a resumed session still knows who it
+ * reports to. The session is told outright that it works with the user, because the
+ * obvious reading of a delegated task is to finish it in one reply and report.
  *
- * The task comes first, because Claude Code names the session — and with it the tab —
- * after its first prompt. One that starts with a dash would be taken for an option on the
- * command line, so it gets a line in front.
+ * The task comes first, because it is what the session is named after. One that starts
+ * with a dash gets a line in front, a leftover from when it was a command-line argument.
  */
 function handOver(task: string, parentName: string | undefined): string {
   const parent = parentName ? `the Claude Code session "${parentName}"` : 'another Claude Code session'
