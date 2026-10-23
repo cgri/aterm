@@ -18,6 +18,7 @@ export const IPC = {
   updateCheck: 'update:check',
   updateDownload: 'update:download',
   updateInstall: 'update:install',
+  imagesOpen: 'images:open',
 
   // Renderer → main (send, high frequency)
   ptyWrite: 'pty:write',
@@ -39,5 +40,6 @@ export const IPC = {
   planReview: 'plan:review',
   planReviewClosed: 'plan:review-closed',
   tabsOpen: 'tabs:open',
-  tabsClose: 'tabs:close'
+  tabsClose: 'tabs:close',
+  tabImages: 'tabs:images'
 } as const

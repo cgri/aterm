@@ -12,7 +12,8 @@ import {
   type TabKind,
   type TabOpenRequest,
   type TabRequestAnswer,
-  type TabState
+  type TabState,
+  type TranscriptImage
 } from '@shared/types'
 import { TabBar, type DropTarget, type StripItem, type TabViewModel } from './TabBar'
 import { TerminalView } from './TerminalView'
@@ -28,6 +29,8 @@ import { Updates } from './updates'
 import { currentAppearance, onThemeChange } from './appearance'
 import { folderName, projectDir } from './paths'
 import { PlanReview, type PlanRound } from './PlanReview'
+import { ImagePanel } from './ImagePanel'
+import { ImageViewer } from './ImageViewer'
 
 /** Font size the zoom percentage is relative to, and the target of a reset. */
 const BASE_FONT_SIZE = 14
@@ -105,6 +108,8 @@ interface Pane {
   body: HTMLDivElement
   /** Made the first time a plan arrives for this tab. */
   review?: PlanReview
+  /** The images its conversation has seen; made with the first one. */
+  images?: ImagePanel
   /**
    * The plan review the hook is waiting on. The tab waits for the user for as long as
    * it is set, whatever Claude Code's title says: while a hook runs, the title still
@@ -184,6 +189,7 @@ onThemeChange(() => {
 
 const contextMenu = new ContextMenu(() => focusFront())
 const confirmDialog = new ConfirmDialog(() => focusFront())
+const imageViewer = new ImageViewer((imageId) => api.images.open(imageId), () => focusFront())
 const groupDialog = new GroupDialog(() => focusFront())
 const searchBar = new SearchBar(() => activePane()?.view)
 const zoomIndicator = new ZoomIndicator(document.body)
@@ -218,6 +224,7 @@ async function boot(): Promise<void> {
   api.system.onOpenDirectory((dir) => void createTab('claude', dir))
   api.plan.onReview((review) => onPlanReview(review))
   api.plan.onClosed((reviewId) => onPlanReviewClosed(reviewId))
+  api.images.onImages(({ tabId, reset, images }) => onTabImages(tabId, images, reset))
   api.tabs.onOpen((request) => void answerTabRequest(request.requestId, openRequestedTab(request)))
   api.tabs.onClose((request) => void answerTabRequest(request.requestId, closeRequestedTab(request)))
 
@@ -260,6 +267,7 @@ async function boot(): Promise<void> {
         if (group) toggleGroup(group.id)
       },
       toggleSearch: () => searchBar.toggle(activePane()?.el),
+      toggleImages: () => activePane()?.images?.toggle() ?? false,
       changeFontSize: (delta) => changeFontSize(delta),
       startActiveTab: () => {
         const pane = activePane()
@@ -274,7 +282,8 @@ async function boot(): Promise<void> {
         contextMenu.isOpen() ||
         confirmDialog.isOpen() ||
         groupDialog.isOpen() ||
-        updates.isOpen()
+        updates.isOpen() ||
+        imageViewer.isOpen()
     },
     buildBindings(overrides)
   )
@@ -1409,6 +1418,25 @@ function settleWaiting(pane: Pane, waited: boolean): void {
   else if (!waited) pane.awaitingSeen = isOnScreen(pane)
 }
 
+/* --------------------------------------------------------------- Images */
+
+/**
+ * Images a tab's conversation has seen, found in its transcript by the main process.
+ * The panel is made with the first one, so a tab that never sees an image has none.
+ */
+function onTabImages(tabId: string, images: TranscriptImage[], reset: boolean): void {
+  const pane = panes.get(tabId)
+  if (!pane || (!pane.images && images.length === 0)) return
+  if (!pane.images) {
+    pane.images = new ImagePanel({
+      open: (list, index) => imageViewer.view(list, index),
+      resized: () => pane.view?.refit()
+    })
+    pane.body.appendChild(pane.images.el)
+  }
+  pane.images.add(images, reset)
+}
+
 /* ---------------------------------------------------------- Plan review */
 
 /**
@@ -1923,6 +1951,7 @@ function installFocusGuard(): void {
       if (!document.hasFocus()) return
       if (searchBar.isOpen() || contextMenu.isOpen()) return
       if (confirmDialog.isOpen() || groupDialog.isOpen() || updates.isOpen()) return
+      if (imageViewer.isOpen()) return
       focusFront()
     })
   })

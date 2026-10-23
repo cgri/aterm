@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, nativeTheme, protocol, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
@@ -15,6 +15,7 @@ import type {
   SessionDetectedEvent,
   StartSpec,
   TabCloseRequest,
+  TabImagesEvent,
   TabOpenRequest,
   TabRequestAnswer
 } from '@shared/types'
@@ -27,6 +28,7 @@ import { hasConversation } from './claude/transcripts'
 import { readJsonFile } from './util/json'
 import { isGitRepo } from './util/git'
 import { SessionDetector } from './claude/SessionDetector'
+import { IMAGE_SCHEME, TranscriptImages } from './claude/TranscriptImages'
 import { ProcessTree } from './proc/ProcessTree'
 import { reapOrphanTabs } from './proc/orphans'
 import { checkForUpdates, cleanupDownloads, downloadUpdate, installUpdate } from './update/installer'
@@ -56,9 +58,16 @@ if (!app.isPackaged) {
 const isFirstInstance = app.requestSingleInstanceLock()
 if (!isFirstInstance) app.quit()
 
+// The images a conversation has seen are served from its transcript; registered before
+// `ready`, as Electron requires, so an <img> can load them like any other URL.
+protocol.registerSchemesAsPrivileged([
+  { scheme: IMAGE_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } }
+])
+
 const history = new HistoryReader()
 const processTree = new ProcessTree()
 let detector: SessionDetector
+const images = new TranscriptImages()
 let ptys: PtyManager
 let store: SessionStore
 let plans: PlanReviewServer | undefined
@@ -178,6 +187,7 @@ function createWindow(state: PersistedState): void {
   win.webContents.on('did-start-loading', () => {
     plans?.passAll()
     tabSpawner?.failAll('aterm reloaded before it could answer.')
+    images.forgetAll()
   })
 
   win.on('focus', () => updateFlash())
@@ -269,7 +279,26 @@ function syncTabs(): void {
       conversationId: persisted.get(tabId)?.claudeSessionId
     }))
   )
+  syncImages()
   processTree.setRoots(new Map([...ptys.pids()].filter(([tabId]) => ptys.shellTabIds().includes(tabId))))
+}
+
+/**
+ * Which conversation each running tab's images come from: what state.json says it is
+ * in, or — for a Claude tab nothing has been saved for yet — the session it was
+ * launched with. A shell tab has one only while a `claude` runs in it.
+ */
+function syncImages(): void {
+  const persisted = new Map(store.current().tabs.map((tab) => [tab.id, tab]))
+  const conversations = new Map<string, string>()
+  for (const { tabId, sessionId } of ptys.claudeTabs()) {
+    conversations.set(tabId, persisted.get(tabId)?.claudeSessionId ?? sessionId)
+  }
+  for (const tabId of ptys.shellTabIds()) {
+    const conversation = persisted.get(tabId)?.claudeSessionId
+    if (agentRunning[tabId] && conversation) conversations.set(tabId, conversation)
+  }
+  images.follow(conversations)
 }
 
 /**
@@ -309,6 +338,13 @@ function registerIpc(): void {
   detector.on('detected', (e: SessionDetectedEvent) => {
     rememberConversation(e)
     send(IPC.sessionDetected, e)
+    syncImages()
+  })
+  detector.on('transcript', (rel: string) => images.changed(rel))
+  images.on('images', (e: TabImagesEvent) => send(IPC.tabImages, e))
+  ipcMain.handle(IPC.imagesOpen, async (_e, imageId: string) => {
+    const path = images.pathOf(imageId)
+    return path !== undefined && (await shell.openPath(path)) === ''
   })
 
   ipcMain.handle(IPC.ptyStart, (_e, spec: StartSpec) => {
@@ -336,9 +372,12 @@ function registerIpc(): void {
   ipcMain.handle(IPC.stateLoad, () => store.load())
   // Window bounds and appearance are known here, not in the renderer, so they are
   // filled in rather than taken from what the renderer sent.
-  ipcMain.handle(IPC.stateSave, (_e, state: PersistedState) =>
+  // A tab's conversation can arrive this way too — the fresh id `PtyManager.start`
+  // swapped in, which the renderer saves — so the images follow it from here as well.
+  ipcMain.handle(IPC.stateSave, (_e, state: PersistedState) => {
     store.save({ ...state, window: windowBounds(), appearance })
-  )
+    syncImages()
+  })
 
   ipcMain.on(IPC.setAppearance, (_e, next: Appearance) => {
     appearance = next
@@ -471,6 +510,8 @@ app.whenReady().then(() => {
   })
   tabSpawner = spawner
   void spawner.start().then((up) => ptys.setMcpConfig(up ? (tabId) => spawner.configFor(tabId) : undefined))
+
+  protocol.handle(IMAGE_SCHEME, (request) => images.serve(request.url))
 
   const state = store.load()
   registerIpc()

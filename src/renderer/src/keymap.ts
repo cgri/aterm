@@ -16,6 +16,8 @@ export interface KeymapContext {
   nextWaitingTab(): void
   selectTabByIndex(index: number): void
   toggleSearch(): void
+  /** Closes the active tab's image strip, or brings it back. false when it has no images. */
+  toggleImages(): boolean
   changeFontSize(delta: number | 'reset'): void
   /** Puts the active tab into a group, or takes it out of one. */
   groupActiveTab(): void
@@ -42,6 +44,7 @@ export type Action =
   | 'nextWaitingTab'
   | 'sessionPicker'
   | 'search'
+  | 'images'
   | 'paste'
   | 'copy'
   | 'quoteSelection'
@@ -67,6 +70,8 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   nextWaitingTab: ['Ctrl+Q'],
   sessionPicker: ['Ctrl+Shift+O'],
   search: ['Ctrl+Shift+F'],
+  // Ctrl+I is Tab to a terminal, so Shift with it takes nothing away from one.
+  images: ['Ctrl+Shift+I'],
   paste: ['Ctrl+V', 'Ctrl+Shift+V'],
   copy: ['Ctrl+Shift+C'],
   quoteSelection: ['Ctrl+Shift+Q'],
@@ -265,6 +270,9 @@ function dispatch(action: Action, ctx: KeymapContext, ev: KeyboardEvent): boolea
     case 'search':
       ctx.toggleSearch()
       return true
+    // A tab without images lets the key through.
+    case 'images':
+      return ctx.toggleImages()
     // Without a terminal in front — on the new-tab page — these belong to the text
     // field that has the focus, and have to reach it.
     case 'paste':

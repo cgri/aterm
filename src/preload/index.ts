@@ -12,6 +12,7 @@ import type {
   SessionDetectedEvent,
   StartSpec,
   StartResult,
+  TabImagesEvent,
   TabCloseRequest,
   TabOpenRequest,
   TabRequestAnswer,
@@ -101,6 +102,14 @@ const api = {
     },
     answer: (requestId: string, answer: TabRequestAnswer): void =>
       ipcRenderer.send(IPC.tabsAnswer, requestId, answer)
+  },
+  images: {
+    /** Images a tab's conversation has seen — pasted, or returned by a tool. */
+    onImages: (cb: (e: TabImagesEvent) => void): void => {
+      ipcRenderer.on(IPC.tabImages, (_e, payload: TabImagesEvent) => cb(payload))
+    },
+    /** Opens the file an image was read from in the default viewer, if it still exists. */
+    open: (imageId: string): Promise<boolean> => ipcRenderer.invoke(IPC.imagesOpen, imageId)
   },
   update: {
     /** Newer releases on GitHub; `undefined` when GitHub could not be asked. */
