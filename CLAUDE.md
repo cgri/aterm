@@ -63,6 +63,7 @@ main/                      Node side: owns all processes, files and Claude Code 
   claude/HistoryReader.ts  ~/.claude/history.jsonl → the session list
   claude/transcripts.ts    is a session resumable? (reads the transcript)
   claude/SessionDetector.ts which conversation is a tab in? (shell tabs, and switches)
+  claude/TranscriptImages.ts the images a tab's conversation has seen, served from its transcript
   proc/ProcessTree.ts      one long-lived PowerShell that polls Win32_Process
   proc/orphans.ts          ends tab processes that outlived the aterm that spawned them
   update/releases.ts       newer GitHub releases than the running version
@@ -81,6 +82,8 @@ renderer/src/main.ts       tab lifecycle, panes, persistence — the controller
   updates.ts               update check, tab-bar button and UpdateDialog
   PlanReview.ts            the plan review panel beside a tab's terminal
   planMarkdown.ts          the Markdown a plan is written in, as DOM
+  ImagePanel.ts            the strip of those images beside a tab's terminal
+  ImageViewer.ts           one of them at window size
 ```
 
 `shared/types.ts` is imported by all three via the `@shared` alias (configured in both
@@ -602,6 +605,29 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   Children go behind the active tab, never in front, and into the caller's group, which is
   made for it if the caller has none. `TabState.openedBy` is what `close_tab` checks, and a
   tab that has it opens no tabs of its own.
+- **The images a conversation has seen come out of its transcript, and only from there.**
+  Claude Code draws no image in the terminal, but every one it was shown is in the
+  transcript as a base64 block: a pasted image in a `user` line's content, a Read of an
+  image file or an MCP screenshot inside a `tool_result`. The path a Read named is on the
+  assistant's `tool_use`, matched by `tool_use_id`. `TranscriptImages` follows the
+  transcript of every *running* tab (a Claude tab's conversation, a shell tab's while a
+  `claude` runs in it) off the watcher `SessionDetector` already has, and remembers only
+  where each image is: file, line offset, block. `aterm-image://img/<id>` reads it back
+  on request, so neither memory nor IPC carries image data, and an image stays on show
+  after its file was overwritten — every version of a screenshot taken to the same path
+  is there. Transcripts reach hundreds of megabytes (each image is in a line twice, once
+  more in `toolUseResult`), so a file is read in chunks as Buffers, a line is parsed only
+  once a byte test says it can hold an image or a tool call, and a tab that starts
+  following looks back no further than the last 32 MB. Images a tool *wrote* are not in
+  the transcript and are not shown until Claude reads them; guessing them from Bash
+  command lines was considered and left out.
+  **The strip ages what it shows.** The last three entries are thumbnails, anything older
+  is a grid of small faded tiles, and the move between the two glides (FLIP, as in the
+  tab bar). One path is one entry with a version count; the viewer steps through every
+  image in arrival order, versions included. It can be closed away entirely — a new
+  image or `Ctrl+Shift+I` (`images`) brings it back — and what a tab finds in its history
+  when it starts does not open it, because a restore is not news. A renderer reload makes
+  main forget what it sent (`forgetAll`), so the next `syncImages` sends it again.
 - **A Claude tab that has not registered is waiting for the user.** A session puts its file
   into `~/.claude/sessions/` only once it is past whatever Claude Code asks before it starts
   — the trust question of a folder it does not know, above all — and it sets no title until

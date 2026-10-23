@@ -29,6 +29,11 @@ const PATHS = {
     13,
     '<path d="M1.5 1.5h10v7h-6l-3 3v-3h-1z" stroke-linejoin="round"/>'
   ],
+  image: [
+    13,
+    '<rect x=".5" y="1.5" width="12" height="10" rx="1.5"/><circle cx="4.5" cy="5" r="1.2"/>' +
+      '<path d="M.5 10l3.5-3.5 2.5 2.5 2-2 4 4" stroke-linejoin="round"/>'
+  ],
   dark: [12, '<path d="M10.5 7.6A5 5 0 0 1 4.4 1.5a5 5 0 1 0 6.1 6.1z" stroke-linejoin="round"/>']
 } as const
 

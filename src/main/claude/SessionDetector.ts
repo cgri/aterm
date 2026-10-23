@@ -180,6 +180,7 @@ export class SessionDetector extends EventEmitter {
         if (!filename) return
         const rel = String(filename)
         if (!UUID_JSONL.test(basename(rel))) return
+        this.emit('transcript', rel)
         const fresh = !this.knownTranscripts.has(rel)
         if (fresh) {
           this.knownTranscripts.add(rel)

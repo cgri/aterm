@@ -109,6 +109,7 @@ behind them.
 | `Enter` | On a tab that has not started yet: open it |
 | `Ctrl+Shift+O` | New-tab page (it holds the session list) |
 | `Ctrl+Shift+F` | Search the scrollback |
+| `Ctrl+Shift+I` | Show or close the images the conversation has seen |
 | `Ctrl+V` | Paste — text directly, an image as a file in the temp directory (the path is pasted) |
 | `Alt+V` | Passed through as `ESC v` → Claude Code's own image paste |
 | `Shift+Enter` | Newline in the prompt (`ESC CR`) |
