@@ -1,6 +1,6 @@
 {
   "name": "aterm",
-  "version": "1.21.2",
+  "version": "1.21.3",
   "description": "A lean terminal host with tab and session handling for Claude Code",
   "main": "./out/main/index.js",
   "private": true,
