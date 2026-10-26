@@ -156,6 +156,8 @@ export interface StartSpec {
   worktree?: boolean
   /** The first prompt of a new session. Never used for a resume. */
   initialPrompt?: string
+  /** The display name of a new session (`--name`). Never used for a resume. */
+  sessionName?: string
   cols: number
   rows: number
 }
@@ -245,7 +247,8 @@ export interface TabOpenRequest {
   cwd: string
   prompt: string
   worktree: boolean
-  title?: string
+  /** Names the tab and the session, already safe for a command line. */
+  title: string
 }
 
 /** The renderer's answer to a `TabOpenRequest`, or to closing a tab it opened. */

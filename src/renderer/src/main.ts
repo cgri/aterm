@@ -1188,6 +1188,8 @@ async function launchPane(pane: Pane): Promise<void> {
     resume: tab.kind === 'claude' && tab.everStarted,
     worktree: pane.worktree,
     initialPrompt: pane.initialPrompt,
+    // A tab with a task was named by the session that opened it, see `openRequestedTab`.
+    sessionName: pane.initialPrompt ? tab.summary : undefined,
     cols: size.cols,
     rows: size.rows
   })
