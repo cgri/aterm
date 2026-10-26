@@ -108,6 +108,8 @@ export function claudeLaunch(opts: {
   mcpConfig?: string
   /** The first prompt of a new session, see `StartSpec.initialPrompt`. */
   prompt?: string
+  /** The display name of a new session, see `StartSpec.sessionName`. */
+  name?: string
 }): LaunchSpec {
   const exe = resolveClaudeExe()
   if (!exe) throw new Error('claude.exe not found (set PATH or ATERM_CLAUDE_PATH)')
@@ -119,6 +121,9 @@ export function claudeLaunch(opts: {
 
   // Right behind the session, where nothing can take it for an option's value.
   if (opts.prompt && !opts.resume) claudeArgs.push(promptFileArg(opts.tabId, opts.prompt))
+  // Claude Code names a session after its first prompt, which is now only the request to
+  // read the task file. The name is kept in the transcript, so a resume does not need it.
+  if (opts.name && !opts.resume) claudeArgs.push(`--name=${opts.name}`)
 
   if (opts.planSettings) claudeArgs.push('--settings', opts.planSettings)
   // Attached with `=`: `--mcp-config` takes any number of values, and in the separate

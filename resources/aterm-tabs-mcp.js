@@ -51,9 +51,12 @@ const TOOLS = [
           enum: ['auto', 'worktree', 'inplace'],
           description: 'Leave at "auto" unless the user asked for one.'
         },
-        title: { type: 'string', description: 'A few words naming the task, shown on the tab.' }
+        title: {
+          type: 'string',
+          description: 'One to five words naming the task, e.g. "Fix login timeout". Names the tab and the new session.'
+        }
       },
-      required: ['cwd', 'prompt']
+      required: ['cwd', 'prompt', 'title']
     }
   },
   {

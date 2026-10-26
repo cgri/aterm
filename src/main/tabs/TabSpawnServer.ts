@@ -195,7 +195,8 @@ export class TabSpawnServer extends EventEmitter {
     if (!['auto', 'worktree', 'inplace'].includes(isolation)) {
       return { ok: false, error: 'isolation must be auto, worktree or inplace.' }
     }
-    const title = typeof args.title === 'string' && args.title.trim() ? args.title.trim() : undefined
+    const title = typeof args.title === 'string' ? sessionName(args.title) : ''
+    if (!title) return { ok: false, error: 'title must name the task in a few words.' }
 
     const root = await workingTreeRoot(cwd)
     if (isolation === 'worktree' && !root) {
@@ -328,8 +329,8 @@ function isDirectory(path: string): boolean {
  * reports to. The session is told outright that it works with the user, because the
  * obvious reading of a delegated task is to finish it in one reply and report.
  *
- * The task comes first, because it is what the session is named after. One that starts
- * with a dash gets a line in front, a leftover from when it was a command-line argument.
+ * One that starts with a dash gets a line in front, a leftover from when it was a
+ * command-line argument.
  */
 function handOver(task: string, parentName: string | undefined): string {
   const parent = parentName ? `the Claude Code session "${parentName}"` : 'another Claude Code session'
@@ -340,6 +341,21 @@ function handOver(task: string, parentName: string | undefined): string {
     '---',
     `You were opened from aterm by ${parent}. Work on this together with the user in this terminal; it may take many turns. Do not report back after your first reply unless the task is really finished. When it is done, or the user asks you to, send a concise result to ${parentName ? `"${parentName}"` : 'that session'} with SendMessage (ListAgents finds it if that name is gone). You may message it earlier when you need something only it knows.`
   ].join('\n')
+}
+
+/**
+ * The title as `claude --name` gets it. Unlike the task it does go onto the command line,
+ * so it is cut down to words: endpoint protection reads command lines (`promptFileArg`),
+ * and a `::` was enough to get aterm killed. cmd.exe, which runs a `claude.cmd`, would
+ * also act on `&`, `|` and the like.
+ */
+function sessionName(title: string): string {
+  return title
+    .replace(/[^\p{L}\p{N} .,'_-]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s.,'_-]+/, '')
+    .slice(0, 60)
+    .trim()
 }
 
 /** The last few lines a terminal showed, as plain text. */

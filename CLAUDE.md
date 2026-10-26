@@ -588,6 +588,14 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   anything. cmd.exe would also cut it at the first line break. aterm appends a paragraph telling the
   child it works *with the user* and reports when the task is done — not after its first
   reply, which is how a delegated task reads otherwise.
+  **The name is given, because the first prompt no longer says anything.** Claude Code
+  names a session after its first prompt, and "read your task from a file" came out as
+  "Aterm task file" on every tab. So `open_tab` requires a `title`, and the child starts
+  with `--name=<title>`: the terminal title, the session list and `SendMessage` all use it,
+  and Claude Code writes it into the transcript as `custom-title` and generates no
+  `ai-title` beside it (measured in 2.1.310). It is the one piece of free text that does go
+  onto the command line, so `sessionName` cuts it down to letters, digits and plain
+  punctuation first.
   **Isolation is main's decision, not Claude's.** `auto` gives a worktree when the working
   tree has changes or any session — Claude's anywhere, a shell tab's in aterm, the caller's
   own — runs in it, the directory itself otherwise. Opens run one at a time, or two calls at
