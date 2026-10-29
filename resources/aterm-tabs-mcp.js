@@ -30,7 +30,9 @@ const TOOLS = [
       'spans several. The tab opens in the background, next to this one. The new session is ' +
       'told who opened it and messages this session with SendMessage once its task is done, ' +
       'which may take many turns; do not wait or poll for it. Message it yourself with ' +
-      'SendMessage, using the sessionName this returns. aterm decides the isolation for ' +
+      'SendMessage, always by the sessionName this returns - never by the uds: address its ' +
+      'messages come from, which belongs to one process and is gone once the session is ' +
+      'resumed, as all of them are when aterm restarts. aterm decides the isolation for ' +
       '"auto": a fresh git worktree when the working tree has uncommitted changes or another ' +
       'session runs in it (this one included), the directory itself otherwise. Tell the user ' +
       'which isolation each tab got. Claude Code only creates a worktree in a folder the user ' +

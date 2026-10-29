@@ -596,6 +596,12 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `ai-title` beside it (measured in 2.1.310). It is the one piece of free text that does go
   onto the command line, so `sessionName` cuts it down to letters, digits and plain
   punctuation first.
+  **The name is the address, and the first one the registry shows is not it.** A session
+  registers under a name derived from its directory (`ccam2-87`) and takes `--name` a
+  moment later, so `open_tab` waits for the name it gave. Handed the first one, a caller
+  found no session by it and fell back on the `uds:` address the child's messages came
+  from — which belongs to one process and was gone after the next restart of aterm, while
+  the name came back with the resume. Hence the tool's insistence on the name.
   **Isolation is main's decision, not Claude's.** `auto` gives a worktree when the working
   tree has changes or any session — Claude's anywhere, a shell tab's in aterm, the caller's
   own — runs in it, the directory itself otherwise. Opens run one at a time, or two calls at
