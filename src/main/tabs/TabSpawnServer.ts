@@ -216,7 +216,7 @@ export class TabSpawnServer extends EventEmitter {
     })
     if (!answer.ok) return { ok: false, error: answer.error }
 
-    const started = await this.waitForStart(answer.tabId, answer.claudeSessionId)
+    const started = await this.waitForStart(answer.tabId, answer.claudeSessionId, title)
     if ('ended' in started) {
       // A tab whose session never got going would start again on the next click without
       // its task or its worktree — those belong to the first start. It goes.
@@ -237,7 +237,7 @@ export class TabSpawnServer extends EventEmitter {
       cwd: child?.cwd || cwd,
       isolation: worktree ? 'worktree' : 'inplace',
       note: child?.name
-        ? `The session works with the user and will message you with SendMessage when its task is done. Message it as "${child.name}".`
+        ? `The session works with the user and will message you with SendMessage when its task is done. Message it as "${child.name}" - by that name, never by the uds: address its messages come from: that address belongs to one process and is gone once the session is resumed, as every tab is when aterm restarts.`
         : 'The tab is open, but Claude Code asks something there before the session starts - usually whether to trust the folder. The tab is marked as waiting for the user; tell them. Find the session with ListAgents once it has started.'
     }
     return { ok: true, text: JSON.stringify(result, null, 2) }
@@ -268,19 +268,25 @@ export class TabSpawnServer extends EventEmitter {
   }
 
   /**
-   * Waits until the new session shows up in Claude Code's registry, which is where its
-   * name comes from — or until its process ends without ever getting there. Gives up
-   * after `REGISTRY_TIMEOUT_MS` with no session, which is not a failure: a folder Claude
-   * Code has not been trusted in yet holds the session at that question.
+   * Waits until the new session shows up in Claude Code's registry under the name it was
+   * started with — or until its process ends without ever getting there. Gives up after
+   * `REGISTRY_TIMEOUT_MS` with whatever the registry says by then, which is not a failure:
+   * a folder Claude Code has not been trusted in yet holds the session at that question.
+   *
+   * The first name the registry shows is not the one: it registers under a name derived
+   * from the directory (`ccam2-87`) and takes `--name` a moment later. A caller handed
+   * that first name found no session by it, and fell back on the address of the child's
+   * process instead, which was gone after the next restart of aterm.
    */
   private async waitForStart(
     tabId: string,
-    sessionId: string | undefined
+    sessionId: string | undefined,
+    name: string
   ): Promise<{ session?: LiveSession } | { ended: EndedProcess }> {
     const deadline = Date.now() + REGISTRY_TIMEOUT_MS
     for (;;) {
       const session = sessionId ? findLiveSession(sessionId) : undefined
-      if (session?.name) return { session }
+      if (session?.name === name) return { session }
       const ended = this.tabs.ended(tabId)
       if (ended) return { ended }
       if (Date.now() >= deadline) return { session }
@@ -339,7 +345,7 @@ function handOver(task: string, parentName: string | undefined): string {
     body.startsWith('-') ? `Task:\n${body}` : body,
     '',
     '---',
-    `You were opened from aterm by ${parent}. Work on this together with the user in this terminal; it may take many turns. Do not report back after your first reply unless the task is really finished. When it is done, or the user asks you to, send a concise result to ${parentName ? `"${parentName}"` : 'that session'} with SendMessage (ListAgents finds it if that name is gone). You may message it earlier when you need something only it knows.`
+    `You were opened from aterm by ${parent}. Work on this together with the user in this terminal; it may take many turns. Do not report back after your first reply unless the task is really finished. When it is done, or the user asks you to, send a concise result to ${parentName ? `"${parentName}"` : 'that session'} with SendMessage, by that name and never by the uds: address its messages come from, which is gone once that session is resumed (ListAgents finds it if the name is gone). You may message it earlier when you need something only it knows.`
   ].join('\n')
 }
 
