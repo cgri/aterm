@@ -768,9 +768,9 @@ function cycleTab(delta: number): void {
 }
 
 /**
- * The next tab right of the one in front that the bar draws in amber, wrapping round —
- * or, while none is amber, the next one that breathes. Walks `order` rather than what is
- * on screen: a wait inside a folded group counts, and `activate` unfolds it.
+ * The next tab right of the one in front that the bar marks with a red dot, wrapping
+ * round — or, while none has one, the next one that breathes. Walks `order` rather than
+ * what is on screen: a wait inside a folded group counts, and `activate` unfolds it.
  */
 function nextWaitingTab(): void {
   const next = nextTabWhere(wantsUser) ?? nextTabWhere(isWorking)
@@ -1354,7 +1354,7 @@ function installAttentionTracking(): void {
 
 /**
  * The tab is waiting for the user: Claude Code says so in its title, or a plan review
- * is open. The one condition behind the amber tab and the flashing taskbar button.
+ * is open. The one condition behind the red dot and the flashing taskbar button.
  */
 function isWaiting(pane: Pane): boolean {
   return pane.ptyState === 'awaiting' || pane.reviewId !== undefined || pane.heldAtStart
@@ -1390,12 +1390,12 @@ function onSessionRegistered(tabId: string): void {
   render()
 }
 
-/** Working, and not held by a plan review: the breath, and Ctrl+Q while nothing is amber. */
+/** Working, and not held by a plan review: the breath, and Ctrl+Q while no tab has a dot. */
 function isWorking(pane: Pane): boolean {
   return pane.ptyState === 'working' && !pane.reviewId
 }
 
-/** Waiting and not looked at since: the amber tab, the flashing taskbar, Ctrl+Q. */
+/** Waiting and not looked at since: the red dot, the flashing taskbar, Ctrl+Q. */
 function wantsUser(pane: Pane): boolean {
   return isWaiting(pane) && !pane.awaitingSeen
 }
