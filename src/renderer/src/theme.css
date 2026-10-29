@@ -14,8 +14,13 @@
   --ok: #4bbf73;
   --warn: #d9a441;
   --err: #e05561;
-  /* The breath of a working tab. */
-  --busy: #5b9cff;
+  /* How far a working tab breathes at its peak: in its own ink outside a group, in the
+     group's colour inside one. Percentages for color-mix, not opacities. */
+  --breath-loose: 14%;
+  --breath-group: 22%;
+  /* A tab waiting for the user, and how many a folded group holds. */
+  --badge: #e05561;
+  --on-badge: #ffffff;
   --border: #262b36;
   /* The bar's lower edge and the outline of the loose tab in front, which are one stroke.
      Stronger than --border because the terminal and the bar are close in the dark. */
@@ -63,7 +68,11 @@
   --ok: #1f8a4c;
   --warn: #a86a08;
   --err: #c02a37;
-  --busy: #3d86f0;
+  /* Dark ink on the grey tabs reads as a shadow sooner than light ink does as a glow, so
+     the light palette needs less of each for the same strength. */
+  --breath-loose: 10%;
+  --breath-group: 18%;
+  --badge: #c02a37;
   --border: #d3d7de;
   --edge: #c5cad3;
   --hover: #cdd2da;
@@ -365,115 +374,102 @@ body {
   opacity: 0.35;
 }
 
-/* The tab wants something, or is busy. The same breath either way, because what tells
-   them apart is the colour and how far it goes — a still alarm beside a moving activity
-   would put the motion on the one thing the user is allowed to ignore.
+/* The tab is busy: it breathes. Outside a group in the tab's own ink — lighter in the
+   dark palette, darker in the light one — and inside a group in the group's colour, so
+   the breath belongs to the tab rather than reading as a status colour of its own. A
+   single blue for everything was what this used to be.
 
    A wash over the background rather than a keyframe on `background`: the tab may be
    active, grouped or plain, and a keyframe would have to know which colour is underneath.
+   The peak is in the colour (`color-mix`) and the keyframe runs opacity 0 to 1: a custom
+   property in a keyframe is not animatable in Chromium — it snaps at the halfway mark
+   instead of easing, which reads as a blink rather than a breath.
+
+   It fades out towards the foot, so the bottom of the tab keeps its own colour and the tab
+   in front still opens into the terminal mid-breath. On a tab it reaches out over the 2px
+   transparent border every tab carries: inset to the padding box, it left a grey rim
+   around the tab that stood still while the inside breathed.
+
    Note that TabBar.render replaces the whole bar, so any re-render restarts the breath —
    which is also why `readPtyTitle` strips the spinner out of the title: without that the
    bar would be rebuilt about once a second per working tab and nothing would ever breathe
    in peace. */
-.tab.alarm::after,
 .tab.working::after,
-.tabgroup[data-collapsed].alarm::before,
 .tabgroup[data-collapsed].working::before {
+  --breath: var(--fg);
+  --breath-peak: var(--breath-loose);
   content: '';
   position: absolute;
-  inset: 0;
+  inset: -2px -2px 0;
   opacity: 0;
   pointer-events: none;
-  animation-duration: 1.6s;
-  animation-timing-function: ease-in-out;
-  animation-iteration-count: infinite;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--breath) var(--breath-peak), #0000),
+    #0000 85%
+  );
+  animation: breathe 1.6s ease-in-out infinite;
 }
 
-/* Busy. A faint blue, barely there: it says the tab is alive, and nothing more. It fades
-   out towards the foot, so the bottom of the tab keeps its own colour and the tab in front
-   still opens into the terminal mid-breath. A flat wash of --fg darkened the whole active
-   tab in the light palette until it ran into the bar's edge and looked like any other. */
-.tab.working::after,
+.tabgroup .tab.working::after,
 .tabgroup[data-collapsed].working::before {
-  background: linear-gradient(to bottom, var(--busy), #0000 85%);
-  animation-name: breathe-working;
+  --breath: var(--group-color);
+  --breath-peak: var(--breath-group);
 }
 
-/* Waiting for an answer, and not looked at since — the one thing the bar asks about, and
-   word for word what makes the taskbar button flash. The same wash as a working tab, in
-   amber and roughly three times as far: the colour says what it is, the amplitude says
-   how much it matters.
-
-   The wash carries all of it, with no tinted background underneath. A background token
-   plus the wash was the first attempt and it came out a near-solid mustard block that
-   shouted down the whole bar — two knobs where one will do. Everything the alarm needs is
-   derived from --warn, so it follows both palettes on its own.
-
-   Only the text colour is set on the tab itself, and it is set after `.tab.active` so an
-   alarmed inactive tab reads as brightly as an active one. */
-.tab.alarm {
-  color: var(--fg);
-}
-
-/* A folded group reports on the same tab-shaped ground a tab uses, drawn behind its chip
-   rather than on it — the chip stays the group's own colour, and what the bar tints and
-   breathes is a background, exactly as it is for a tab. Washing the chip itself was tried
-   first: amber over blue or green comes out a muddy slate that reads as some other group,
-   not as a tab asking for something.
-
-   `top: 5px` is the tabs' own margin, so the ground lines up with them. */
-.tabgroup[data-collapsed].alarm::before,
+/* A folded group breathes on the same tab-shaped ground a tab uses, drawn behind its chip
+   rather than on it. `top: 5px` is the tabs' own margin, so the ground lines up with them. */
 .tabgroup[data-collapsed].working::before {
   inset: 5px 0 0;
   border-radius: 7px 7px 0 0;
 }
 
-.tab.alarm::after,
-.tabgroup[data-collapsed].alarm::before {
-  background: var(--warn);
-  animation-name: breathe-alarm;
-  animation-duration: 1.4s;
-}
-
-/* Two keyframes and not one parameterised by a custom property: a custom property in a
-   keyframe is not animatable in Chromium — it snaps at the halfway mark instead of
-   easing, which reads as a blink rather than a breath. */
-@keyframes breathe-working {
+@keyframes breathe {
   0%,
   100% {
     opacity: 0;
   }
   50% {
-    opacity: 0.3;
+    opacity: 1;
   }
 }
 
-@keyframes breathe-alarm {
-  0%,
-  100% {
-    opacity: 0.15;
-  }
-  50% {
-    opacity: 0.34;
-  }
-}
-
-/* With motion off the alarm is still an amber tab and the working one is quiet again —
-   the colour was carrying the meaning all along. */
 @media (prefers-reduced-motion: reduce) {
   .tab.working::after,
   .tabgroup[data-collapsed].working::before {
     animation: none;
-    opacity: 0;
   }
+}
 
-  /* The alarm keeps its colour: with the breath gone it is the only thing left saying
-     that this tab is waiting. */
-  .tab.alarm::after,
-  .tabgroup[data-collapsed].alarm::before {
-    animation: none;
-    opacity: 0.26;
-  }
+/* Waiting for an answer, and not looked at since — the one thing the bar asks about, and
+   word for word what makes the taskbar button flash. The tab's mark gives way to a red dot,
+   the way an app icon carries a badge; the glyph comes back once the wait has been seen.
+   It stands still: the only motion left in the bar is work going on.
+
+   It used to be an amber wash that breathed three times as far as the working one. With
+   the working breath in the group's colour that stopped working — the yellow group is
+   amber too, and every hue an alarm could take is next to one of the eight group colours.
+   A dot is told apart by its shape.
+
+   The text colour is set after `.tab.active` so a waiting inactive tab reads as brightly
+   as an active one. */
+.tab.alarm {
+  color: var(--fg);
+}
+
+.mark.waiting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 11px;
+  opacity: 1;
+}
+
+.mark .badge {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--badge);
 }
 
 /* The name is a column of its own, folder above summary, so that the tab's gap stays
@@ -642,6 +638,27 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* How many of a folded group's tabs are waiting, on the chip's corner. The ring in the
+   bar's colour cuts it out of the chip, which is what keeps it readable on a red group.
+   An open group has none: its tabs carry their own dots. */
+.tabgroup-head .count {
+  position: absolute;
+  top: -7px;
+  right: -9px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--badge);
+  color: var(--on-badge);
+  box-shadow: 0 0 0 2px var(--bg-chrome);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 

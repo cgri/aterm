@@ -19,7 +19,10 @@ export interface TabViewModel {
   running: boolean
   /** The program in this tab says it is working on something. */
   working: boolean
-  /** Waiting for input and not looked at since — the one thing the bar asks about. */
+  /**
+   * Waiting for input and not looked at since — the one thing the bar asks about. The
+   * tab's mark gives way to a red dot while it lasts.
+   */
   alarm: boolean
 }
 
@@ -222,16 +225,15 @@ export class TabBar {
     tabs: TabViewModel[],
     activeId: string | undefined
   ): HTMLElement {
-    // A folded group speaks for its members, and it does so with the same tab-shaped
-    // ground a tab uses — not on the chip, which stays the group's own colour. An open
-    // group says nothing: each of its tabs is on show and says it for itself.
-    const alarm = group.collapsed && tabs.some((tab) => tab.alarm)
-    const working = group.collapsed && !alarm && tabs.some((tab) => tab.working)
+    // A folded group speaks for its members: it breathes on the same tab-shaped ground a
+    // tab uses while any of them works, and counts the ones waiting on its chip. The two
+    // no longer exclude each other — one is a breath, the other a number. An open group
+    // says nothing: each of its tabs is on show and says it for itself.
+    const waiting = group.collapsed ? tabs.filter((tab) => tab.alarm).length : 0
+    const working = group.collapsed && tabs.some((tab) => tab.working)
 
     const el = document.createElement('div')
-    el.className = ['tabgroup', alarm ? 'alarm' : working ? 'working' : '']
-      .filter(Boolean)
-      .join(' ')
+    el.className = working ? 'tabgroup working' : 'tabgroup'
     el.dataset.groupColor = group.color
     el.dataset.groupId = group.id
     if (group.collapsed) {
@@ -240,7 +242,7 @@ export class TabBar {
       if (tabs[0]) el.dataset.first = tabs[0].id
     }
 
-    el.appendChild(this.renderGroupHead(group, tabs, alarm, working))
+    el.appendChild(this.renderGroupHead(group, tabs, waiting, working))
     if (!group.collapsed) {
       for (const tab of tabs) el.appendChild(this.renderTab(tab, tab.id === activeId))
     }
@@ -250,7 +252,7 @@ export class TabBar {
   private renderGroupHead(
     group: TabGroupViewModel,
     tabs: TabViewModel[],
-    alarm: boolean,
+    waiting: number,
     working: boolean
   ): HTMLElement {
     const el = document.createElement('div')
@@ -264,9 +266,13 @@ export class TabBar {
     el.dataset.groupColor = group.color
     // The header has no mark of its own, and a folded one no longer shows how many tabs
     // it holds, so both have to be said here.
+    const states = [
+      waiting ? `${waiting} waiting for input` : '',
+      working ? 'a tab is working' : ''
+    ].filter(Boolean)
     el.title = group.collapsed
       ? `Expand group (${tabs.length} ${tabs.length === 1 ? 'tab' : 'tabs'})${
-          alarm ? ' — a tab is waiting for input' : working ? ' — a tab is working' : ''
+          states.length ? ` — ${states.join(', ')}` : ''
         }`
       : 'Collapse group'
 
@@ -277,6 +283,13 @@ export class TabBar {
     name.className = 'tabgroup-name'
     name.textContent = group.name ?? ''
     el.appendChild(name)
+
+    if (waiting) {
+      const count = document.createElement('span')
+      count.className = 'count'
+      count.textContent = String(waiting)
+      el.appendChild(count)
+    }
 
     el.addEventListener('mousedown', (ev) => {
       if (ev.button === 0) this.handlers.onGroupToggle(group.id)
@@ -350,12 +363,22 @@ export class TabBar {
     el.dataset.id = tab.id
     el.title = tab.title
 
-    // Not a state any more: it says what kind of tab this is, and goes faint when
-    // nothing is running in it. What the tab is *doing* is the breath behind it.
+    // The mark says what kind of tab this is, and goes faint when nothing is running in
+    // it. While the tab waits unseen it gives way to a red dot — its icon wearing a badge —
+    // and comes back once the wait has been seen. What the tab is *doing* is the breath
+    // behind it.
     const mark = document.createElement('span')
-    mark.className = `mark${tab.running ? '' : ' idle'}`
-    mark.textContent = tab.agent ? AGENT_MARK : SHELL_MARK
-    mark.title = tab.agent ? 'Claude Code' : 'Terminal'
+    if (tab.alarm) {
+      mark.className = 'mark waiting'
+      mark.title = 'Waiting for input'
+      const badge = document.createElement('span')
+      badge.className = 'badge'
+      mark.appendChild(badge)
+    } else {
+      mark.className = `mark${tab.running ? '' : ' idle'}`
+      mark.textContent = tab.agent ? AGENT_MARK : SHELL_MARK
+      mark.title = tab.agent ? 'Claude Code' : 'Terminal'
+    }
     el.appendChild(mark)
 
     // Folder and summary are wrapped together so the tab's own gap stays between
