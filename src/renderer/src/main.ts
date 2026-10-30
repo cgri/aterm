@@ -6,6 +6,7 @@ import {
   type PlanReviewAnswer,
   type PlanReviewRequest,
   type RecentSession,
+  type SessionStatus,
   type TabGroup,
   type TabGroupColor,
   type TabCloseRequest,
@@ -73,6 +74,12 @@ interface Pane {
   ptyTitle?: string
   /** What the status marker in that title said, if there was one. */
   ptyState?: PtyState
+  /**
+   * What Claude Code's registry says the session is doing, once it has said anything.
+   * It overrules the title: a finished turn shows `✳` while background agents still
+   * run, which is `busy` here. Belongs to the process, like ptyState.
+   */
+  sessionStatus?: SessionStatus
   /**
    * The user has had this tab on screen since it started waiting — active tab,
    * window in the foreground. Until then the wait is news: the dot pulses and
@@ -214,6 +221,7 @@ async function boot(): Promise<void> {
   api.pty.onExit(({ tabId, exitCode, killed }) => onExit(tabId, exitCode, killed))
   api.sessions.onDetected(({ tabId, sessionId }) => onSessionDetected(tabId, sessionId))
   api.sessions.onRegistered((tabId) => onSessionRegistered(tabId))
+  api.sessions.onStatus(({ tabId, status }) => onSessionStatus(tabId, status))
   api.sessions.onAgentActivity(({ running }) => onAgentActivity(running))
   api.system.onOpenDirectory((dir) => void createTab('claude', dir))
   api.plan.onReview((review) => onPlanReview(review))
@@ -468,7 +476,7 @@ async function closeRequestedTab(request: TabCloseRequest): Promise<TabRequestAn
   if (!pane || pane.tab.openedBy !== request.parentTabId) {
     return { ok: false, error: 'This session opened no tab with that id.' }
   }
-  if (pane.ptyState === 'working' || pane.reviewId) {
+  if (isWorking(pane) || pane.reviewId) {
     return { ok: false, error: 'That session is busy. Close it once it waits for input.' }
   }
   await removeTab(pane.tab.id)
@@ -510,7 +518,7 @@ async function closeTab(id: string): Promise<void> {
 async function confirmUpdateInstall(version: string): Promise<boolean> {
   const running = [...panes.values()].filter((p) => p.status === 'running')
   if (running.length === 0) return true
-  const working = running.filter((p) => p.ptyState === 'working')
+  const working = running.filter(isWorking)
 
   const ended =
     running.length === 1 ? 'The running tab is ended' : `The ${running.length} running tabs are ended`
@@ -579,7 +587,7 @@ async function restartTab(id: string): Promise<void> {
 
   // Only a tab in the middle of something is asked about: a restart then cuts off
   // whatever it was doing. Waiting for input, it loses nothing.
-  if (pane.ptyState === 'working') {
+  if (isWorking(pane)) {
     const confirmed = await confirmDialog.ask({
       message: `"${paneTitle(pane)}" is working. Restart it anyway?`,
       confirmLabel: 'Restart'
@@ -1170,6 +1178,7 @@ async function launchPane(pane: Pane): Promise<void> {
     // The next process names itself; until then the tab is back to its own name.
     pane.ptyTitle = undefined
     pane.ptyState = undefined
+    pane.sessionStatus = undefined
     pane.awaitingSeen = false
     dropReview(pane)
   }
@@ -1242,6 +1251,7 @@ function onExit(tabId: string, exitCode: number, killed: boolean): void {
   pane.agentRunning = false
   pane.ptyTitle = undefined
   pane.ptyState = undefined
+  pane.sessionStatus = undefined
   pane.awaitingSeen = false
   // The hook died with the process that ran it; there is nobody left to answer.
   dropReview(pane)
@@ -1353,11 +1363,18 @@ function installAttentionTracking(): void {
 }
 
 /**
- * The tab is waiting for the user: Claude Code says so in its title, or a plan review
- * is open. The one condition behind the red dot and the flashing taskbar button.
+ * The tab is waiting for the user: Claude Code says so in its title or its registry, or
+ * a plan review is open. The one condition behind the red dot and the flashing taskbar
+ * button. A `✳` while the registry says `busy` is a finished turn with background work
+ * still running, which does not need the user yet.
  */
 function isWaiting(pane: Pane): boolean {
-  return pane.ptyState === 'awaiting' || pane.reviewId !== undefined || pane.heldAtStart
+  return (
+    pane.reviewId !== undefined ||
+    pane.heldAtStart ||
+    pane.sessionStatus === 'waiting' ||
+    (pane.ptyState === 'awaiting' && pane.sessionStatus !== 'busy')
+  )
 }
 
 /**
@@ -1390,9 +1407,22 @@ function onSessionRegistered(tabId: string): void {
   render()
 }
 
-/** Working, and not held by a plan review: the breath, and Ctrl+Q while no tab has a dot. */
+/**
+ * Working, by the title or by the registry, and not waiting: the breath, and Ctrl+Q while
+ * no tab has a dot.
+ */
 function isWorking(pane: Pane): boolean {
-  return pane.ptyState === 'working' && !pane.reviewId
+  return (pane.ptyState === 'working' || pane.sessionStatus === 'busy') && !isWaiting(pane)
+}
+
+/** Claude Code's registry says something new about what a tab's session is doing. */
+function onSessionStatus(tabId: string, status: SessionStatus): void {
+  const pane = panes.get(tabId)
+  if (!pane || pane.status !== 'running' || pane.sessionStatus === status) return
+  const waited = isWaiting(pane)
+  pane.sessionStatus = status
+  settleWaiting(pane, waited)
+  render()
 }
 
 /** Waiting and not looked at since: the red dot, the flashing taskbar, Ctrl+Q. */

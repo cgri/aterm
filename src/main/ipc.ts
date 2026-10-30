@@ -33,6 +33,7 @@ export const IPC = {
   ptyExit: 'pty:exit',
   sessionDetected: 'session:detected',
   sessionRegistered: 'session:registered',
+  sessionStatus: 'session:status',
   agentActivity: 'agent:activity',
   openDirectory: 'app:open-directory',
   updateProgress: 'update:progress',

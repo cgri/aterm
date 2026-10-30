@@ -10,6 +10,7 @@ import type {
   PtyExitEvent,
   RecentSession,
   SessionDetectedEvent,
+  SessionStatusEvent,
   StartSpec,
   StartResult,
   TabCloseRequest,
@@ -51,6 +52,10 @@ const api = {
     /** A Claude tab's session has registered with Claude Code: it got past its startup questions. */
     onRegistered: (cb: (tabId: string) => void): void => {
       ipcRenderer.on(IPC.sessionRegistered, (_e, tabId: string) => cb(tabId))
+    },
+    /** What a Claude tab's session is doing, by Claude Code's registry. Sent on change. */
+    onStatus: (cb: (e: SessionStatusEvent) => void): void => {
+      ipcRenderer.on(IPC.sessionStatus, (_e, payload: SessionStatusEvent) => cb(payload))
     },
     onAgentActivity: (cb: (e: AgentActivityEvent) => void): void => {
       ipcRenderer.on(IPC.agentActivity, (_e, payload: AgentActivityEvent) => cb(payload))

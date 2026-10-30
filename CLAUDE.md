@@ -472,6 +472,16 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   Re-deciding it on every title would be wrong — Claude Code keeps rewriting the text while it
   waits, which would un-see a tab the user has meanwhile left. Not persisted: it answers one
   wait of one process, like `ptyState` itself.
+- **The registry's `status` overrules the title.** `✳` only says the turn is over; it
+  shows just the same while background agents or workflows still run. Claude Code's
+  registry file (`~/.claude/sessions/<pid>.json`, see layer 4) says `busy` then, `waiting`
+  for an open question or dialog, and `idle` once nothing is left. `SessionDetector` sends
+  each change as `session:status`, and `isWaiting` takes `waiting`, or `✳` unless `busy` —
+  so a tab whose agents still run breathes instead of wearing the red dot, and a tab that
+  is done or asks something gets it. Background shells and scheduled wakeups do not count
+  as `busy` (read out of the 2.1.314 binary, `delegatedActive`), so such a tab still
+  reports done too early. Any other value, or none, leaves the title to decide. Shell tabs
+  are not matched to the registry and keep going by the title alone.
 - **An unseen wait flashes the taskbar button.** `updateAttention` (renderer) sends
   `app:set-attention` whenever *any* tab is waiting unseen, deduplicated because a working tab
   re-renders about once a second; `main/index.ts` turns it into `win.flashFrame`. Two rules

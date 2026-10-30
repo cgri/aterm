@@ -13,6 +13,7 @@ import type {
   PtyDataEvent,
   PtyExitEvent,
   SessionDetectedEvent,
+  SessionStatusEvent,
   StartSpec,
   TabCloseRequest,
   TabOpenRequest,
@@ -306,6 +307,7 @@ function registerIpc(): void {
   })
 
   detector.on('registered', (tabId: string) => send(IPC.sessionRegistered, tabId))
+  detector.on('status', (e: SessionStatusEvent) => send(IPC.sessionStatus, e))
   detector.on('detected', (e: SessionDetectedEvent) => {
     rememberConversation(e)
     send(IPC.sessionDetected, e)
