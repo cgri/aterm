@@ -329,14 +329,21 @@ body {
   height: 6px;
   pointer-events: none;
   background:
-    /* The two arcs, on top of everything else. */
-    radial-gradient(circle 6px at 0 0, #0000 0 4px, var(--tab-ring, var(--accent)) 4px 6px, #0000 6px)
+    /* The two arcs, on top of everything else. Each edge fades over one pixel, centred on
+       it: a gradient's hard stops are not antialiased the way `border-radius` is, and the
+       arcs came out as stairs next to the smooth corners at the tab's top. */
+    radial-gradient(
+        circle 7px at 0 0,
+        #0000 3.5px,
+        var(--tab-ring, var(--accent)) 4.5px 5.5px,
+        #0000 6.5px
+      )
       left bottom / 6px 6px no-repeat,
     radial-gradient(
-        circle 6px at 100% 0,
-        #0000 0 4px,
-        var(--tab-ring, var(--accent)) 4px 6px,
-        #0000 6px
+        circle 7px at 100% 0,
+        #0000 3.5px,
+        var(--tab-ring, var(--accent)) 4.5px 5.5px,
+        #0000 6.5px
       )
       right bottom / 6px 6px no-repeat,
     /* Under them, the tab's own colour across its whole foot. A border runs the full
