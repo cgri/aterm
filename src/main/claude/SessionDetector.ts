@@ -9,7 +9,7 @@ import {
   type FSWatcher
 } from 'node:fs'
 import { basename, join } from 'node:path'
-import type { SessionDetectedEvent } from '@shared/types'
+import type { SessionDetectedEvent, SessionStatus, SessionStatusEvent } from '@shared/types'
 import { readJsonFile } from '../util/json'
 import { projectsDir, sessionsDir } from './paths'
 import {
@@ -68,8 +68,14 @@ export class SessionDetector extends EventEmitter {
   private shellTabs: ShellTabInfo[] = []
   private claudeTabs: ClaudeTabInfo[] = []
   private lastSwitchCheck = new Map<string, number>()
-  /** tabId → the `claude` pid that answers for it, and the pty it was learned from. */
-  private registryPids = new Map<string, { ptyPid: number; claudePid: number }>()
+  /**
+   * tabId → the `claude` pid that answers for it, the pty it was learned from, and the
+   * status it last reported.
+   */
+  private registryPids = new Map<
+    string,
+    { ptyPid: number; claudePid: number; status?: SessionStatus }
+  >()
   private startedAt = Date.now()
 
   constructor(userDataDir: string) {
@@ -325,9 +331,18 @@ export class SessionDetector extends EventEmitter {
 
     // The first entry for this process: the session is past whatever Claude Code asks
     // before it starts, which is when it registers — the trust question, most of all.
-    const known = this.registryPids.get(target.tabId)?.ptyPid === target.pid
-    this.registryPids.set(target.tabId, { ptyPid: target.pid, claudePid: entry.pid })
+    const previous = this.registryPids.get(target.tabId)
+    const known = previous?.ptyPid === target.pid
+    this.registryPids.set(target.tabId, {
+      ptyPid: target.pid,
+      claudePid: entry.pid,
+      status: entry.status
+    })
     if (!known) this.emit('registered', target.tabId)
+    // The file is rewritten far more often than the status changes.
+    if (entry.status && (!known || previous?.status !== entry.status)) {
+      this.emit('status', { tabId: target.tabId, status: entry.status } satisfies SessionStatusEvent)
+    }
     if (target.conversationId === entry.sessionId) return
 
     target.conversationId = entry.sessionId

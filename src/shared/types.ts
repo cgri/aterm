@@ -131,6 +131,18 @@ export interface SessionDetectedEvent {
   source: 'wrapper' | 'transcript' | 'switch' | 'registry'
 }
 
+/**
+ * What Claude Code's registry says a Claude tab's session is doing. `busy` also covers
+ * a finished turn while background agents or workflows still run; background shells
+ * and scheduled wakeups do not count, so the session reads `idle` then.
+ */
+export type SessionStatus = 'busy' | 'idle' | 'waiting'
+
+export interface SessionStatusEvent {
+  tabId: string
+  status: SessionStatus
+}
+
 export interface AgentActivityEvent {
   /** tabId → is a claude.exe descendant running in that tab right now? */
   running: Record<string, boolean>
