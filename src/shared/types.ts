@@ -131,6 +131,18 @@ export interface SessionDetectedEvent {
   source: 'wrapper' | 'transcript' | 'switch' | 'registry'
 }
 
+/**
+ * What Claude Code's registry says a Claude tab's session is doing. `busy` also covers
+ * a finished turn while background agents or workflows still run; background shells
+ * and scheduled wakeups do not count, so the session reads `idle` then.
+ */
+export type SessionStatus = 'busy' | 'idle' | 'waiting'
+
+export interface SessionStatusEvent {
+  tabId: string
+  status: SessionStatus
+}
+
 /** An image a tab's conversation has seen, found in its transcript. */
 export interface TranscriptImage {
   id: string
@@ -177,6 +189,8 @@ export interface StartSpec {
   worktree?: boolean
   /** The first prompt of a new session. Never used for a resume. */
   initialPrompt?: string
+  /** The display name of a new session (`--name`). Never used for a resume. */
+  sessionName?: string
   cols: number
   rows: number
 }
@@ -266,7 +280,8 @@ export interface TabOpenRequest {
   cwd: string
   prompt: string
   worktree: boolean
-  title?: string
+  /** Names the tab and the session, already safe for a command line. */
+  title: string
 }
 
 /** The renderer's answer to a `TabOpenRequest`, or to closing a tab it opened. */

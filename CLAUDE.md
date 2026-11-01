@@ -331,15 +331,16 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   length while loose ones shrank — and the `min-width: 0` that answered that let the box
   shrink below its tabs, so in a full bar each group started on top of the one before, a
   little further each time.
-- **A collapsed group speaks for its members**, in the same two states a tab has: it takes
-  the alarm if any of them is waiting unseen, and the breath if any is working. Alarm wins,
-  as it does on a tab. Its tooltip says which, because the chip has no mark of its own to
-  say it — see the next entry for why there is nothing else to report.
-  **What it reports is drawn behind the chip, not on it.** A folded group grows a
-  tab-shaped ground in the same place a tab has one (`.tabgroup[data-collapsed]` with the
-  wash on its `::before`), and that is what tints and breathes; the chip keeps the group's
-  own colour. Washing the chip itself was tried first and amber over blue or green came out
-  a muddy slate that read as some other group rather than as a tab asking for something.
+- **A collapsed group speaks for its members**, in the same two states a tab has: it counts
+  the ones waiting unseen on its chip (`.count`, a red badge ringed in the bar's colour) and
+  breathes if any is working. The two no longer exclude each other — one is a number, the
+  other a breath. Its tooltip says both, in words. An open group shows no count: its tabs
+  carry their own dots.
+  **The breath is drawn behind the chip, not on it.** A folded group grows a tab-shaped
+  ground in the same place a tab has one (`.tabgroup[data-collapsed]` with the wash on its
+  `::before`), and that is what breathes, in the group's colour; the chip keeps its own.
+  Washing the chip itself was tried first, back when the alarm was an amber wash, and amber
+  over blue or green came out a muddy slate that read as some other group.
   `awaitingSeen` and `updateAttention` are untouched by any of this: the first cannot be
   answered for a tab that is not active, which is exactly right, and the second walks
   `panes` rather than `order`, so the taskbar still flashes for a wait inside a folded
@@ -412,24 +413,29 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   (`hasTranscript`), so the tab gets a fresh one.
 - **The tab bar says three things, and only three.** What kind of tab this is (`✳` for an
   agent, `❯` for a shell — `.mark`, faint while no process runs), that something is
-  happening (a breath), and whether it concerns the user (the breath is amber). That is the
-  whole vocabulary. It replaced a dot in five colours with two animations, which was a lot
-  of grammar for very little said, and which a folded group header then had to repeat.
-  Two rules hold it together:
+  happening (a breath), and whether it concerns the user (a red dot in place of the mark,
+  a count on a folded group's chip). That is the whole vocabulary. It replaced a dot in
+  five colours with two animations, which was a lot of grammar for very little said, and
+  which a folded group header then had to repeat. Two rules hold it together:
   **The alarm is word for word `updateAttention`'s condition** — waiting for input and not
   looked at since. The tab bar and the taskbar button say the same thing or neither does;
   if one of them ever grows a case the other lacks, that is the bug.
-  **Both live states breathe, and colour is what separates them.** The alarm does not sit
-  still: a still alarm beside a moving activity would put the motion on the one thing the
-  user is allowed to ignore. They are told apart by colour (`--busy` vs `--warn`) and by
-  amplitude — the alarm swings about three times as far, and both were measured against
-  each other in the running window rather than picked. The wash is a `::after` over the
-  tab, not a keyframe on `background`, because a tab may be active, grouped or plain and a
-  keyframe would have to know which colour is underneath. The working wash fades out
-  towards the tab's foot: a flat one darkened the active tab in the light palette until it
-  could not be told from the others. Under `prefers-reduced-motion`
-  the working wash goes to nothing and the alarm holds its amber — the colour was carrying
-  the meaning all along.
+  **Work breathes in the tab's own colour; a wait is a shape.** A working tab breathes in
+  its own ink outside a group (`--fg`: lighter in the dark palette, darker in the light
+  one) and in `--group-color` inside one, at peaks set per palette (`--breath-loose`,
+  `--breath-group` — the light palette needs less). A waiting tab's mark gives way to a
+  still red dot, and the glyph comes back once the wait is seen. That replaced a blue
+  working breath and an amber alarm breath three times as far: with the breath in the
+  group's colour the amber could no longer be told from the yellow group, and every hue an
+  alarm could take sits next to one of the eight. A dot is told apart by its shape, so the
+  alarm no longer has to move to be noticed. The wash is a `::after` over the tab, not a
+  keyframe on `background`, because a tab may be active, grouped or plain and a keyframe
+  would have to know which colour is underneath; it reaches out over the 2px transparent
+  border, or a grey rim stood still around a breathing tab. Its peak is in the colour
+  (`color-mix`) and the keyframe runs opacity 0 to 1 — a custom property in a keyframe
+  snaps instead of easing in Chromium. The wash fades out towards the tab's foot: a flat
+  one darkened the active tab in the light palette until it could not be told from the
+  others. Under `prefers-reduced-motion` the breath goes to nothing; the dot never moved.
 - **The terminal title carries a state marker.** A program naming itself through OSC 0/2
   names its tab (`term.onTitleChange`). Claude Code
   puts its state in front: a spinner while it works, changing about once a second, and
@@ -469,11 +475,21 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   Re-deciding it on every title would be wrong — Claude Code keeps rewriting the text while it
   waits, which would un-see a tab the user has meanwhile left. Not persisted: it answers one
   wait of one process, like `ptyState` itself.
+- **The registry's `status` overrules the title.** `✳` only says the turn is over; it
+  shows just the same while background agents or workflows still run. Claude Code's
+  registry file (`~/.claude/sessions/<pid>.json`, see layer 4) says `busy` then, `waiting`
+  for an open question or dialog, and `idle` once nothing is left. `SessionDetector` sends
+  each change as `session:status`, and `isWaiting` takes `waiting`, or `✳` unless `busy` —
+  so a tab whose agents still run breathes instead of wearing the red dot, and a tab that
+  is done or asks something gets it. Background shells and scheduled wakeups do not count
+  as `busy` (read out of the 2.1.314 binary, `delegatedActive`), so such a tab still
+  reports done too early. Any other value, or none, leaves the title to decide. Shell tabs
+  are not matched to the registry and keep going by the title alone.
 - **An unseen wait flashes the taskbar button.** `updateAttention` (renderer) sends
   `app:set-attention` whenever *any* tab is waiting unseen, deduplicated because a working tab
   re-renders about once a second; `main/index.ts` turns it into `win.flashFrame`. Two rules
   there: never flash while the window is in the foreground — the user is already here and the
-  amber tab says the rest — and re-evaluate on `focus` *and* `blur`, because Windows stops a
+  red dot says the rest — and re-evaluate on `focus` *and* `blur`, because Windows stops a
   flash by itself the moment the window comes forward, whether or not the tab that asked was
   ever looked at. So the flash comes back on the next blur until the last unseen wait is seen.
   A `setOverlayIcon` badge was tried as a second marker, for the stretch the flash cannot cover
@@ -543,7 +559,7 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   A `PermissionRequest` hook can answer that menu, with `updatedPermissions` setting the
   mode (`setMode`, `auto` or `default`) and `updatedInput` the plan, but it runs *beside*
   the menu: answered in the terminal, the menu goes away and the hook goes on running, so
-  a review held there would sit open, and amber, until the timeout. So the review stays in
+  a review held there would sit open, and marked as waiting, until the timeout. So the review stays in
   PreToolUse, and an approval ends it with *no decision* and is put aside
   (`PlanReviewServer.approvals`, by tab, checked against the plan, gone after 30 s); the
   same script registered as PermissionRequest hook picks it up and answers the menu at
@@ -591,6 +607,20 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   anything. cmd.exe would also cut it at the first line break. aterm appends a paragraph telling the
   child it works *with the user* and reports when the task is done — not after its first
   reply, which is how a delegated task reads otherwise.
+  **The name is given, because the first prompt no longer says anything.** Claude Code
+  names a session after its first prompt, and "read your task from a file" came out as
+  "Aterm task file" on every tab. So `open_tab` requires a `title`, and the child starts
+  with `--name=<title>`: the terminal title, the session list and `SendMessage` all use it,
+  and Claude Code writes it into the transcript as `custom-title` and generates no
+  `ai-title` beside it (measured in 2.1.310). It is the one piece of free text that does go
+  onto the command line, so `sessionName` cuts it down to letters, digits and plain
+  punctuation first.
+  **The name is the address, and the first one the registry shows is not it.** A session
+  registers under a name derived from its directory (`ccam2-87`) and takes `--name` a
+  moment later, so `open_tab` waits for the name it gave. Handed the first one, a caller
+  found no session by it and fell back on the `uds:` address the child's messages came
+  from — which belongs to one process and was gone after the next restart of aterm, while
+  the name came back with the resume. Hence the tool's insistence on the name.
   **Isolation is main's decision, not Claude's.** `auto` gives a worktree when the working
   tree has changes or any session — Claude's anywhere, a shell tab's in aterm, the caller's
   own — runs in it, the directory itself otherwise. Opens run one at a time, or two calls at
@@ -633,7 +663,7 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   — the trust question of a folder it does not know, above all — and it sets no title until
   then, so the title cannot tell. A normal start registers within a second (measured,
   2.1.306). So a Claude tab whose session has not registered `REGISTER_GRACE_MS` (3 s) after
-  its start is `heldAtStart`, which `isWaiting` counts: amber tab, flashing taskbar, Ctrl+Q.
+  its start is `heldAtStart`, which `isWaiting` counts: red dot, flashing taskbar, Ctrl+Q.
   It matters for a tab opened behind the active one, which would otherwise sit there
   unnoticed. `SessionDetector` reports `registered` the first time it learns a tab's `claude`
   pid. A state marker in the title counts as well, so a `claude` that writes no registry is

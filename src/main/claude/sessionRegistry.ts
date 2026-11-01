@@ -1,5 +1,6 @@
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import type { SessionStatus } from '@shared/types'
 import { readJsonFile } from '../util/json'
 import { sessionsDir } from './paths'
 
@@ -19,7 +20,11 @@ export interface LiveSession {
    * the directory unless the user named the session, and it may change while it runs.
    */
   name?: string
+  /** What it is doing. Undefined for a value this build does not know. */
+  status?: SessionStatus
 }
+
+const STATUSES: readonly string[] = ['busy', 'idle', 'waiting'] satisfies SessionStatus[]
 
 const PID_JSON = /^(\d+)\.json$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -30,6 +35,7 @@ interface Raw {
   cwd?: string
   kind?: string
   name?: string
+  status?: string
 }
 
 /**
@@ -49,7 +55,11 @@ export function readLiveSession(pid: number): LiveSession | undefined {
   if (raw.kind && raw.kind !== 'interactive') return undefined
   if (!raw.sessionId || !UUID.test(raw.sessionId)) return undefined
   const name = typeof raw.name === 'string' && raw.name ? raw.name : undefined
-  return { pid: raw.pid ?? pid, sessionId: raw.sessionId, cwd: raw.cwd ?? '', name }
+  const status =
+    typeof raw.status === 'string' && STATUSES.includes(raw.status)
+      ? (raw.status as SessionStatus)
+      : undefined
+  return { pid: raw.pid ?? pid, sessionId: raw.sessionId, cwd: raw.cwd ?? '', name, status }
 }
 
 /** Every session currently registered. A handful of small files. */

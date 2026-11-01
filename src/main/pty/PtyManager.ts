@@ -116,7 +116,8 @@ export class PtyManager extends EventEmitter {
               worktree: spec.worktree && !resume,
               planSettings: this.planSettings,
               mcpConfig,
-              prompt: spec.initialPrompt
+              prompt: spec.initialPrompt,
+              name: spec.sessionName
             })
           : powershellLaunch(spec.tabId, this.runtimeDir, true, this.planSettings, mcpConfig)
     } catch (err) {
