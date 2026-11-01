@@ -542,6 +542,13 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   downloads the newest release of its own last check and runs only what it verified.
   The portable exe is recognised by `PORTABLE_EXECUTABLE_FILE`, which electron-builder's
   portable launcher sets, and gets the release page instead, as does a dev run.
+  Installing is asked once, by the dialog's own button — what it does to the running
+  tabs is said in the dialog's status line, not in a confirmation after it. "Install
+  when idle" waits until no tab has been working (`isWorking`, the breath) for a second,
+  with the dialog open: closing it stops the wait, because with the dialog gone the user
+  types into a terminal again and aterm would vanish mid-keystroke;
+  a tab waiting for the user counts as idle, and a shell tab running a build does too,
+  because the breath is all it goes by.
   `ATERM_UPDATE_FROM=1.7.0` makes aterm compare as that version, which is the only way to
   see the flow against a real release; a dev run still stops at the release page.
 - **A plan is reviewed beside the terminal, through a hook aterm brings along.**
