@@ -169,7 +169,8 @@ let windowFocused = document.hasFocus()
 
 const themeToggle = new ThemeToggle()
 const updates = new Updates({
-  confirmInstall: (version) => confirmUpdateInstall(version),
+  describeRunning: () => describeRunningTabs(),
+  anyWorking: () => [...panes.values()].some((p) => p.status === 'running' && isWorking(p)),
   onClosed: () => focusFront()
 })
 
@@ -524,18 +525,19 @@ async function closeTab(id: string): Promise<void> {
  * running — but whatever a working tab is in the middle of is cut off, and that is
  * named.
  */
-async function confirmUpdateInstall(version: string): Promise<boolean> {
+/** What installing an update does to the tabs, for the update dialog to say. */
+function describeRunningTabs(): string {
   const running = [...panes.values()].filter((p) => p.status === 'running')
-  if (running.length === 0) return true
+  if (running.length === 0) return ''
   const working = running.filter(isWorking)
 
-  const ended =
-    running.length === 1 ? 'The running tab is ended' : `The ${running.length} running tabs are ended`
-  let message = `aterm restarts to install ${version}. ${ended} and can be started again afterwards.`
-  if (working.length === 1) message += ` "${paneTitle(working[0])}" is still working.`
-  else if (working.length > 1) message += ` ${working.length} of them are still working.`
-
-  return confirmDialog.ask({ message, confirmLabel: 'Restart and install' })
+  let text =
+    running.length === 1
+      ? 'The running tab is ended and can be started again afterwards.'
+      : `The ${running.length} running tabs are ended and can be started again afterwards.`
+  if (working.length === 1) text += ` "${paneTitle(working[0])}" is still working.`
+  else if (working.length > 1) text += ` ${working.length} of them are still working.`
+  return text
 }
 
 /**

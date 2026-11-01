@@ -8,9 +8,18 @@ import { icon } from './icons'
  */
 const CHECK_INTERVAL_MS = 60 * 60 * 1000
 
+/** How long every tab has to have stopped working before a scheduled install runs. */
+const QUIET_MS = 1000
+const QUIET_POLL_MS = 200
+
 export interface UpdatesOptions {
-  /** Installing quits aterm, which ends every running tab — the caller knows which. */
-  confirmInstall: (version: string) => Promise<boolean>
+  /**
+   * Installing quits aterm, which ends every running tab — the caller knows which. Shown
+   * in the dialog instead of asked once more: the button that installs is the question.
+   */
+  describeRunning: () => string
+  /** Whether any tab is working right now — the same as its breathing in the tab bar. */
+  anyWorking: () => boolean
   /** Called after the dialog is gone, so the caller can take the focus back. */
   onClosed: () => void
 }
@@ -25,6 +34,8 @@ export class Updates {
   private readonly dialog: UpdateDialog
   private check?: UpdateCheck
   private phase: UpdatePhase = { kind: 'available' }
+  /** The poll behind a scheduled install, while one is pending. */
+  private quietTimer?: number
 
   constructor(private readonly options: UpdatesOptions) {
     this.button = document.createElement('button')
@@ -33,7 +44,20 @@ export class Updates {
     this.button.hidden = true
     this.button.addEventListener('click', () => this.openDialog())
 
-    this.dialog = new UpdateDialog(() => void this.act(), options.onClosed)
+    this.dialog = new UpdateDialog(
+      () => void this.act(),
+      () => this.toggleSchedule(),
+      options.describeRunning,
+      () => {
+        // Waiting is only safe behind the dialog: with it gone the user types into a
+        // terminal again, and aterm would vanish mid-keystroke.
+        if (this.phase.kind === 'scheduled') {
+          this.stopWaiting()
+          this.setPhase({ kind: 'ready' })
+        }
+        options.onClosed()
+      }
+    )
 
     window.aterm.update.onProgress(({ received, total }) => {
       if (this.phase.kind !== 'downloading' || !total) return
@@ -53,7 +77,7 @@ export class Updates {
 
   private async refresh(): Promise<void> {
     // Once a download has started, the version it is for is the one on offer.
-    if (this.phase.kind === 'downloading' || this.phase.kind === 'ready') return
+    if (this.phase.kind !== 'available' && this.phase.kind !== 'failed') return
     const check = await window.aterm.update.check()
     if (!check) return
     this.check = check.releases.length > 0 ? check : undefined
@@ -83,15 +107,47 @@ export class Updates {
       return
     }
 
-    if (this.phase.kind === 'ready') {
+    if (this.phase.kind === 'ready' || this.phase.kind === 'scheduled') {
       this.dialog.close()
-      if (!(await this.options.confirmInstall(newest.version))) return
-      const result = await window.aterm.update.install()
-      // On success aterm is quitting; there is nothing left to show.
-      if (result.ok) return
-      this.setPhase({ kind: 'failed', error: result.error ?? 'The installer did not start.' })
-      this.openDialog()
+      await this.install()
     }
+  }
+
+  private async install(): Promise<void> {
+    this.stopWaiting()
+    const result = await window.aterm.update.install()
+    // On success aterm is quitting; there is nothing left to show.
+    if (result.ok) return
+    this.setPhase({ kind: 'failed', error: result.error ?? 'The installer did not start.' })
+    this.openDialog()
+  }
+
+  /**
+   * The dialog's second button: install once every tab has stopped working for
+   * `QUIET_MS`, or stop waiting for that. A tab that waits for the user counts as quiet —
+   * it is ended like any other and can be resumed afterwards. The dialog stays open while
+   * it waits, and closing it stops the wait, so nobody is typing when aterm goes.
+   */
+  private toggleSchedule(): void {
+    if (this.phase.kind === 'scheduled') {
+      this.stopWaiting()
+      this.setPhase({ kind: 'ready' })
+      return
+    }
+    if (this.phase.kind !== 'ready') return
+
+    this.setPhase({ kind: 'scheduled' })
+    let quietSince = Date.now()
+    this.quietTimer = window.setInterval(() => {
+      if (this.options.anyWorking()) quietSince = Date.now()
+      else if (Date.now() - quietSince >= QUIET_MS) void this.install()
+    }, QUIET_POLL_MS)
+  }
+
+  private stopWaiting(): void {
+    if (this.quietTimer === undefined) return
+    window.clearInterval(this.quietTimer)
+    this.quietTimer = undefined
   }
 
   private setPhase(phase: UpdatePhase): void {

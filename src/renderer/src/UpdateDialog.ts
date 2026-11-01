@@ -6,6 +6,8 @@ export type UpdatePhase =
   | { kind: 'available' }
   | { kind: 'downloading'; percent: number }
   | { kind: 'ready' }
+  /** Downloaded, and installed by itself once no tab has been working for a second. */
+  | { kind: 'scheduled' }
   | { kind: 'failed'; error: string }
 
 /**
@@ -25,11 +27,16 @@ export class UpdateDialog {
   private readonly notes: HTMLDivElement
   private readonly status: HTMLDivElement
   private readonly primary: HTMLButtonElement
+  private readonly secondary: HTMLButtonElement
   private check?: UpdateCheck
   private open = false
 
   constructor(
     private readonly onPrimary: () => void,
+    /** Install when idle, or stop waiting for that — only offered once downloaded. */
+    private readonly onSecondary: () => void,
+    /** What installing does to the running tabs, read each time the phase is drawn. */
+    private readonly describeRunning: () => string,
     /** Called after the overlay is gone, so the caller can take the focus back. */
     private readonly onClosed: () => void
   ) {
@@ -62,7 +69,9 @@ export class UpdateDialog {
     this.primary = document.createElement('button')
     this.primary.className = 'primary'
     this.primary.addEventListener('click', () => this.onPrimary())
-    actions.append(this.status, later, this.primary)
+    this.secondary = document.createElement('button')
+    this.secondary.addEventListener('click', () => this.onSecondary())
+    actions.append(this.status, later, this.secondary, this.primary)
 
     this.box.append(head, this.notes, actions)
     this.root.appendChild(this.box)
@@ -121,6 +130,7 @@ export class UpdateDialog {
 
     this.status.classList.toggle('error', phase.kind === 'failed')
     this.primary.disabled = false
+    this.secondary.hidden = true
 
     if (check.mode !== 'installer') {
       this.status.textContent =
@@ -133,8 +143,16 @@ export class UpdateDialog {
       this.primary.textContent = `Downloading… ${phase.percent}%`
       this.primary.disabled = true
     } else if (phase.kind === 'ready') {
-      this.status.textContent = 'Downloaded and verified.'
+      this.status.textContent = `Downloaded and verified. ${this.describeRunning()}`.trim()
+      this.secondary.textContent = 'Install when idle'
+      this.secondary.hidden = false
       this.primary.textContent = 'Restart and install'
+    } else if (phase.kind === 'scheduled') {
+      this.status.textContent =
+        `Waiting until no tab has been working for a second. ${this.describeRunning()}`.trim()
+      this.secondary.textContent = 'Stop waiting'
+      this.secondary.hidden = false
+      this.primary.textContent = 'Install now'
     } else if (phase.kind === 'failed') {
       this.status.textContent = phase.error
       this.primary.textContent = 'Try again'
