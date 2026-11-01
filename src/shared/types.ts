@@ -143,6 +143,27 @@ export interface SessionStatusEvent {
   status: SessionStatus
 }
 
+/** An image a tab's conversation has seen, found in its transcript. */
+export interface TranscriptImage {
+  id: string
+  /** `aterm-image://img/<id>` — served by the main process from the transcript. */
+  url: string
+  /** The file a tool read it from, the tool's name, or "Pasted image". */
+  label: string
+  source: 'user' | 'tool'
+  /** Whether a file was named that `images:open` can hand to the default viewer. */
+  hasFile: boolean
+  width?: number
+  height?: number
+}
+
+/** `reset`: the tab follows a conversation anew, and `images` replaces what it had. */
+export interface TabImagesEvent {
+  tabId: string
+  reset: boolean
+  images: TranscriptImage[]
+}
+
 export interface AgentActivityEvent {
   /** tabId → is a claude.exe descendant running in that tab right now? */
   running: Record<string, boolean>
