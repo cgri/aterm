@@ -156,6 +156,14 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   Enter, including the tab that was active last. The one exception is a directory the
   launch itself named — that tab is started and made active, because that is what
   clicking the Explorer entry asked for.
+  **After an update, what ran runs again.** That restart was aterm's, not the user's. When
+  the installer has started, main records the running tabs and the version being installed
+  as `PersistedState.resumeAfterUpdate`; only that version acts on it (`state:load` drops it
+  otherwise, so a failed install does not turn the next ordinary start into a mass resume),
+  and the renderer's first save drops it for good. `resumeAfterUpdate` in `main.ts` starts
+  them one at a time, the active one first, each Claude tab once it has registered or
+  `REGISTER_GRACE_MS` has passed: every `claude` brings up all of the user's MCP servers,
+  and a dozen at once bring the machine to a halt. A tab that was a placeholder stays one.
   **A tab starts the tabs it opened** (`startTeam`), those that have not run yet. A
   session looking for its team after a restart asks `ListAgents`, which lists only running
   sessions; it took the placeholders' sessions for gone and opened the same tasks again
@@ -557,7 +565,8 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   tabs is said in the dialog's status line, not in a confirmation after it. "Install
   when idle" waits until no tab has been working (`isWorking`, the breath) for a second,
   with the dialog open: closing it stops the wait, because with the dialog gone the user
-  types into a terminal again and aterm would vanish mid-keystroke;
+  types into a terminal again and aterm would vanish mid-keystroke — so while it waits,
+  "Later" becomes "Cancel" and is the only way back, there is no "Stop waiting" beside it;
   a tab waiting for the user counts as idle, and a shell tab running a build does too,
   because the breath is all it goes by.
   `ATERM_UPDATE_FROM=1.7.0` makes aterm compare as that version, which is the only way to

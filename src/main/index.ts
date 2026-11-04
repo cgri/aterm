@@ -107,6 +107,13 @@ let appearance: Appearance = 'dark'
 let attentionWanted = false
 
 /**
+ * Set once an update's installer has started and aterm is about to quit for it: the
+ * tabs that were running, to be started again by the version it installs. Only ever
+ * set in that last moment, so every save before it writes nothing here.
+ */
+let resumeAfterUpdate: PersistedState['resumeAfterUpdate']
+
+/**
  * Directories a launch named that the renderer has not taken yet. Tabs belong to
  * the renderer, so a directory is only ever handed over — but `send` drops
  * anything that arrives before the renderer subscribed, and a cold start from the
@@ -373,13 +380,17 @@ function registerIpc(): void {
     ptys.resize(tabId, cols, rows)
   )
 
-  ipcMain.handle(IPC.stateLoad, () => store.load())
+  ipcMain.handle(IPC.stateLoad, () => {
+    const state = store.load()
+    const resume = state.resumeAfterUpdate
+    return resume?.version === app.getVersion() ? state : { ...state, resumeAfterUpdate: undefined }
+  })
   // Window bounds and appearance are known here, not in the renderer, so they are
   // filled in rather than taken from what the renderer sent.
   // A tab's conversation can arrive this way too — the fresh id `PtyManager.start`
   // swapped in, which the renderer saves — so the images follow it from here as well.
   ipcMain.handle(IPC.stateSave, (_e, state: PersistedState) => {
-    store.save({ ...state, window: windowBounds(), appearance })
+    store.save({ ...state, window: windowBounds(), appearance, resumeAfterUpdate })
     syncImages()
   })
 
@@ -483,7 +494,12 @@ function registerIpc(): void {
   // newest release of the last check, and what is run is only what was verified.
   ipcMain.handle(IPC.updateCheck, () => checkForUpdates())
   ipcMain.handle(IPC.updateDownload, () => downloadUpdate((p) => send(IPC.updateProgress, p)))
-  ipcMain.handle(IPC.updateInstall, () => installUpdate())
+  // Taken before the quit kills them: these come back by themselves in the new version.
+  ipcMain.handle(IPC.updateInstall, () =>
+    installUpdate((version) => {
+      resumeAfterUpdate = { version, tabIds: [...ptys.pids().keys()] }
+    })
+  )
 }
 
 // A second launch — the Explorer entry, with aterm already running — never gets a
@@ -542,7 +558,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
-  store?.save({ ...store.current(), window: windowBounds(), appearance })
+  store?.save({ ...store.current(), window: windowBounds(), appearance, resumeAfterUpdate })
   store?.flush()
   history.dispose()
   detector?.stop()

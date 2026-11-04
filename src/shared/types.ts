@@ -92,6 +92,13 @@ export interface PersistedState {
    * the renderer, which applies it before anything is drawn.
    */
   appearance?: Appearance
+  /**
+   * The tabs that were running when aterm quit to install an update, written by the main
+   * process. The version that installer brings is part of it: only that version starts
+   * them again, so an installer that failed does not turn the next ordinary start into
+   * one that resumes everything. Gone with the renderer's first save after that start.
+   */
+  resumeAfterUpdate?: { version: string; tabIds: string[] }
 }
 
 export interface RecentSession {
