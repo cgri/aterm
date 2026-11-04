@@ -109,6 +109,17 @@ interface Unit {
   group?: { collapsed: boolean; members: HTMLElement[] }
 }
 
+/** A tab the strip has scrolled out of sight, with the group it is in, if any. */
+export interface HiddenTab {
+  tab: TabViewModel
+  color?: TabGroupColor
+}
+
+/** How far a cut-off edge fades out, and how close to it a dragged tab scrolls the strip. */
+const EDGE = 28
+/** The fastest the strip scrolls under a dragged tab, in pixels per frame. */
+const DRAG_SCROLL = 14
+
 export interface TabBarHandlers {
   onSelect: (id: string) => void
   onClose: (id: string) => void
@@ -122,6 +133,8 @@ export interface TabBarHandlers {
   onGroupToggle: (groupId: string) => void
   /** Right-click on a group header. */
   onGroupMenu: (groupId: string) => void
+  /** A click on the chip that counts the tabs scrolled out of sight. */
+  onOverflow: (hidden: HiddenTab[]) => void
 }
 
 export class TabBar {
@@ -145,6 +158,28 @@ export class TabBar {
   private carried?: Map<string, number>
 
   /**
+   * The strip scrolls once the tabs no longer fit, without a scrollbar: the wheel scrolls
+   * it, a tab brought to the front is scrolled into sight, and so is a dragged tab held
+   * against an edge. Every render builds a new strip, so where it was scrolled to is kept
+   * here and handed on.
+   */
+  private scrolled = 0
+  /** The tab in front at the last render — the strip only follows it when it changes. */
+  private shown?: string
+  /** "+N": the tabs scrolled out of sight, and the menu that reaches them. */
+  private readonly more: HTMLButtonElement
+  private hidden: HiddenTab[] = []
+  /** Each tab's view model and group colour, to say what a hidden tab is. */
+  private models = new Map<string, HiddenTab>()
+  /** A folded group's tabs, which are not drawn, so its header has to stand for them. */
+  private folded = new Map<string, string[]>()
+  /** Shades over the cut-off ends of the strip, so that a cut reads as "there is more". */
+  private readonly fades = [document.createElement('div'), document.createElement('div')]
+  /** The pointer during a drag, and the frame that scrolls the strip under it. */
+  private dragX?: number
+  private scrollFrame?: number
+
+  /**
    * `trailing` is put at the right end of the bar and survives every re-render —
    * rendering replaces the whole bar, so nothing may be appended from outside.
    *
@@ -160,12 +195,41 @@ export class TabBar {
       if (!this.dragging) return
       ev.preventDefault()
       if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move'
+      this.dragX = ev.clientX
       this.drag(ev.clientX)
+      this.dragScroll()
     })
     // Out of the bar, the preview goes back: letting go there moves nothing.
     root.addEventListener('dragleave', (ev) => {
-      if (this.dragging && !root.contains(ev.relatedTarget as Node | null)) this.restore()
+      if (this.dragging && !root.contains(ev.relatedTarget as Node | null)) {
+        this.dragX = undefined
+        this.restore()
+      }
     })
+
+    this.more = document.createElement('button')
+    this.more.id = 'tabmore'
+    this.more.hidden = true
+    this.more.addEventListener('click', () => this.handlers.onOverflow(this.hidden))
+    this.fades[0].className = 'tabfade left'
+    this.fades[1].className = 'tabfade right'
+
+    // Only where the tabs are: the free stretches of the bar are the window's caption,
+    // and Windows keeps the wheel there to itself.
+    root.addEventListener(
+      'wheel',
+      (ev) => {
+        const strip = this.strip
+        if (ev.ctrlKey || !strip || strip.scrollWidth <= strip.clientWidth) return
+        strip.scrollLeft += Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY
+      },
+      { passive: true }
+    )
+    // A narrower window can put the tab in front out of sight.
+    new ResizeObserver(() => {
+      this.reveal()
+      this.updateOverflow()
+    }).observe(root)
     root.addEventListener('drop', (ev) => {
       const source = this.dragging
       if (!source) return
@@ -195,11 +259,17 @@ export class TabBar {
     // left the title bar with no free space to drag it by.
     const strip = document.createElement('div')
     strip.id = 'tabstrip'
+    if (this.strip) this.scrolled = this.strip.scrollLeft
     this.strip = strip
+    this.models.clear()
+    this.folded.clear()
     for (const item of items) {
       if (item.kind === 'tab') {
+        this.models.set(item.tab.id, { tab: item.tab })
         strip.appendChild(this.renderTab(item.tab, item.tab.id === activeId))
       } else {
+        for (const tab of item.tabs) this.models.set(tab.id, { tab, color: item.group.color })
+        if (item.group.collapsed) this.folded.set(item.group.id, item.tabs.map((tab) => tab.id))
         strip.appendChild(this.renderGroup(item.group, item.tabs, activeId))
       }
     }
@@ -216,8 +286,110 @@ export class TabBar {
     const handle = document.createElement('div')
     handle.id = 'draghandle'
 
-    this.root.replaceChildren(strip, plus, handle, ...this.trailing)
+    this.root.replaceChildren(strip, ...this.fades, this.more, plus, handle, ...this.trailing)
+    strip.scrollLeft = this.scrolled
+    strip.addEventListener('scroll', () => this.updateOverflow(), { passive: true })
+    // Only when the tab in front changes, or a working tab — which renders about once a
+    // second — would keep pulling back a strip the user has scrolled away.
+    const shown = page?.active ? 'page' : activeId
+    this.updateOverflow()
+    if (shown !== this.shown) {
+      this.shown = shown
+      this.reveal()
+      this.updateOverflow()
+    }
+    // A scroll the render made glides like any other move.
     this.glide(drawn, true)
+  }
+
+  /** Scrolls the strip so that the tab in front — or the folded group holding it — is in sight. */
+  private reveal(): void {
+    const strip = this.strip
+    const el = strip?.querySelector<HTMLElement>('.tab.active, .tabgroup-head.active')
+    if (!strip || !el) return
+    const view = strip.getBoundingClientRect()
+    const at = this.box(el)
+    // Clear of the fade, unless it is the first or the last and there is nothing to fade.
+    if (at.left < view.left + EDGE) strip.scrollLeft -= view.left + EDGE - at.left
+    else if (at.right > view.right - EDGE) strip.scrollLeft += at.right - (view.right - EDGE)
+  }
+
+  /**
+   * Counts what the strip has scrolled out of sight on the "+N" chip, red when one of them
+   * waits for the user — the tab's own dot is out of sight with it — and shades the ends
+   * that are cut off. A tab cut in part counts: its close button or its dot may be what
+   * is missing. A folded group stands for all its tabs.
+   */
+  private updateOverflow(again = true): void {
+    const strip = this.strip
+    if (!strip) return
+    const view = strip.getBoundingClientRect()
+    const hidden: HiddenTab[] = []
+    if (strip.scrollWidth > strip.clientWidth + 1) {
+      for (const el of strip.querySelectorAll<HTMLElement>('.tab[data-id], .tabgroup[data-collapsed]')) {
+        const target = el.classList.contains('tabgroup')
+          ? (el.firstElementChild as HTMLElement)
+          : el
+        const at = this.box(target)
+        if (at.left >= view.left - 0.5 && at.right <= view.right + 0.5) continue
+        const ids = el.dataset.id ? [el.dataset.id] : (this.folded.get(el.dataset.groupId ?? '') ?? [])
+        for (const id of ids) {
+          const model = this.models.get(id)
+          if (model) hidden.push(model)
+        }
+      }
+    }
+    this.hidden = hidden
+
+    const waiting = hidden.filter((h) => h.tab.alarm).length
+    const wasHidden = this.more.hidden
+    this.more.hidden = hidden.length === 0
+    this.more.classList.toggle('alarm', waiting > 0)
+    this.more.textContent = `+${hidden.length}`
+    this.more.title =
+      `${hidden.length} more ${hidden.length === 1 ? 'tab' : 'tabs'}` +
+      (waiting ? ` — ${waiting} waiting for input` : '')
+
+    const [left, right] = this.fades
+    left.style.left = `${strip.offsetLeft}px`
+    right.style.left = `${strip.offsetLeft + strip.offsetWidth - EDGE}px`
+    left.hidden = strip.scrollLeft <= 0
+    right.hidden = strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 1
+
+    // The chip takes room from the strip, which can cut off one more tab.
+    if (again && wasHidden !== this.more.hidden) this.updateOverflow(false)
+  }
+
+  /**
+   * Scrolls the strip while a dragged tab is held near one of its ends, faster the closer it
+   * gets, one step a frame — the pointer standing still sends no events to go by.
+   */
+  private dragScroll(): void {
+    if (this.scrollFrame !== undefined) return
+    const speed = this.dragSpeed()
+    if (!speed) return
+    this.scrollFrame = requestAnimationFrame(() => {
+      this.scrollFrame = undefined
+      const strip = this.strip
+      const now = this.dragSpeed()
+      if (!strip || !now || this.dragX === undefined) return
+      strip.scrollLeft += now
+      this.drag(this.dragX)
+      this.dragScroll()
+    })
+  }
+
+  private dragSpeed(): number {
+    const strip = this.strip
+    if (!this.dragging || this.dragX === undefined || !strip) return 0
+    if (strip.scrollWidth <= strip.clientWidth) return 0
+    const view = strip.getBoundingClientRect()
+    const x = this.dragX
+    const pace = (depth: number): number =>
+      Math.ceil((Math.min(depth, EDGE) / EDGE) * DRAG_SCROLL)
+    if (x < view.left + EDGE && strip.scrollLeft > 0) return -pace(view.left + EDGE - x)
+    if (x > view.right - EDGE && x < view.right + EDGE * 3) return pace(x - (view.right - EDGE))
+    return 0
   }
 
   private renderGroup(
@@ -553,7 +725,9 @@ export class TabBar {
       this.dragEl.classList.remove('dragging')
       this.dragEl.style.transform = ''
     }
-    this.dragging = this.dragEl = this.origin = this.pending = undefined
+    this.dragging = this.dragEl = this.origin = this.pending = this.dragX = undefined
+    if (this.scrollFrame !== undefined) cancelAnimationFrame(this.scrollFrame)
+    this.scrollFrame = undefined
     const deferred = this.deferred
     this.deferred = undefined
     if (deferred) this.render(...deferred)
@@ -624,12 +798,17 @@ export class TabBar {
    * Where an element sits in the layout, in viewport x, leaving any transform out. That is
    * what the drag must measure against: the dragged element is drawn away from its place,
    * and while a tab glides, the frame it is drawn at is not its place either.
+   *
+   * The strip is positioned, so it is the offset parent of what it holds and their offsets
+   * are into its content; how far it is scrolled is taken off on the way through.
    */
   private box(el: HTMLElement): { left: number; right: number } {
     let left = this.root.getBoundingClientRect().left
     for (let at: HTMLElement | null = el; at && at !== this.root; ) {
       left += at.offsetLeft
-      at = at.offsetParent as HTMLElement | null
+      const parent = at.offsetParent as HTMLElement | null
+      if (parent && parent === this.strip) left -= parent.scrollLeft
+      at = parent
     }
     return { left, right: left + el.offsetWidth }
   }

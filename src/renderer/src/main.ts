@@ -186,7 +186,17 @@ const tabBar = new TabBar(
     onMove: (source, target) =>
       source.kind === 'tab' ? moveTab(source.id, target) : moveGroup(source.id, target),
     onGroupToggle: (groupId) => toggleGroup(groupId),
-    onGroupMenu: (groupId) => openGroupMenu(groupId)
+    onGroupMenu: (groupId) => openGroupMenu(groupId),
+    onOverflow: (hidden) =>
+      contextMenu.show(
+        hidden.map(({ tab, color }) => ({
+          label: tab.title,
+          color,
+          alarm: tab.alarm,
+          run: () => activate(tab.id, { start: true })
+        })),
+        'Tabs out of sight'
+      )
   },
   [updates.button, themeToggle.element]
 )
