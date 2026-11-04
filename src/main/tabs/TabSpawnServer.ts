@@ -3,7 +3,13 @@ import { EventEmitter } from 'node:events'
 import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
 import { isAbsolute, join, resolve } from 'node:path'
-import type { TabCloseRequest, TabOpenRequest, TabRequestAnswer } from '@shared/types'
+import type {
+  TabCloseRequest,
+  TabOpenRequest,
+  TabRequestAnswer,
+  TextReviewAnswer,
+  TextReviewRequest
+} from '@shared/types'
 import {
   findLiveSession,
   listLiveSessions,
@@ -28,6 +34,26 @@ const ANSWER_TIMEOUT_MS = 15_000
  * holds the session at that question, so this has to give up at some point.
  */
 const REGISTRY_TIMEOUT_MS = 20_000
+
+/**
+ * How long Claude Code lets a call to this server run. `review_text` waits for the user,
+ * who may be at lunch. Without it a stdio server's call is cut off after 30 minutes
+ * without an answer (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`, raised to this by the server's
+ * `timeout`) — read out of the 2.1.318 binary, where the field is documented as the
+ * per-server tool-call timeout.
+ */
+const CALL_TIMEOUT_MS = 24 * 60 * 60 * 1000
+
+/**
+ * How long the renderer has to confirm it shows a review. One sent while it is loading is
+ * dropped by `send`, and the call would wait for nobody until the timeout above.
+ */
+const REVIEW_ACK_MS = 5000
+
+interface Review {
+  settle: (answer: TextReviewAnswer | undefined) => void
+  ack?: NodeJS.Timeout
+}
 
 type Isolation = 'auto' | 'worktree' | 'inplace'
 
@@ -64,10 +90,17 @@ export interface TabProcesses {
  * Tabs belong to the renderer, so this only decides what main can decide — the directory,
  * the isolation, the prompt — and hands the rest over: `open` (TabOpenRequest) and `close`
  * (TabCloseRequest), each answered once through `answer`.
+ *
+ * The third tool, `review_text`, is not about tabs: it holds a text the session means to
+ * post until the user has decided on it in the tab's review panel — `review`
+ * (TextReviewRequest), acknowledged through `acknowledgeReview` and answered through
+ * `answerReview`, or `review-closed` (reviewId) when the call went away first: Esc in the
+ * terminal, which makes Claude Code cancel it, or the session ending.
  */
 export class TabSpawnServer extends EventEmitter {
   private server?: Server
   private readonly pending = new Map<string, (answer: TabRequestAnswer) => void>()
+  private readonly reviews = new Map<string, Review>()
   /** Per process, so a dev run and the installed app each get their own pipe. */
   private readonly pipeName = `aterm-tabs-${process.pid}`
   private readonly configDir: string
@@ -105,6 +138,7 @@ export class TabSpawnServer extends EventEmitter {
   }
 
   stop(): void {
+    // `failAll` gives every open review back as no decision, which is what a quitting aterm means.
     this.failAll('aterm is shutting down.')
     this.server?.close()
     this.server = undefined
@@ -121,7 +155,8 @@ export class TabSpawnServer extends EventEmitter {
           // aterm's own executable, run as plain Node: no Node installation is needed.
           command: process.execPath,
           args: [this.serverScript, '--pipe', this.pipeName, '--tab', tabId],
-          env: { ELECTRON_RUN_AS_NODE: '1' }
+          env: { ELECTRON_RUN_AS_NODE: '1' },
+          timeout: CALL_TIMEOUT_MS
         }
       }
     }
@@ -143,12 +178,31 @@ export class TabSpawnServer extends EventEmitter {
   /** Everything open goes back unanswered — the renderer that held it is gone. */
   failAll(reason: string): void {
     for (const requestId of [...this.pending.keys()]) this.answer(requestId, { ok: false, error: reason })
+    for (const reviewId of [...this.reviews.keys()]) this.answerReview(reviewId, { kind: 'pass' })
+  }
+
+  /** The renderer shows the review and will answer it. */
+  acknowledgeReview(reviewId: string): void {
+    const review = this.reviews.get(reviewId)
+    if (!review?.ack) return
+    clearTimeout(review.ack)
+    review.ack = undefined
+  }
+
+  answerReview(reviewId: string, answer: TextReviewAnswer): void {
+    const review = this.reviews.get(reviewId)
+    this.reviews.delete(reviewId)
+    if (review?.ack) clearTimeout(review.ack)
+    review?.settle(answer)
   }
 
   private accept(socket: Socket): void {
     socket.setEncoding('utf8')
     let buffer = ''
     let taken = false
+    // What to do if the caller hangs up before the answer: Claude Code cancelled the call.
+    let onGone: (() => void) | undefined
+    let answered = false
     socket.on('data', (chunk: string) => {
       if (taken) return
       buffer += chunk
@@ -158,18 +212,23 @@ export class TabSpawnServer extends EventEmitter {
         return
       }
       taken = true
-      void this.handle(buffer.slice(0, end)).then(
-        (reply) => socket.end(`${JSON.stringify(reply)}\n`),
-        (err: unknown) =>
-          socket.end(`${JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) })}\n`)
+      const finish = (reply: Reply): void => {
+        answered = true
+        if (!socket.destroyed) socket.end(`${JSON.stringify(reply)}\n`)
+      }
+      void this.handle(buffer.slice(0, end), (cb) => (onGone = cb)).then(finish, (err: unknown) =>
+        finish({ ok: false, error: err instanceof Error ? err.message : String(err) })
       )
     })
+    socket.on('close', () => {
+      if (!answered) onGone?.()
+    })
     socket.on('error', () => {
-      // The server went away mid-call; nothing to answer.
+      // The server went away mid-call; `close` follows.
     })
   }
 
-  private async handle(line: string): Promise<Reply> {
+  private async handle(line: string, onGone: (cb: () => void) => void): Promise<Reply> {
     const call = parseCall(line)
     if (!call) return { ok: false, error: 'Malformed request.' }
     if (call.tool === 'open_tab') {
@@ -178,7 +237,41 @@ export class TabSpawnServer extends EventEmitter {
       return next
     }
     if (call.tool === 'close_tab') return this.close(call)
+    if (call.tool === 'review_text') return this.review(call, onGone)
     return { ok: false, error: `Unknown tool ${call.tool}.` }
+  }
+
+  /**
+   * Holds the call until the user has decided. Nothing is posted from here: the answer
+   * tells Claude what to do, and an approval hands back the exact text to post, because
+   * the user may have edited it.
+   */
+  private review(call: Call, onGone: (cb: () => void) => void): Promise<Reply> {
+    const { args } = call
+    const text = typeof args.text === 'string' ? args.text : ''
+    if (!text.trim()) return Promise.resolve({ ok: false, error: 'text must not be empty.' })
+    const title = typeof args.title === 'string' && args.title.trim() ? args.title.trim() : 'Text'
+    const target = typeof args.target === 'string' ? args.target.trim() : ''
+    if (!target) return Promise.resolve({ ok: false, error: 'target must say where the text is going.' })
+
+    const request: TextReviewRequest = { reviewId: randomUUID(), tabId: call.tabId, title, target, text }
+    return new Promise((done) => {
+      const review: Review = {
+        settle: (answer) => done(reviewReply(answer)),
+        ack: setTimeout(() => {
+          this.reviews.delete(request.reviewId)
+          review.settle(undefined)
+        }, REVIEW_ACK_MS)
+      }
+      this.reviews.set(request.reviewId, review)
+      onGone(() => {
+        if (!this.reviews.has(request.reviewId)) return
+        this.reviews.delete(request.reviewId)
+        if (review.ack) clearTimeout(review.ack)
+        this.emit('review-closed', request.reviewId)
+      })
+      this.emit('review', request)
+    })
   }
 
   private async open(call: Call): Promise<Reply> {
@@ -306,6 +399,46 @@ export class TabSpawnServer extends EventEmitter {
       })
       this.emit(event, request)
     })
+  }
+}
+
+/**
+ * What Claude is told of the user's decision. An approval repeats the text whole, between
+ * markers, even when it is unchanged: "post exactly this" leaves no room for a draft Claude
+ * still has in mind. No answer at all — the renderer never took the review — is an error,
+ * so Claude falls back on asking in the terminal.
+ */
+function reviewReply(answer: TextReviewAnswer | undefined): Reply {
+  if (!answer) {
+    return { ok: false, error: 'aterm could not show the review. Ask the user in the terminal instead.' }
+  }
+  switch (answer.kind) {
+    case 'approve':
+      return {
+        ok: true,
+        text: [
+          answer.edited
+            ? 'APPROVED WITH EDITS. The user edited the text and approved their version. Post exactly the text between the markers, unchanged - not your own draft.'
+            : 'APPROVED. Post exactly the text between the markers, unchanged.',
+          '<<<TEXT',
+          answer.text,
+          'TEXT>>>'
+        ].join('\n')
+      }
+    case 'revise':
+      return { ok: true, text: `CHANGES REQUESTED. Do not post anything yet.\n\n${answer.feedback}` }
+    case 'reject':
+      return {
+        ok: true,
+        text:
+          'REJECTED. The user does not want this text posted. Do not post it, and do not post a revised version unless the user asks for one.' +
+          (answer.reason ? `\n\nTheir reason:\n${answer.reason}` : '')
+      }
+    case 'pass':
+      return {
+        ok: true,
+        text: 'NO DECISION. The user closed the review without deciding. Do not post the text; ask them in the terminal how to go on.'
+      }
   }
 }
 

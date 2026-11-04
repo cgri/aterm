@@ -600,10 +600,11 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   answered. The keymap leaves every key to the panel while it has the focus
   (`focusOutsideTerminal`), or Ctrl+V would paste into the terminal behind it.
 - **A Claude session can open tabs, and aterm does nothing else for it.** Every Claude
-  session in a tab gets an MCP server, `resources/aterm-tabs-mcp.js`, with two tools:
-  `open_tab` starts a tab with a session of its own and a task as its first prompt, and
-  `close_tab` closes one the caller opened. Finding and messaging each other is Claude Code's
-  own `ListAgents` and `SendMessage` — aterm must not grow a mailbox or a list tool beside
+  session in a tab gets an MCP server, `resources/aterm-tabs-mcp.js`, with three tools:
+  `open_tab` starts a tab with a session of its own and a task as its first prompt,
+  `close_tab` closes one the caller opened, and `review_text` is not about tabs at all (see
+  the next entry). Finding and messaging each other is Claude Code's own `ListAgents` and
+  `SendMessage` — aterm must not grow a mailbox or a list tool beside
   them. The server is aterm's own exe run with `ELECTRON_RUN_AS_NODE`, dependency-free, and
   hands each call down `\\.\pipe\aterm-tabs-<pid>` to `TabSpawnServer`.
   **The tab id comes from the config, never from the environment.** Each tab gets its own
@@ -653,6 +654,25 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   Children go behind the active tab, never in front, and into the caller's group, which is
   made for it if the caller has none. `TabState.openedBy` is what `close_tab` checks, and a
   tab that has it opens no tabs of its own.
+- **A text Claude is about to post is reviewed like a plan, through `review_text`.** A PR
+  description, a ticket, a comment: the session passes the text, what it is and where it is
+  going, and the call blocks until the user decides in the tab's review panel — the plan's
+  `PlanReview` in its text mode. Four answers: approve (the text comes back whole, between
+  markers, so Claude posts that and not its own draft), comments (Claude revises and calls
+  again; the next round is compared like a plan's), reject (with the general comment as the
+  reason), and Esc, no decision. Nothing is posted by aterm; it only holds the call.
+  **The user may edit the text and approve their own version**, but editing and commenting
+  do not mix: a comment is anchored by offsets into the rendered text, so editing is offered
+  only while there are none, and comments made after an edit are on the edited text, which
+  then goes back to Claude with them. Approving is offered only without comments — a
+  comment asks for a change, an approval means "post exactly this".
+  **The call has to outlive a lunch break.** Claude Code ends a stdio MCP call after 30
+  minutes without an answer (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`), unless the server's own
+  `timeout` in the MCP config says more — so each tab's config carries 24 hours. Read out of
+  the 2.1.318 binary and checked with a 4 s value, which ended the call after 4 s. Esc in
+  the terminal makes Claude Code send `notifications/cancelled`; the MCP server hangs up the
+  pipe, and the hang-up is what takes the panel down (`review-closed`). An open review counts
+  as waiting, like a plan's.
 - **The images a conversation has seen come out of its transcript, and only from there.**
   Claude Code draws no image in the terminal, but every one it was shown is in the
   transcript as a base64 block: a pasted image in a `user` line's content, a Read of an

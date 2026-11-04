@@ -28,6 +28,8 @@ export const IPC = {
   planAck: 'plan:ack',
   planAnswer: 'plan:answer',
   tabsAnswer: 'tabs:answer',
+  textAck: 'text:ack',
+  textAnswer: 'text:answer',
 
   // Main → Renderer
   ptyData: 'pty:data',
@@ -40,6 +42,8 @@ export const IPC = {
   updateProgress: 'update:progress',
   planReview: 'plan:review',
   planReviewClosed: 'plan:review-closed',
+  textReview: 'text:review',
+  textReviewClosed: 'text:review-closed',
   tabsOpen: 'tabs:open',
   tabsClose: 'tabs:close',
   tabImages: 'tabs:images'
