@@ -220,9 +220,14 @@ body {
   /* A hairline of bar between the tabs, so the rounded tops read as separate shapes
      without needing a border of their own — and so a group's line shows through
      underneath, unbroken, the way it does in Chrome. The left padding keeps the first
-     thing in the bar — often a group chip — off the window edge. */
+     thing in the bar — often a group chip — off the window edge.
+
+     The right padding is where the flare of a grouped tab in front reaches past it (4px).
+     Without it the last tab's flare was overflow: the strip scrolled by those 4px, cut
+     off the first tab and put up "+1" in a bar with room to spare. */
   gap: 2px;
   padding-left: 4px;
+  padding-right: 4px;
 }
 
 /* The leftover width, and never less than a grabbable strip of it — this is what
