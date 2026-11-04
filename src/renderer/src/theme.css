@@ -232,6 +232,11 @@ body {
 #draghandle {
   flex: 1 1 auto;
   min-width: 44px;
+  /* Said again although the bar says it already: Chromium takes a tab's no-drag region
+     from its box without clipping it by the strip's `overflow`, so the tabs scrolled out
+     past the strip's right end lay over the handle, and a full bar could not be dragged.
+     The regions are applied in document order, and the handle comes after the strip. */
+  -webkit-app-region: drag;
 }
 
 /* Tabs are rounded at the top and flush at the bottom, the shape every browser uses:
