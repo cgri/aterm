@@ -80,7 +80,7 @@ renderer/src/main.ts       tab lifecycle, panes, persistence — the controller
   TerminalView.ts          one xterm.js instance per running tab
   appearance.ts            light/dark/system, applied while the module is imported
   updates.ts               update check, tab-bar button and UpdateDialog
-  PlanReview.ts            the plan review panel beside a tab's terminal
+  PlanReview.ts            the review panel over a tab's terminal: plans and texts
   planMarkdown.ts          the Markdown a plan is written in, as DOM
   ImagePanel.ts            the strip of those images beside a tab's terminal
   ImageViewer.ts           one of them at window size
@@ -562,7 +562,14 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   because the breath is all it goes by.
   `ATERM_UPDATE_FROM=1.7.0` makes aterm compare as that version, which is the only way to
   see the flow against a real release; a dev run still stops at the release page.
-- **A plan is reviewed beside the terminal, through a hook aterm brings along.**
+- **A review lies over the terminal, not beside it.** Plans and texts alike: the panel is
+  absolutely positioned in the tab's `.term-area`, so the terminal keeps its size. Beside
+  it, the terminal was refitted narrower each time a review came and went, and Claude Code
+  redrew and rewrapped everything twice over; and the terminal next to a plan says little
+  more than "here is the plan". Lifting the review (`Show terminal`, `toggleReview`,
+  Ctrl+Shift+P) shows the terminal for scrolling back, with a chip at its top that leads
+  back; the review stays open and the tab keeps waiting. Each new review comes in front.
+- **A plan is reviewed in aterm, through a hook aterm brings along.**
   `PlanReviewServer` opens `\\.\pipe\aterm-plan-<pid>` and writes
   `userData/plan-hook-settings.json`, which registers `resources/aterm-plan-hook.ps1` as a
   `PreToolUse` hook on `ExitPlanMode`. Claude tabs get it as `--settings`, shell tabs as

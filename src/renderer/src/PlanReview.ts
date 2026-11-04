@@ -69,8 +69,8 @@ const QUOTE_LIMIT = 160
 
 /**
  * The review panel of one tab: the plan on the left, comments in the margin beside the
- * passage they are about, and the ways out in the head. It sits next to the terminal
- * rather than over it, so Claude's output stays readable while the plan is.
+ * passage they are about, and the ways out in the head. It lies over the terminal rather
+ * than beside it, and can be lifted off to look at the terminal (`onTerminal`).
  *
  * A text review is the same panel with other ways out — approve, reject — and one thing
  * a plan does not have: the user may edit the text and approve their own version. Editing
@@ -120,7 +120,14 @@ export class PlanReview {
   /** The general comment field's label, which says what that comment is about. */
   private readonly generalLabel: HTMLLabelElement
 
-  constructor(private readonly mode: ReviewMode) {
+  /**
+   * `onTerminal` puts the terminal in front while the review stays open — the panel lies
+   * over the terminal rather than beside it, so this is the way to scroll back in it.
+   */
+  constructor(
+    private readonly mode: ReviewMode,
+    onTerminal: () => void
+  ) {
     const text = mode.kind === 'text'
     this.el = document.createElement('div')
     this.el.className = text ? 'plan-review text-review' : 'plan-review'
@@ -163,6 +170,10 @@ export class PlanReview {
     // Its own row of the head, so a narrow panel wraps the buttons rather than the title.
     const actions = document.createElement('div')
     actions.className = 'plan-actions'
+    // Leftmost, apart from the answers: it answers nothing, it only lifts the panel.
+    const terminalButton = this.button('Show terminal', onTerminal)
+    terminalButton.className = 'plan-terminal'
+    terminalButton.title = 'Ctrl+Shift+P — look at the terminal; the review stays open'
     if (text) {
       this.editButton = this.button('Edit text', () => this.toggleEditing())
       this.rejectButton = this.button('Reject', () => this.reject())
@@ -190,7 +201,7 @@ export class PlanReview {
         this.approveButton
       )
     }
-    head.append(titles, actions)
+    head.append(terminalButton, titles, actions)
 
     this.scroller = document.createElement('div')
     this.scroller.className = 'plan-scroll'

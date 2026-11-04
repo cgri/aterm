@@ -1659,11 +1659,19 @@ body {
 
 /* ---------- Plan review ---------- */
 
-/* Terminal and plan review side by side. The terminal keeps whatever the panel
-   leaves, and refits to it. */
+/* The terminal area and the image strip side by side. A review lies over the terminal
+   rather than beside it: the terminal keeps its size, so Claude Code does not redraw and
+   rewrap everything each time a review comes and goes, and the text gets the full width. */
 .pane-body {
   flex: 1 1 auto;
   min-height: 0;
+  display: flex;
+}
+
+.term-area {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
 }
 
@@ -1673,16 +1681,53 @@ body {
 
 .plan-review {
   display: none;
-  flex: 0 0 min(900px, 62%);
-  min-width: 0;
+  position: absolute;
+  inset: 0;
+  z-index: 20;
   flex-direction: column;
   background: var(--bg-review);
-  border-left: 1px solid var(--border);
   outline: none;
 }
 
 .plan-review.visible {
   display: flex;
+}
+
+/* Lifted to look at the terminal underneath; still open, still waiting. */
+.plan-review.visible.behind {
+  display: none;
+}
+
+/* On a terminal whose review is lifted: says that it is still waiting, and leads back. */
+.review-return {
+  display: none;
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--bg-chrome);
+  color: var(--fg);
+  font: 12px/1.2 var(--font-ui);
+  box-shadow: 0 2px 8px var(--shadow-soft);
+  cursor: default;
+}
+
+.review-return.visible {
+  display: flex;
+}
+
+.review-return .hint {
+  color: var(--fg-dim);
+}
+
+.review-return:hover {
+  background: var(--bg-tab);
 }
 
 /* The images a conversation has seen, as a strip of thumbnails. Always the outermost
@@ -2009,6 +2054,10 @@ body {
   display: flex;
   gap: 24px;
   padding: 22px 20px 32px 34px;
+  /* Text and comment column, centred: over a wide terminal, lines must not run across
+     the whole window. */
+  max-width: 940px;
+  margin: 0 auto;
 }
 
 /* ---------- The plan itself ---------- */
@@ -2390,6 +2439,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  padding: 10px 16px 14px;
+  /* Lined up with the centred text above. */
+  padding: 10px max(16px, calc((100% - 940px) / 2 + 20px)) 14px max(16px, calc((100% - 940px) / 2 + 34px));
   border-top: 1px solid var(--border);
 }
