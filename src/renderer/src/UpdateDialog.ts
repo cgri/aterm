@@ -28,12 +28,13 @@ export class UpdateDialog {
   private readonly status: HTMLDivElement
   private readonly primary: HTMLButtonElement
   private readonly secondary: HTMLButtonElement
+  private readonly later: HTMLButtonElement
   private check?: UpdateCheck
   private open = false
 
   constructor(
     private readonly onPrimary: () => void,
-    /** Install when idle, or stop waiting for that — only offered once downloaded. */
+    /** Install when idle — only offered once downloaded. */
     private readonly onSecondary: () => void,
     /** What installing does to the running tabs, read each time the phase is drawn. */
     private readonly describeRunning: () => string,
@@ -63,8 +64,9 @@ export class UpdateDialog {
     actions.className = 'dialog-actions'
     this.status = document.createElement('div')
     this.status.className = 'update-status'
+    // "Later" until an install is waiting, "Cancel" then: closing stops the wait.
     const later = document.createElement('button')
-    later.textContent = 'Later'
+    this.later = later
     later.addEventListener('click', () => this.close())
     this.primary = document.createElement('button')
     this.primary.className = 'primary'
@@ -131,6 +133,7 @@ export class UpdateDialog {
     this.status.classList.toggle('error', phase.kind === 'failed')
     this.primary.disabled = false
     this.secondary.hidden = true
+    this.later.textContent = 'Later'
 
     if (check.mode !== 'installer') {
       this.status.textContent =
@@ -148,10 +151,11 @@ export class UpdateDialog {
       this.secondary.hidden = false
       this.primary.textContent = 'Restart and install'
     } else if (phase.kind === 'scheduled') {
+      // Cancel is the only way back: closing the dialog is what stops the wait anyway,
+      // and a "stop waiting" beside it did the same while leaving the dialog open.
       this.status.textContent =
-        `Waiting until no tab has been working for a second. ${this.describeRunning()}`.trim()
-      this.secondary.textContent = 'Stop waiting'
-      this.secondary.hidden = false
+        `Installs as soon as no tab is working. ${this.describeRunning()}`.trim()
+      this.later.textContent = 'Cancel'
       this.primary.textContent = 'Install now'
     } else if (phase.kind === 'failed') {
       this.status.textContent = phase.error

@@ -46,7 +46,7 @@ export class Updates {
 
     this.dialog = new UpdateDialog(
       () => void this.act(),
-      () => this.toggleSchedule(),
+      () => this.schedule(),
       options.describeRunning,
       () => {
         // Waiting is only safe behind the dialog: with it gone the user types into a
@@ -124,16 +124,11 @@ export class Updates {
 
   /**
    * The dialog's second button: install once every tab has stopped working for
-   * `QUIET_MS`, or stop waiting for that. A tab that waits for the user counts as quiet —
-   * it is ended like any other and can be resumed afterwards. The dialog stays open while
-   * it waits, and closing it stops the wait, so nobody is typing when aterm goes.
+   * `QUIET_MS`. A tab that waits for the user counts as quiet — it is ended like any
+   * other and started again by the new version. The dialog stays open while it waits,
+   * and closing it (Cancel) stops the wait, so nobody is typing when aterm goes.
    */
-  private toggleSchedule(): void {
-    if (this.phase.kind === 'scheduled') {
-      this.stopWaiting()
-      this.setPhase({ kind: 'ready' })
-      return
-    }
+  private schedule(): void {
     if (this.phase.kind !== 'ready') return
 
     this.setPhase({ kind: 'scheduled' })

@@ -135,15 +135,17 @@ async function fetchInstaller(onProgress: (p: UpdateProgress) => void): Promise<
  * it and starts the new version afterwards. The quit only happens once the installer
  * process exists: a failed start must not take aterm down with nothing to replace it.
  */
-export function installUpdate(): Promise<UpdateResult> {
+export function installUpdate(onStarted: (version: string) => void): Promise<UpdateResult> {
   if (installMode() !== 'installer' || !verified || !existsSync(verified.file)) {
     return Promise.resolve({ ok: false, error: 'No verified installer to run.' })
   }
-  const child = spawn(verified.file, SILENT_INSTALL_ARGS, { detached: true, stdio: 'ignore' })
+  const { version, file } = verified
+  const child = spawn(file, SILENT_INSTALL_ARGS, { detached: true, stdio: 'ignore' })
   return new Promise((resolve) => {
     child.once('error', (err) => resolve({ ok: false, error: `Installer did not start: ${err.message}` }))
     child.once('spawn', () => {
       child.unref()
+      onStarted(version)
       resolve({ ok: true })
       app.quit()
     })

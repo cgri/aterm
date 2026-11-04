@@ -368,6 +368,8 @@ async function boot(): Promise<void> {
   activate(state.activeTabId ?? order[0], { start: false, reveal: false })
   render()
   void refreshClaudeTitles()
+  // Except after an update: that restart was aterm's, not the user's.
+  if (state.resumeAfterUpdate) void resumeAfterUpdate(state.resumeAfterUpdate.tabIds)
 
   // The launch's own directory is the exception — it is started and made active,
   // because that is what clicking the entry in Explorer asked for.
@@ -569,12 +571,11 @@ async function closeTab(id: string): Promise<void> {
 }
 
 /**
- * Installing an update quits aterm, which ends every running tab. They come back as
- * placeholders like after any restart of aterm, so nothing is asked when none is
- * running — but whatever a working tab is in the middle of is cut off, and that is
- * named.
+ * What installing an update does to the tabs, for the update dialog to say. Installing
+ * quits aterm, which ends every running tab, and the new version starts them again
+ * (`resumeAfterUpdate`) — but whatever a working tab is in the middle of is cut off, and
+ * that is named.
  */
-/** What installing an update does to the tabs, for the update dialog to say. */
 function describeRunningTabs(): string {
   const running = [...panes.values()].filter((p) => p.status === 'running')
   if (running.length === 0) return ''
@@ -582,10 +583,10 @@ function describeRunningTabs(): string {
 
   let text =
     running.length === 1
-      ? 'The running tab is ended and can be started again afterwards.'
-      : `The ${running.length} running tabs are ended and can be started again afterwards.`
-  if (working.length === 1) text += ` "${paneTitle(working[0])}" is still working.`
-  else if (working.length > 1) text += ` ${working.length} of them are still working.`
+      ? 'The running tab is restarted after the update.'
+      : `The ${running.length} running tabs are restarted after the update.`
+  if (working.length === 1) text += ` "${paneTitle(working[0])}" is still working and would be interrupted.`
+  else if (working.length > 1) text += ` ${working.length} of them are still working and would be interrupted.`
   return text
 }
 
@@ -1215,6 +1216,33 @@ async function startPane(pane: Pane): Promise<void> {
 function startTeam(pane: Pane): void {
   for (const member of panes.values()) {
     if (member.tab.openedBy === pane.tab.id && member.status === 'stopped') void startPane(member)
+  }
+}
+
+/**
+ * Starts the tabs that were running when aterm quit for an update, and only those: a tab
+ * that was a placeholder before stays one. The tab in front goes first, the rest in bar
+ * order and one at a time — each `claude` brings up every MCP server the user has
+ * configured, and a dozen tabs doing that at once bring the machine to a halt. The next
+ * one goes once a Claude tab's session has registered, or after `REGISTER_GRACE_MS` when
+ * it is held at a question.
+ */
+async function resumeAfterUpdate(tabIds: string[]): Promise<void> {
+  const wanted = new Set(tabIds)
+  const queue = order.filter((id) => wanted.has(id))
+  if (activeId && wanted.has(activeId)) queue.sort((a, b) => Number(b === activeId) - Number(a === activeId))
+
+  for (const id of queue) {
+    const pane = panes.get(id)
+    if (!pane || pane.status !== 'stopped') continue
+    await startPane(pane)
+    if (pane.tab.kind !== 'claude') continue
+    const since = Date.now()
+    // Read through a function: TypeScript keeps the narrowing from above across the awaits.
+    const pending = (): boolean => pane.status === 'running' && !pane.registered
+    while (pending() && Date.now() - since < REGISTER_GRACE_MS) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
   }
 }
 
