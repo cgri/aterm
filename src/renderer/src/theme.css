@@ -195,6 +195,8 @@ body {
 #tabbar .tab,
 #tabbar .tabgroup-head,
 #tabbar #newtab,
+#tabbar #tabmore,
+#tabbar .tabfade,
 #tabbar #update-button,
 #tabbar #theme-toggle {
   -webkit-app-region: no-drag;
@@ -205,10 +207,15 @@ body {
    as far as it has to, and the tabs inside keep their own width and are clipped
    at its edge. Nothing after the strip can be pushed out of the window. */
 #tabstrip {
+  /* Positioned so that it is the offset parent of the tabs: `TabBar.box` measures them
+     into its content and takes off how far it is scrolled. */
+  position: relative;
   display: flex;
   align-items: stretch;
   flex: 0 1 auto;
   min-width: 0;
+  /* Scrolled by TabBar — the wheel, the tab in front, a drag held at an end — and never
+     by a scrollbar, which the bar has no height for. */
   overflow: hidden;
   /* A hairline of bar between the tabs, so the rounded tops read as separate shapes
      without needing a border of their own — and so a group's line shows through
@@ -695,6 +702,66 @@ body {
 #newtab:hover {
   color: var(--fg);
   background: var(--bg-tab);
+}
+
+/* The ends of a strip that is cut off fade into the bar, so the cut reads as "there is
+   more this way". Over the tabs, not a mask on the strip: a mask makes the strip a
+   stacking context, and the bar's lower edge would then be drawn across the tab in front.
+   The edge itself stays clear. `EDGE` in TabBar.ts is the width. */
+.tabfade {
+  position: absolute;
+  top: 0;
+  bottom: 1px;
+  width: 28px;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.tabfade.left {
+  background: linear-gradient(to right, var(--bg-chrome), transparent);
+}
+
+.tabfade.right {
+  background: linear-gradient(to left, var(--bg-chrome), transparent);
+}
+
+.tabfade[hidden] {
+  display: none;
+}
+
+/* "+N": how many tabs the strip has scrolled out of sight, and the menu that lists them.
+   A chip on the bar's middle like a group's, neutral until one of the hidden tabs waits
+   for the user — then it carries the red the tab's own dot would have shown. */
+#tabmore {
+  align-self: center;
+  flex: 0 0 auto;
+  height: 20px;
+  min-width: 28px;
+  margin: 0 2px 0 4px;
+  padding: 0 7px;
+  border: none;
+  border-radius: 10px;
+  background: var(--bg-tab);
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+
+#tabmore:hover {
+  color: var(--fg);
+}
+
+#tabmore.alarm {
+  background: var(--badge);
+  color: var(--on-badge);
+}
+
+#tabmore[hidden] {
+  display: none;
 }
 
 /* Sits at the right end, right next to the native window controls — pushed
@@ -1336,6 +1403,19 @@ body {
 .picker-trailing {
   flex: 0 0 auto;
   color: var(--fg-dim);
+}
+
+.picker-alarm {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--badge);
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+.picker-row.selected .picker-alarm {
+  box-shadow: 0 0 0 1px var(--on-accent);
 }
 
 .picker-row.selected .picker-trailing {

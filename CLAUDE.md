@@ -511,6 +511,17 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   shrink into, so there is always a stretch left to grab — and `#newtab` and the trailing
   buttons can no longer be pushed out of the window either. Anything added to the bar
   belongs before the handle or into `TabBar`'s `trailing`, never in the handle's place.
+- **A full strip scrolls, without a scrollbar.** `#tabstrip` keeps `overflow: hidden` and
+  `TabBar` sets `scrollLeft`: the wheel over the tabs (the free stretches are caption,
+  Windows keeps the wheel there), the tab in front when it *changes* — not on every
+  render, or a working tab would pull back a strip the user scrolled away — and a dragged
+  tab held near an end, one step a frame. Every render builds a new strip, so the scroll
+  is carried over. The strip is positioned so it is its tabs' offset parent, and `box()`
+  takes the scroll off there; the drag and the glide both measure through it. `#tabmore`
+  ("+N") lists every tab not wholly in sight, a folded group as all its tabs, and turns
+  red when one of them waits, because its dot is out of sight with it. The fades at a cut
+  end are overlays (`.tabfade`), not a mask: a mask makes the strip a stacking context and
+  the bar's edge would be drawn across the tab in front.
 - **The palette exists three times over.** `theme.css` holds both palettes, keyed by
   `data-theme` on `<html>`; `TerminalView` holds the xterm.js themes, because xterm draws
   into a canvas and reads no CSS; `CHROME_COLORS` in `main/index.ts` holds the window

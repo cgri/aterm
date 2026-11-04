@@ -6,6 +6,8 @@ export interface MenuItem {
   color?: TabGroupColor
   /** Put at the right end — a check mark against the choice already in force. */
   trailing?: string
+  /** The tab behind this row waits for the user: the red dot it wears in the bar. */
+  alarm?: boolean
   run: () => void
 }
 
@@ -137,6 +139,13 @@ function rowParts(item: MenuItem): HTMLElement[] {
   label.className = 'picker-label'
   label.textContent = item.label
   parts.push(label)
+
+  if (item.alarm) {
+    const dot = document.createElement('span')
+    dot.className = 'picker-alarm'
+    dot.title = 'Waiting for input'
+    parts.push(dot)
+  }
 
   if (item.trailing) {
     const trailing = document.createElement('span')
