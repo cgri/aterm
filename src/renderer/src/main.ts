@@ -113,7 +113,7 @@ interface Pane {
   /** Settled once the session has registered; cleared by every start. */
   registered: boolean
   startTimer?: ReturnType<typeof setTimeout>
-  /** Terminal and plan review side by side. */
+  /** The terminal area, with any review over it, and the image strip beside it. */
   body: HTMLDivElement
   /** Made the first time a plan arrives for this tab. */
   review?: PlanReview
@@ -136,6 +136,13 @@ interface Pane {
    * does, the tab waits for the user like it does on a plan.
    */
   textReview?: PlanReview
+  /**
+   * The open review is lifted off the terminal, so the user can scroll back in it. Every
+   * new review comes in front again; nothing about it is persisted.
+   */
+  reviewBehind: boolean
+  /** The chip on a terminal whose review is lifted: it is still waiting, and leads back. */
+  reviewReturn: HTMLButtonElement
   textReviewId?: string
   textLastRound?: PlanRound
   textDraft?: PlanRound
@@ -301,6 +308,12 @@ async function boot(): Promise<void> {
       },
       toggleSearch: () => searchBar.toggle(activePane()?.el),
       toggleImages: () => activePane()?.images?.toggle() ?? false,
+      toggleReview: () => {
+        const pane = activePane()
+        if (!pane || !reviewOpen(pane)) return false
+        setReviewInFront(pane, pane.reviewBehind)
+        return true
+      },
       changeFontSize: (delta) => changeFontSize(delta),
       startActiveTab: () => {
         const pane = activePane()
@@ -367,8 +380,18 @@ function addPane(tab: TabState): Pane {
   const el = document.createElement('div')
   el.className = 'pane'
 
+  // The terminal and whatever review lies over it; the image strip goes beside this.
   const termHost = document.createElement('div')
-  termHost.style.display = 'contents'
+  termHost.className = 'term-area'
+
+  const reviewReturn = document.createElement('button')
+  reviewReturn.type = 'button'
+  reviewReturn.className = 'review-return'
+  reviewReturn.addEventListener('click', () => {
+    const pane = panes.get(tab.id)
+    if (pane) setReviewInFront(pane, true)
+  })
+  termHost.appendChild(reviewReturn)
 
   const body = document.createElement('div')
   body.className = 'pane-body'
@@ -400,7 +423,9 @@ function addPane(tab: TabState): Pane {
     starting: false,
     heldAtStart: false,
     registered: false,
-    body
+    body,
+    reviewBehind: false,
+    reviewReturn
   }
   panes.set(tab.id, pane)
   if (!order.includes(tab.id)) order.push(tab.id)
@@ -1519,7 +1544,8 @@ function onPlanReview(request: PlanReviewRequest): void {
   pane.review ??= createReview(pane)
   pane.review.show(request.plan, { previous: pane.lastRound, draft: pane.draft })
   settleWaiting(pane, waited)
-  pane.view?.refit()
+  pane.reviewBehind = false
+  layReview(pane)
   if (pane === activePane()) pane.review.focus()
   render()
 }
@@ -1535,8 +1561,10 @@ function createReview(pane: Pane): PlanReview {
         pane.draft = draft
       }
     }
-  })
-  pane.body.appendChild(review.el)
+  }, () => setReviewInFront(pane, false))
+  // Over the terminal, not beside it: the terminal keeps its size, and Claude Code does
+  // not redraw everything each time a review comes and goes.
+  pane.termHost.appendChild(review.el)
   return review
 }
 
@@ -1568,7 +1596,8 @@ function dropReview(pane: Pane): PlanRound | undefined {
   pane.reviewId = undefined
   settleWaiting(pane, waited)
   const draft = pane.review?.hide()
-  pane.view?.refit()
+  pane.reviewBehind = false
+  layReview(pane)
   return draft
 }
 
@@ -1594,7 +1623,8 @@ function onTextReview(request: TextReviewRequest): void {
     heading: { title: request.title, target: request.target }
   })
   settleWaiting(pane, waited)
-  pane.view?.refit()
+  pane.reviewBehind = false
+  layReview(pane)
   if (pane === activePane()) pane.textReview.focus()
   render()
 }
@@ -1613,8 +1643,10 @@ function createTextReview(pane: Pane): PlanReview {
         pane.textDraft = draft
       }
     }
-  })
-  pane.body.appendChild(review.el)
+  }, () => setReviewInFront(pane, false))
+  // Over the terminal, not beside it: the terminal keeps its size, and Claude Code does
+  // not redraw everything each time a review comes and goes.
+  pane.termHost.appendChild(review.el)
   return review
 }
 
@@ -1647,8 +1679,38 @@ function dropTextReview(pane: Pane): PlanRound | undefined {
   pane.textReviewId = undefined
   settleWaiting(pane, waited)
   const draft = pane.textReview?.hide()
-  pane.view?.refit()
+  pane.reviewBehind = false
+  layReview(pane)
   return draft
+}
+
+/** A plan or a text is waiting for the user's decision in this tab. */
+function reviewOpen(pane: Pane): boolean {
+  return pane.reviewId !== undefined || pane.textReviewId !== undefined
+}
+
+/**
+ * Puts the open review over the terminal, or lifts it so the terminal can be scrolled and
+ * searched. Lifted, a chip at the top of the terminal says that the review is still
+ * waiting and leads back. Nothing here answers anything: the tab waits either way.
+ */
+function layReview(pane: Pane): void {
+  const behind = reviewOpen(pane) && pane.reviewBehind
+  pane.review?.el.classList.toggle('behind', behind)
+  pane.textReview?.el.classList.toggle('behind', behind)
+  pane.reviewReturn.classList.toggle('visible', behind)
+  pane.reviewReturn.textContent = pane.textReviewId ? 'Text review waiting' : 'Plan review waiting'
+  const hint = document.createElement('span')
+  hint.className = 'hint'
+  hint.textContent = 'Ctrl+Shift+P'
+  pane.reviewReturn.appendChild(hint)
+}
+
+function setReviewInFront(pane: Pane, front: boolean): void {
+  if (!reviewOpen(pane)) return
+  pane.reviewBehind = !front
+  layReview(pane)
+  if (pane === activePane()) focusPane(pane)
 }
 
 /* ------------------------------------------------------------ Rendering */
@@ -2062,7 +2124,8 @@ function focusFront(): void {
 
 /** A tab's keyboard goes to its plan review while one is open, to the terminal otherwise. */
 function focusPane(pane: Pane): void {
-  if (pane.textReview?.isOpen()) pane.textReview.focus()
+  if (pane.reviewBehind) pane.view?.focus()
+  else if (pane.textReview?.isOpen()) pane.textReview.focus()
   else if (pane.review?.isOpen()) pane.review.focus()
   else pane.view?.focus()
 }

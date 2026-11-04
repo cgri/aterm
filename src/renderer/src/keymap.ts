@@ -18,6 +18,8 @@ export interface KeymapContext {
   toggleSearch(): void
   /** Closes the active tab's image strip, or brings it back. false when it has no images. */
   toggleImages(): boolean
+  /** Between an open review and the terminal under it. false when no review is open. */
+  toggleReview(): boolean
   changeFontSize(delta: number | 'reset'): void
   /** Puts the active tab into a group, or takes it out of one. */
   groupActiveTab(): void
@@ -45,6 +47,7 @@ export type Action =
   | 'sessionPicker'
   | 'search'
   | 'images'
+  | 'toggleReview'
   | 'paste'
   | 'copy'
   | 'quoteSelection'
@@ -72,6 +75,8 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   search: ['Ctrl+Shift+F'],
   // Ctrl+I is Tab to a terminal, so Shift with it takes nothing away from one.
   images: ['Ctrl+Shift+I'],
+  // P for plan. Ctrl+P itself stays the terminal's: only the Shift variant is taken.
+  toggleReview: ['Ctrl+Shift+P'],
   paste: ['Ctrl+V', 'Ctrl+Shift+V'],
   copy: ['Ctrl+Shift+C'],
   quoteSelection: ['Ctrl+Shift+Q'],
@@ -186,7 +191,7 @@ export function installWheelZoom(changeFontSize: (delta: number) => void): void 
 function handle(ev: KeyboardEvent, ctx: KeymapContext, bindings: Bindings): boolean {
   // Overlays (the new-tab page, search) bring their own keyboard handling; only
   // combinations with Ctrl or Alt still get through there.
-  // The same holds for a plan review beside the terminal while it has the keyboard.
+  // The same holds for a review over the terminal while it has the keyboard.
   const elsewhere = focusOutsideTerminal()
   if ((ctx.overlayOpen() || elsewhere) && !ev.ctrlKey && !ev.altKey) return false
 
@@ -225,7 +230,7 @@ const TEXT_ACTIONS = new Set<Action>(['paste', 'copy', 'quoteSelection', 'pasteI
 /**
  * The keyboard is on something in the window other than a terminal — a plan review.
  * Overlays are asked for separately through `overlayOpen`; this covers what sits in a
- * pane beside the terminal.
+ * pane over the terminal.
  */
 function focusOutsideTerminal(): boolean {
   const el = document.activeElement
@@ -273,6 +278,8 @@ function dispatch(action: Action, ctx: KeymapContext, ev: KeyboardEvent): boolea
     // A tab without images lets the key through.
     case 'images':
       return ctx.toggleImages()
+    case 'toggleReview':
+      return ctx.toggleReview()
     // Without a terminal in front — on the new-tab page — these belong to the text
     // field that has the focus, and have to reach it.
     case 'paste':
