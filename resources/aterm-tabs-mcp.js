@@ -2,7 +2,7 @@
 //
 // Claude Code starts it over stdio, as aterm's own executable with
 // ELECTRON_RUN_AS_NODE=1, so it is plain Node without any dependencies. It
-// speaks just enough MCP to offer two tools, and hands every call to the aterm
+// speaks just enough MCP to offer three tools, and hands every call to the aterm
 // that started the tab, over a named pipe: one JSON line there, one back.
 //
 // Arguments: --pipe <name> --tab <tabId>. Both come from the tab's own MCP
@@ -72,20 +72,59 @@ const TOOLS = [
       properties: { tabId: { type: 'string', description: 'The tabId open_tab returned.' } },
       required: ['tabId']
     }
+  },
+  {
+    name: 'review_text',
+    description:
+      'Show the user a text you are about to post or send on their behalf - a PR or MR ' +
+      'description, an issue or ticket, a comment or review, a message - in a review panel ' +
+      'beside this terminal, and wait for their decision. Use it whenever you would otherwise ' +
+      'present such a text for approval. It blocks until the user decides, which may take a ' +
+      'while; do not post anything before it returns APPROVED. The answer is one of: APPROVED ' +
+      '(post exactly the text it returns between the markers - the user may have edited it), ' +
+      'CHANGES REQUESTED (revise as the comments say and call this again with the revised ' +
+      'text), REJECTED (do not post it), or NO DECISION (ask the user in the terminal). Pass ' +
+      'the complete text exactly as it would be posted, title lines included where the target ' +
+      'has them.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: {
+          type: 'string',
+          description: 'What the text is, in a few words, e.g. "PR description" or "Jira comment".'
+        },
+        target: {
+          type: 'string',
+          description:
+            'Where it is going to be posted, e.g. "GitHub cgri/aterm PR #66" or "Jira BIO-1234".'
+        },
+        text: { type: 'string', description: 'The text, in Markdown, exactly as it would be posted.' }
+      },
+      required: ['title', 'target', 'text']
+    }
   }
 ]
+
+/** Calls still waiting for aterm, by JSON-RPC id, so a cancellation can hang up on them. */
+const inFlight = new Map()
+/** Calls Claude Code cancelled, which are not to be answered. */
+const cancelled = new Set()
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`)
 }
 
-function callAterm(tool, args) {
+// `id` is the JSON-RPC id of the call: hanging up the pipe is how aterm learns that
+// Claude Code cancelled it (Esc in the terminal), and takes the review panel down.
+function callAterm(id, tool, args) {
   return new Promise((resolve) => {
     if (!PIPE || !TAB) {
       resolve({ ok: false, error: 'This session is not running in an aterm tab.' })
       return
     }
     const socket = net.connect(`\\\\.\\pipe\\${PIPE}`)
+    inFlight.set(id, socket)
+    socket.on('close', () => inFlight.delete(id))
     let buffer = ''
     socket.setEncoding('utf8')
     socket.on('connect', () => {
@@ -122,7 +161,9 @@ async function handle(message) {
   } else if (method === 'tools/list') {
     send({ jsonrpc: '2.0', id, result: { tools: TOOLS } })
   } else if (method === 'tools/call') {
-    const reply = await callAterm(params && params.name, (params && params.arguments) || {})
+    const reply = await callAterm(id, params && params.name, (params && params.arguments) || {})
+    // A cancelled call gets no answer: Claude Code has stopped waiting for it.
+    if (cancelled.delete(id)) return
     send({
       jsonrpc: '2.0',
       id,
@@ -132,6 +173,13 @@ async function handle(message) {
     })
   } else if (method === 'ping') {
     send({ jsonrpc: '2.0', id, result: {} })
+  } else if (method === 'notifications/cancelled') {
+    const requestId = params && params.requestId
+    const socket = inFlight.get(requestId)
+    if (socket) {
+      cancelled.add(requestId)
+      socket.destroy()
+    }
   } else if (id !== undefined) {
     send({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } })
   }

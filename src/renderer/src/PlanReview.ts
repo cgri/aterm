@@ -12,7 +12,10 @@ export interface PlanComment {
 
 /** What a round of review leaves behind: sent back to Claude, or put aside for later. */
 export interface PlanRound {
+  /** What was reviewed — in a text review, the user's own edit of it, if they made one. */
   plan: string
+  /** A text review: the text as Claude handed it over, before that edit. */
+  original?: string
   comments: PlanComment[]
   general: string
   round: number
@@ -24,6 +27,30 @@ export interface PlanReviewHandlers {
   revise(feedback: string, round: PlanRound): void
   /** Esc: no decision, the terminal asks. What was written so far is handed back. */
   pass(draft: PlanRound): void
+}
+
+/**
+ * A text Claude means to post somewhere on the user's behalf — a PR description, a
+ * comment, a ticket — held by the `review_text` tool until the user decides here.
+ */
+export interface TextReviewHandlers {
+  /** `text` is what is to be posted, word for word; `edited` says the user changed it. */
+  approve(text: string, edited: boolean): void
+  revise(feedback: string, round: PlanRound): void
+  /** Not to be posted at all. `reason` is the general comment, if one was written. */
+  reject(reason?: string): void
+  pass(draft: PlanRound): void
+}
+
+/** What the panel reviews: a plan, through the ExitPlanMode hook, or a text, through MCP. */
+export type ReviewMode =
+  | { kind: 'plan'; handlers: PlanReviewHandlers }
+  | { kind: 'text'; handlers: TextReviewHandlers }
+
+/** What a text review shows in its head: what the text is, and where it is going. */
+export interface TextHeading {
+  title: string
+  target: string
 }
 
 /**
@@ -42,17 +69,30 @@ const QUOTE_LIMIT = 160
 
 /**
  * The review panel of one tab: the plan on the left, comments in the margin beside the
- * passage they are about, and the four ways out in the head. It sits next to the
- * terminal rather than over it, so Claude's output stays readable while the plan is.
+ * passage they are about, and the ways out in the head. It sits next to the terminal
+ * rather than over it, so Claude's output stays readable while the plan is.
+ *
+ * A text review is the same panel with other ways out — approve, reject — and one thing
+ * a plan does not have: the user may edit the text and approve their own version. Editing
+ * and commenting do not mix, because a comment is anchored to the text it was made on:
+ * editing is offered while there are no comments, and comments again once the edit is
+ * done, on the edited text. Approving is offered only while there are no comments — a
+ * comment asks for a change, and approving means "post exactly this".
  */
 export class PlanReview {
   readonly el: HTMLDivElement
+  private readonly title: HTMLSpanElement
   private readonly sub: HTMLSpanElement
   private readonly changesToggle: HTMLLabelElement
   private readonly changesBox: HTMLInputElement
   private readonly sendButton: HTMLButtonElement
-  private readonly manualButton: HTMLButtonElement
-  private readonly autoButton: HTMLButtonElement
+  /** Plan: start with edits approved one by one. Text: unused. */
+  private readonly manualButton?: HTMLButtonElement
+  /** Plan: start in auto mode. Text: approve. The primary button either way. */
+  private readonly approveButton: HTMLButtonElement
+  private readonly rejectButton?: HTMLButtonElement
+  private readonly editButton?: HTMLButtonElement
+  private readonly editor?: HTMLTextAreaElement
   private readonly scroller: HTMLDivElement
   private readonly body: HTMLDivElement
   private readonly doc: HTMLElement
@@ -73,10 +113,17 @@ export class PlanReview {
   private drafting?: { start: number; end: number; editing?: number }
   private ownRanges: Range[] = []
   private open = false
+  /** The text as Claude handed it over this round, before any edit of the user's. */
+  private original = ''
+  /** The text of the round this one answers, which changes are marked against. */
+  private previousText?: string
+  /** The general comment field's label, which says what that comment is about. */
+  private readonly generalLabel: HTMLLabelElement
 
-  constructor(private readonly handlers: PlanReviewHandlers) {
+  constructor(private readonly mode: ReviewMode) {
+    const text = mode.kind === 'text'
     this.el = document.createElement('div')
-    this.el.className = 'plan-review'
+    this.el.className = text ? 'plan-review text-review' : 'plan-review'
     // Focusable, so a click into the plan keeps the keyboard here instead of the focus
     // guard handing it back to the terminal.
     this.el.tabIndex = -1
@@ -85,12 +132,12 @@ export class PlanReview {
     head.className = 'plan-head'
     const titles = document.createElement('div')
     titles.className = 'plan-titles'
-    const title = document.createElement('span')
-    title.className = 'plan-title'
-    title.textContent = 'Plan review'
+    this.title = document.createElement('span')
+    this.title.className = 'plan-title'
+    this.title.textContent = text ? 'Text review' : 'Plan review'
     this.sub = document.createElement('span')
     this.sub.className = 'plan-sub'
-    titles.append(title, this.sub)
+    titles.append(this.title, this.sub)
 
     this.changesBox = document.createElement('input')
     this.changesBox.type = 'checkbox'
@@ -102,25 +149,47 @@ export class PlanReview {
     this.changesToggle.className = 'plan-toggle'
     this.changesToggle.append(this.changesBox, 'Show changes')
 
-    const passButton = this.button('Keep planning in terminal', () => this.pass())
-    passButton.title = 'Esc — Claude Code asks in the terminal instead'
+    const passButton = this.button(text ? 'Decide in terminal' : 'Keep planning in terminal', () =>
+      this.pass()
+    )
+    passButton.title = text
+      ? 'Esc — Claude asks in the terminal what to do with the text'
+      : 'Esc — Claude Code asks in the terminal instead'
     this.sendButton = this.button('Send comments', () => void this.send())
-    this.sendButton.title = 'Ctrl+Enter — Claude revises the plan and presents it again'
-    // The first two choices of Claude Code's own menu, which these answer for it.
-    this.manualButton = this.button('Start, approve edits', () => this.approve('default'))
-    this.autoButton = this.button('Start in auto mode', () => this.approve('auto'))
-    this.autoButton.className = 'primary'
+    this.sendButton.title = text
+      ? 'Ctrl+Enter — Claude revises the text and presents it again'
+      : 'Ctrl+Enter — Claude revises the plan and presents it again'
 
     // Its own row of the head, so a narrow panel wraps the buttons rather than the title.
     const actions = document.createElement('div')
     actions.className = 'plan-actions'
-    actions.append(
-      this.changesToggle,
-      passButton,
-      this.sendButton,
-      this.manualButton,
-      this.autoButton
-    )
+    if (text) {
+      this.editButton = this.button('Edit text', () => this.toggleEditing())
+      this.rejectButton = this.button('Reject', () => this.reject())
+      this.rejectButton.title = 'Claude does not post the text. A general comment goes along as the reason.'
+      this.approveButton = this.button('Approve', () => this.approveText())
+      this.approveButton.className = 'primary'
+      actions.append(
+        this.changesToggle,
+        passButton,
+        this.editButton,
+        this.sendButton,
+        this.rejectButton,
+        this.approveButton
+      )
+    } else {
+      // The first two choices of Claude Code's own menu, which these answer for it.
+      this.manualButton = this.button('Start, approve edits', () => this.approve('default'))
+      this.approveButton = this.button('Start in auto mode', () => this.approve('auto'))
+      this.approveButton.className = 'primary'
+      actions.append(
+        this.changesToggle,
+        passButton,
+        this.sendButton,
+        this.manualButton,
+        this.approveButton
+      )
+    }
     head.append(titles, actions)
 
     this.scroller = document.createElement('div')
@@ -176,20 +245,31 @@ export class PlanReview {
     })
 
     this.body.append(this.doc, this.margin, this.commentButton, this.composer)
+    if (text) {
+      // The text as Markdown, in place of the rendered one while the user edits it.
+      this.editor = document.createElement('textarea')
+      this.editor.className = 'plan-editor'
+      this.editor.spellcheck = false
+      this.editor.setAttribute('aria-label', 'Text')
+      this.editor.addEventListener('input', () => this.updateCount())
+      this.body.appendChild(this.editor)
+    }
     this.scroller.appendChild(this.body)
 
     const foot = document.createElement('div')
     foot.className = 'plan-foot'
-    const generalLabel = document.createElement('label')
-    generalLabel.className = 'plan-label'
-    generalLabel.textContent = 'Comment on the whole plan'
+    this.generalLabel = document.createElement('label')
+    this.generalLabel.className = 'plan-label'
+    this.generalLabel.textContent = text ? 'Comment on the whole text' : 'Comment on the whole plan'
     this.general = document.createElement('textarea')
     this.general.rows = 2
     this.general.spellcheck = false
-    this.general.placeholder = 'Optional, sent along with the comments'
-    generalLabel.htmlFor = this.general.id = `plan-general-${crypto.randomUUID()}`
+    this.general.placeholder = text
+      ? 'Optional, sent along with the comments — or as the reason for a rejection'
+      : 'Optional, sent along with the comments'
+    this.generalLabel.htmlFor = this.general.id = `plan-general-${crypto.randomUUID()}`
     this.general.addEventListener('input', () => this.updateCount())
-    foot.append(generalLabel, this.general)
+    foot.append(this.generalLabel, this.general)
 
     this.el.append(head, this.scroller, foot)
 
@@ -207,21 +287,35 @@ export class PlanReview {
    * text the changes are measured against; `draft` is what the user had written on this
    * very plan before stepping out to the terminal.
    */
-  show(plan: string, opts: { previous?: PlanRound; draft?: PlanRound }): void {
-    this.plan = plan
+  show(plan: string, opts: { previous?: PlanRound; draft?: PlanRound; heading?: TextHeading }): void {
+    this.plan = this.original = plan
     this.round = (opts.previous?.round ?? 0) + 1
+    this.setEditing(false)
     this.doc.replaceChildren(renderPlan(plan))
     this.closeComposer()
 
-    const draft = opts.draft?.plan === plan ? opts.draft : undefined
+    // A draft is what the user had written on this very text: same text, or their own
+    // edit of it, which is what the draft then holds.
+    const draft =
+      opts.draft && (opts.draft.plan === plan || opts.draft.original === plan) ? opts.draft : undefined
+    if (draft && draft.plan !== plan) {
+      this.plan = draft.plan
+      this.doc.replaceChildren(renderPlan(draft.plan))
+    }
     this.comments = draft ? draft.comments.map((c) => ({ ...c })) : []
     this.general.value = draft?.general ?? ''
 
+    this.previousText = opts.previous?.plan
     const changed = opts.previous ? this.markChanges(opts.previous.plan) : 0
     this.changesToggle.hidden = !opts.previous
+    if (opts.heading) {
+      this.title.textContent = opts.heading.title
+      this.title.title = opts.heading.title
+    }
+    const where = opts.heading ? `${opts.heading.target} · ` : ''
     this.sub.textContent = opts.previous
-      ? `round ${this.round} · ${changed === 0 ? 'unchanged' : changed === 1 ? '1 passage changed' : `${changed} passages changed`}`
-      : `round ${this.round}`
+      ? `${where}round ${this.round} · ${changed === 0 ? 'unchanged' : changed === 1 ? '1 passage changed' : `${changed} passages changed`}`
+      : `${where}round ${this.round}`
     this.showPrevious(opts.previous)
 
     this.open = true
@@ -234,6 +328,7 @@ export class PlanReview {
   /** Takes the panel down and returns what was written on it. */
   hide(): PlanRound {
     const draft = this.snapshot()
+    this.setEditing(false)
     this.open = false
     this.el.classList.remove('visible')
     this.closeComposer()
@@ -244,6 +339,7 @@ export class PlanReview {
 
   focus(): void {
     if (this.composer.classList.contains('visible')) this.composerText.focus()
+    else if (this.isEditing()) this.editor?.focus()
     else this.el.focus({ preventScroll: true })
   }
 
@@ -251,16 +347,30 @@ export class PlanReview {
 
   /** The comments are not dropped: they go along with the plan as what to do differently. */
   private approve(mode: PlanStartMode): void {
-    this.handlers.approve(mode, this.pendingCount() > 0 ? this.notes() : undefined)
+    if (this.mode.kind !== 'plan') return
+    this.mode.handlers.approve(mode, this.pendingCount() > 0 ? this.notes() : undefined)
+  }
+
+  /** Exactly the text on show — or in the editor, if the user did not press "Done" first. */
+  private approveText(): void {
+    if (this.mode.kind !== 'text' || this.pendingCount() > 0) return
+    const text = this.currentText()
+    this.mode.handlers.approve(text, text !== this.original)
+  }
+
+  private reject(): void {
+    if (this.mode.kind !== 'text') return
+    this.mode.handlers.reject(this.general.value.trim() || undefined)
   }
 
   private send(): void {
     if (this.pendingCount() === 0) return
-    this.handlers.revise(this.feedback(), this.snapshot())
+    if (this.isEditing()) this.setEditing(false)
+    this.mode.handlers.revise(this.feedback(), this.snapshot())
   }
 
   private pass(): void {
-    this.handlers.pass(this.snapshot())
+    this.mode.handlers.pass(this.snapshot())
   }
 
   /**
@@ -269,11 +379,65 @@ export class PlanReview {
    * the passage may be reworded by the time it is read.
    */
   private feedback(): string {
+    if (this.mode.kind === 'text') {
+      const parts = [
+        'The user reviewed the text in aterm and asks for changes. Revise the text to address the comments below, then call review_text again with the revised text. Do not post anything before it is approved.'
+      ]
+      // Their edit is the version to revise: it is what the comments were made on.
+      if (this.plan !== this.original) {
+        parts.push(`The user edited the text themselves. Revise their version, which is:\n\n${this.plan}`)
+      }
+      if (this.comments.length) parts.push('Comments on the text:')
+      return [...parts, ...this.commentParts()].join('\n\n')
+    }
     const parts = [
       'The user chose to stay in plan mode and continue planning. They reviewed this plan in aterm and left comments. Revise the plan to address them, then present the revised plan again.'
     ]
     if (this.comments.length) parts.push('Comments on the plan:')
     return [...parts, ...this.commentParts()].join('\n\n')
+  }
+
+  /* ---------------------------------------------------------- Editing */
+
+  private isEditing(): boolean {
+    return this.el.classList.contains('editing')
+  }
+
+  private currentText(): string {
+    return this.isEditing() && this.editor ? this.editor.value : this.plan
+  }
+
+  private toggleEditing(): void {
+    if (!this.isEditing() && this.comments.length > 0) return
+    this.setEditing(!this.isEditing())
+  }
+
+  /**
+   * Into the editor with the text as it stands, or out of it with what was written there,
+   * rendered again. An edit that only touched whitespace at the ends changes nothing.
+   */
+  private setEditing(on: boolean): void {
+    const editor = this.editor
+    if (!editor || on === this.isEditing()) return
+    if (on) {
+      this.closeComposer()
+      this.commentButton.classList.remove('visible')
+      editor.value = this.plan
+      this.el.classList.add('editing')
+      editor.focus()
+      editor.setSelectionRange(0, 0)
+      editor.scrollTop = 0
+    } else {
+      this.el.classList.remove('editing')
+      const value = editor.value.trim() === this.plan.trim() ? this.plan : editor.value
+      if (value !== this.plan) {
+        this.plan = value
+        this.doc.replaceChildren(renderPlan(value))
+        if (this.previousText !== undefined) this.markChanges(this.previousText)
+      }
+      if (this.open) this.el.focus({ preventScroll: true })
+    }
+    this.updateCount()
   }
 
   /**
@@ -299,7 +463,8 @@ export class PlanReview {
 
   private snapshot(): PlanRound {
     return {
-      plan: this.plan,
+      plan: this.currentText(),
+      original: this.original,
       comments: this.comments.map((c) => ({ ...c })),
       general: this.general.value,
       round: this.round
@@ -314,14 +479,43 @@ export class PlanReview {
     const n = this.pendingCount()
     this.sendButton.disabled = n === 0
     this.sendButton.textContent = n === 0 ? 'Send comments' : n === 1 ? 'Send 1 comment' : `Send ${n} comments`
+    if (this.mode.kind === 'text') {
+      const edited = this.currentText() !== this.original
+      this.approveButton.disabled = n > 0
+      this.approveButton.textContent = edited ? 'Approve with my edits' : 'Approve'
+      this.approveButton.title =
+        n > 0
+          ? 'Comments ask for changes: send them, or remove them to approve'
+          : edited
+            ? 'Claude posts your edited version, word for word'
+            : 'Claude posts the text, word for word'
+      if (this.editButton) {
+        const editing = this.isEditing()
+        this.editButton.textContent = editing ? 'Done editing' : 'Edit text'
+        this.editButton.disabled = !editing && this.comments.length > 0
+        this.editButton.title = editing
+          ? 'Esc — back to the rendered text, to comment on it'
+          : this.comments.length > 0
+            ? 'Comments are anchored to the text: send or remove them before editing'
+            : 'Change the wording yourself, then approve your version'
+      }
+      return
+    }
     const along = n === 0 ? '' : n === 1 ? ' — your comment goes along' : ` — your ${n} comments go along`
-    this.manualButton.title = `Claude carries out the plan and asks before each edit${along}`
-    this.autoButton.title = `Claude carries out the plan in auto mode${along}`
+    if (this.manualButton) this.manualButton.title = `Claude carries out the plan and asks before each edit${along}`
+    this.approveButton.title = `Claude carries out the plan in auto mode${along}`
   }
 
   /* --------------------------------------------------------- Keyboard */
 
   private onKey(ev: KeyboardEvent): void {
+    // Esc in the editor ends the edit, not the review: it is one keystroke from losing
+    // the panel, and the edit is kept either way.
+    if (ev.key === 'Escape' && this.isEditing()) {
+      ev.preventDefault()
+      this.setEditing(false)
+      return
+    }
     if (ev.key === 'Escape' && !ev.ctrlKey && !ev.altKey && !ev.shiftKey) {
       ev.preventDefault()
       this.pass()

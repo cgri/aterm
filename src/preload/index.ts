@@ -17,6 +17,8 @@ import type {
   TabCloseRequest,
   TabOpenRequest,
   TabRequestAnswer,
+  TextReviewAnswer,
+  TextReviewRequest,
   UpdateCheck,
   UpdateProgress,
   UpdateResult
@@ -107,6 +109,19 @@ const api = {
     },
     answer: (requestId: string, answer: TabRequestAnswer): void =>
       ipcRenderer.send(IPC.tabsAnswer, requestId, answer)
+  },
+  text: {
+    /** A text a session wants approved before posting it. Acknowledge at once, answer later. */
+    onReview: (cb: (review: TextReviewRequest) => void): void => {
+      ipcRenderer.on(IPC.textReview, (_e, payload: TextReviewRequest) => cb(payload))
+    },
+    /** The call went away unanswered: Esc in the terminal, or the session ended. */
+    onClosed: (cb: (reviewId: string) => void): void => {
+      ipcRenderer.on(IPC.textReviewClosed, (_e, reviewId: string) => cb(reviewId))
+    },
+    acknowledge: (reviewId: string): void => ipcRenderer.send(IPC.textAck, reviewId),
+    answer: (reviewId: string, answer: TextReviewAnswer): void =>
+      ipcRenderer.send(IPC.textAnswer, reviewId, answer)
   },
   images: {
     /** Images a tab's conversation has seen — pasted, or returned by a tool. */

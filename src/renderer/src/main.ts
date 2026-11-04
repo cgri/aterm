@@ -5,6 +5,8 @@ import {
   type PersistedState,
   type PlanReviewAnswer,
   type PlanReviewRequest,
+  type TextReviewAnswer,
+  type TextReviewRequest,
   type RecentSession,
   type SessionStatus,
   type TabGroup,
@@ -127,6 +129,16 @@ interface Pane {
   lastRound?: PlanRound
   /** What was written on a plan the user stepped out of with Esc. */
   draft?: PlanRound
+  /**
+   * A text the session wants approved before posting it, held by the `review_text` tool —
+   * the same panel in its text mode, and the same three fields as the plan's. A session
+   * makes one call at a time, so a tab has at most one text review open, and while it
+   * does, the tab waits for the user like it does on a plan.
+   */
+  textReview?: PlanReview
+  textReviewId?: string
+  textLastRound?: PlanRound
+  textDraft?: PlanRound
 }
 
 /** Claude Code says what it is up to in front of its window title. */
@@ -243,6 +255,8 @@ async function boot(): Promise<void> {
   api.system.onOpenDirectory((dir) => void createTab('claude', dir))
   api.plan.onReview((review) => onPlanReview(review))
   api.plan.onClosed((reviewId) => onPlanReviewClosed(reviewId))
+  api.text.onReview((review) => onTextReview(review))
+  api.text.onClosed((reviewId) => onTextReviewClosed(reviewId))
   api.images.onImages(({ tabId, reset, images }) => onTabImages(tabId, images, reset))
   api.tabs.onOpen((request) => void answerTabRequest(request.requestId, openRequestedTab(request)))
   api.tabs.onClose((request) => void answerTabRequest(request.requestId, closeRequestedTab(request)))
@@ -496,7 +510,7 @@ async function closeRequestedTab(request: TabCloseRequest): Promise<TabRequestAn
   if (!pane || pane.tab.openedBy !== request.parentTabId) {
     return { ok: false, error: 'This session opened no tab with that id.' }
   }
-  if (isWorking(pane) || pane.reviewId) {
+  if (isWorking(pane) || pane.reviewId || pane.textReviewId) {
     return { ok: false, error: 'That session is busy. Close it once it waits for input.' }
   }
   await removeTab(pane.tab.id)
@@ -559,6 +573,7 @@ async function removeTab(id: string): Promise<void> {
   if (!pane) return
 
   if (pane.reviewId) api.plan.answer(pane.reviewId, { kind: 'pass' })
+  if (pane.textReviewId) api.text.answer(pane.textReviewId, { kind: 'pass' })
   await api.pty.kill(id)
   // Two tabs can end in the same moment, and the kill above is a turn of the event loop.
   if (!panes.has(id)) return
@@ -1392,6 +1407,7 @@ function installAttentionTracking(): void {
 function isWaiting(pane: Pane): boolean {
   return (
     pane.reviewId !== undefined ||
+    pane.textReviewId !== undefined ||
     pane.heldAtStart ||
     pane.sessionStatus === 'waiting' ||
     (pane.ptyState === 'awaiting' && pane.sessionStatus !== 'busy')
@@ -1510,11 +1526,14 @@ function onPlanReview(request: PlanReviewRequest): void {
 
 function createReview(pane: Pane): PlanReview {
   const review = new PlanReview({
-    approve: (mode, notes) => answerReview(pane, { kind: 'approve', mode, notes }),
-    revise: (feedback, round) => answerReview(pane, { kind: 'revise', feedback }, round),
-    pass: (draft) => {
-      answerReview(pane, { kind: 'pass' })
-      pane.draft = draft
+    kind: 'plan',
+    handlers: {
+      approve: (mode, notes) => answerReview(pane, { kind: 'approve', mode, notes }),
+      revise: (feedback, round) => answerReview(pane, { kind: 'revise', feedback }, round),
+      pass: (draft) => {
+        answerReview(pane, { kind: 'pass' })
+        pane.draft = draft
+      }
     }
   })
   pane.body.appendChild(review.el)
@@ -1549,6 +1568,85 @@ function dropReview(pane: Pane): PlanRound | undefined {
   pane.reviewId = undefined
   settleWaiting(pane, waited)
   const draft = pane.review?.hide()
+  pane.view?.refit()
+  return draft
+}
+
+/**
+ * A session wants a text approved before it posts it. Same rules as a plan: one for a tab
+ * that is not running, or that this window never had, goes straight back undecided.
+ */
+function onTextReview(request: TextReviewRequest): void {
+  const pane = panes.get(request.tabId)
+  if (!pane || pane.status !== 'running') {
+    api.text.answer(request.reviewId, { kind: 'pass' })
+    return
+  }
+  api.text.acknowledge(request.reviewId)
+  if (pane.textReviewId) api.text.answer(pane.textReviewId, { kind: 'pass' })
+
+  const waited = isWaiting(pane)
+  pane.textReviewId = request.reviewId
+  pane.textReview ??= createTextReview(pane)
+  pane.textReview.show(request.text, {
+    previous: pane.textLastRound,
+    draft: pane.textDraft,
+    heading: { title: request.title, target: request.target }
+  })
+  settleWaiting(pane, waited)
+  pane.view?.refit()
+  if (pane === activePane()) pane.textReview.focus()
+  render()
+}
+
+function createTextReview(pane: Pane): PlanReview {
+  const review = new PlanReview({
+    kind: 'text',
+    handlers: {
+      // Only a revision carries a round: the text after an approval or a rejection is a
+      // new review, not the next round of this one.
+      approve: (text, edited) => answerTextReview(pane, { kind: 'approve', text, edited }),
+      revise: (feedback, round) => answerTextReview(pane, { kind: 'revise', feedback }, round),
+      reject: (reason) => answerTextReview(pane, { kind: 'reject', reason }),
+      pass: (draft) => {
+        answerTextReview(pane, { kind: 'pass' })
+        pane.textDraft = draft
+      }
+    }
+  })
+  pane.body.appendChild(review.el)
+  return review
+}
+
+function answerTextReview(pane: Pane, answer: TextReviewAnswer, round?: PlanRound): void {
+  if (!pane.textReviewId) return
+  api.text.answer(pane.textReviewId, answer)
+  pane.textLastRound = round
+  pane.textDraft = undefined
+  dropTextReview(pane)
+  if (pane === activePane()) pane.view?.focus()
+  render()
+}
+
+/** The call went away unanswered: Esc in the terminal, or the session ended. */
+function onTextReviewClosed(reviewId: string): void {
+  const pane = [...panes.values()].find((p) => p.textReviewId === reviewId)
+  if (!pane) return
+  const draft = dropTextReview(pane)
+  if (draft && (draft.comments.length > 0 || draft.general.trim() || draft.plan !== draft.original)) {
+    pane.textDraft = draft
+  }
+  if (pane === activePane()) pane.view?.focus()
+  render()
+}
+
+/** Takes the text panel down without answering. Renders nothing; every caller does. */
+function dropTextReview(pane: Pane): PlanRound | undefined {
+  if (!pane.textReviewId) return undefined
+  const waited = isWaiting(pane)
+  pane.textReviewId = undefined
+  settleWaiting(pane, waited)
+  const draft = pane.textReview?.hide()
   pane.view?.refit()
   return draft
 }
@@ -1964,7 +2062,8 @@ function focusFront(): void {
 
 /** A tab's keyboard goes to its plan review while one is open, to the terminal otherwise. */
 function focusPane(pane: Pane): void {
-  if (pane.review?.isOpen()) pane.review.focus()
+  if (pane.textReview?.isOpen()) pane.textReview.focus()
+  else if (pane.review?.isOpen()) pane.review.focus()
   else pane.view?.focus()
 }
 

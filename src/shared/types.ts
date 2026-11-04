@@ -269,6 +269,32 @@ export type PlanReviewAnswer =
   | { kind: 'pass' }
 
 /**
+ * A text a Claude session means to post somewhere on the user's behalf, held by aterm's
+ * `review_text` tool until the user decides in the tab's review panel.
+ */
+export interface TextReviewRequest {
+  reviewId: string
+  tabId: string
+  /** What the text is, e.g. "PR description". */
+  title: string
+  /** Where it is going, e.g. "GitHub cgri/aterm#66". */
+  target: string
+  /** Markdown. */
+  text: string
+}
+
+/**
+ * `approve` hands back the text to post, word for word — the user's own edit of it, if
+ * `edited`. `revise` sends comments back for another round; `reject` means it is not to
+ * be posted at all; `pass` is no decision, and Claude asks in the terminal.
+ */
+export type TextReviewAnswer =
+  | { kind: 'approve'; text: string; edited: boolean }
+  | { kind: 'revise'; feedback: string }
+  | { kind: 'reject'; reason?: string }
+  | { kind: 'pass' }
+
+/**
  * A Claude session asks for a tab of its own through aterm's `open_tab` tool. The main
  * process has settled the directory, the isolation and the prompt; the renderer makes
  * the tab, or refuses it, and answers exactly once.

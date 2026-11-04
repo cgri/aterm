@@ -18,7 +18,9 @@ import type {
   TabCloseRequest,
   TabImagesEvent,
   TabOpenRequest,
-  TabRequestAnswer
+  TabRequestAnswer,
+  TextReviewAnswer,
+  TextReviewRequest
 } from '@shared/types'
 import { IPC } from './ipc'
 import { directoryFromArgv } from './cli'
@@ -414,6 +416,17 @@ function registerIpc(): void {
   })
   ipcMain.on(IPC.tabsAnswer, (_e, requestId: string, answer: TabRequestAnswer) =>
     tabSpawner?.answer(requestId, answer)
+  )
+
+  // A text a session wants approved before posting it. Like a plan, the renderer has to
+  // confirm it took it, or the call comes back as one aterm could not show.
+  tabSpawner?.on('review', (request: TextReviewRequest) => {
+    if (rendererReady) send(IPC.textReview, request)
+  })
+  tabSpawner?.on('review-closed', (reviewId: string) => send(IPC.textReviewClosed, reviewId))
+  ipcMain.on(IPC.textAck, (_e, reviewId: string) => tabSpawner?.acknowledgeReview(reviewId))
+  ipcMain.on(IPC.textAnswer, (_e, reviewId: string, answer: TextReviewAnswer) =>
+    tabSpawner?.answerReview(reviewId, answer)
   )
 
   ipcMain.handle(IPC.sessionsRecent, () => history.recent())
