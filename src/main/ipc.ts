@@ -19,6 +19,7 @@ export const IPC = {
   updateDownload: 'update:download',
   updateInstall: 'update:install',
   imagesOpen: 'images:open',
+  openTabFolder: 'tabs:open-folder',
 
   // Renderer → main (send, high frequency)
   ptyWrite: 'pty:write',

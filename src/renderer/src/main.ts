@@ -687,6 +687,10 @@ function openTabMenu(id: string): void {
   const items: MenuItem[] = [
     { label: 'Restart tab', run: () => void restartTab(id) },
     { label: 'Close tab', run: () => void closeTab(id) },
+    {
+      label: 'Open folder in Explorer',
+      run: () => void api.system.openTabFolder(id, pane.tab.cwd, pane.tab.claudeSessionId)
+    },
     { label: 'Add tab to new group…', run: () => void newGroupFor(id) }
   ]
   // A submenu re-fills this same overlay: `ContextMenu.choose` closes before it runs
