@@ -27,7 +27,7 @@ import { directoryFromArgv } from './cli'
 import { PtyManager } from './pty/PtyManager'
 import { SessionStore } from './state/SessionStore'
 import { HistoryReader } from './claude/HistoryReader'
-import { hasConversation } from './claude/transcripts'
+import { findConversation, hasConversation } from './claude/transcripts'
 import { readJsonFile } from './util/json'
 import { isGitRepo } from './util/git'
 import { SessionDetector } from './claude/SessionDetector'
@@ -447,6 +447,23 @@ function registerIpc(): void {
   ipcMain.handle(IPC.newSessionId, () => randomUUID())
   ipcMain.handle(IPC.homeDir, () => homedir())
   ipcMain.handle(IPC.isGitRepo, (_e, cwd: string) => isGitRepo(cwd))
+
+  // The folder a tab's session works in. A conversation filed under a worktree is
+  // there, whatever the tab's own cwd says; otherwise it is where the process was
+  // spawned, or the tab's start folder when nothing runs. Main decides, because only
+  // main knows the transcripts and the running processes.
+  ipcMain.handle(
+    IPC.openTabFolder,
+    async (_e, tabId: string, cwd: string, claudeSessionId?: string): Promise<boolean> => {
+      const candidates = [
+        claudeSessionId ? findConversation(cwd, claudeSessionId)?.cwd : undefined,
+        ptys.cwdOf(tabId),
+        cwd
+      ]
+      const dir = candidates.find((c): c is string => c !== undefined && existsSync(c))
+      return dir !== undefined && (await shell.openPath(dir)) === ''
+    }
+  )
 
   // Optional rebinding: {"newClaudeTab": ["Ctrl+N"], "search": []}
   ipcMain.handle(IPC.keymapLoad, () => {

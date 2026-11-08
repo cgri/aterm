@@ -70,6 +70,12 @@ const api = {
     pickFolder: (startIn?: string): Promise<string | undefined> =>
       ipcRenderer.invoke(IPC.pickFolder, startIn),
     isGitRepo: (cwd: string): Promise<boolean> => ipcRenderer.invoke(IPC.isGitRepo, cwd),
+    /**
+     * Shows a tab's folder in Explorer: the worktree its conversation lives in, if any,
+     * otherwise the folder its process runs in or would start in. False when none exists.
+     */
+    openTabFolder: (tabId: string, cwd: string, claudeSessionId?: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.openTabFolder, tabId, cwd, claudeSessionId),
     /** Directories this launch named — asked once while booting, then empty. */
     takePendingDirs: (): Promise<string[]> => ipcRenderer.invoke(IPC.takePendingDirs),
     /** A later launch — the Explorer entry — named a directory to open a tab in. */
