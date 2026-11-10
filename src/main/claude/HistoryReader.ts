@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs'
+import { projectDir } from '@shared/paths'
 import type { RecentSession } from '@shared/types'
 import { parseJson } from '../util/json'
 import { historyFile, transcriptPath } from './paths'
@@ -99,16 +100,11 @@ export class HistoryReader {
     }
 
     const sessions: RecentSession[] = []
-    for (const { firstAt: _firstAt, ...session } of byId.values()) {
-      const file = transcriptPath(session.cwd, session.sessionId)
-      let stamp: string
-      try {
-        const stat = statSync(file)
-        stamp = `${stat.size}:${stat.mtimeMs}`
-      } catch {
-        continue
-      }
-      const title = this.transcriptTitle(file, stamp)
+    for (const { firstAt: _firstAt, ...entry } of byId.values()) {
+      const found = locateTranscript(entry.cwd, entry.sessionId)
+      if (!found) continue
+      const session = { ...entry, cwd: found.cwd }
+      const title = this.transcriptTitle(found.file, found.stamp)
       sessions.push(title ? { ...session, title: cleanTitle(title) } : session)
     }
     return sessions.sort((a, b) => b.lastUsed - a.lastUsed)
@@ -125,6 +121,29 @@ export class HistoryReader {
     this.titles.set(file, { stamp, title })
     return title
   }
+}
+
+/**
+ * The session's transcript, and the directory to resume it in. history.jsonl names
+ * where `claude` ran, which for a `--worktree` session is the worktree. Removing the
+ * worktree on exit moves the transcript to the project's directory, so a session whose
+ * worktree is gone is found, and resumed, under its project.
+ */
+function locateTranscript(
+  cwd: string,
+  sessionId: string
+): { file: string; cwd: string; stamp: string } | undefined {
+  const candidates = [cwd, projectDir(cwd)].filter((dir, i, all) => all.indexOf(dir) === i)
+  for (const dir of candidates) {
+    const file = transcriptPath(dir, sessionId)
+    try {
+      const stat = statSync(file)
+      return { file, cwd: dir, stamp: `${stat.size}:${stat.mtimeMs}` }
+    } catch {
+      // Not here; try the next one.
+    }
+  }
+  return undefined
 }
 
 export function cleanTitle(display: string | undefined): string {

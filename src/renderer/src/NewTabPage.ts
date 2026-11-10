@@ -1,6 +1,6 @@
 import type { RecentSession, TabKind } from '@shared/types'
 import { icon } from './icons'
-import { projectDir, worktreeName } from './paths'
+import { projectDir, worktreeName } from '@shared/paths'
 
 export interface NewTabPageHandlers {
   /** Start a fresh tab of this kind in `cwd`. */
