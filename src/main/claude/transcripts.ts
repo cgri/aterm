@@ -1,7 +1,7 @@
-import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs'
+import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseJson } from '../util/json'
-import { encodeProjectDir, projectsDir, transcriptPath } from './paths'
+import { projectsDir, transcriptPath } from './paths'
 
 export interface TranscriptHead {
   sessionId: string
@@ -141,22 +141,27 @@ export interface ConversationLocation {
 }
 
 /**
- * Finds the conversation a tab in `cwd` can resume — in `cwd` itself, or in one of its
- * worktrees. A tab started with `claude --worktree` keeps the project as its directory,
- * while Claude Code runs in `<project>\.claude\worktrees\<name>` and files the transcript
- * under *that*. Looking only under the project took such a tab for one without a
- * conversation, and the next start opened an empty session in the project instead.
+ * Finds the conversation a tab in `cwd` can resume — in `cwd` itself, or wherever else
+ * Claude Code filed it. A tab started with `claude --worktree` keeps the project as its
+ * directory, while Claude Code runs in a worktree and files the transcript under *that*.
+ * The worktree is not always below the tab's directory: started in a linked git
+ * worktree, `--worktree` puts it under the main repository. Looking only under the tab's
+ * directory took such a tab for one without a conversation, and the next start opened an
+ * empty session under the same id instead.
  *
- * A worktree's own `cwd` is taken from the transcript rather than decoded from the
- * directory name, which loses every character that is not a letter or digit. A worktree
- * that has since been removed has nothing left to resume in, so it does not count.
+ * So anything but the tab's own directory is found by the session id alone, which is a
+ * UUID and names one session wherever it lies. The directory to resume in is taken from
+ * the transcript rather than decoded from the directory name, which loses every
+ * character that is not a letter or digit. A directory that has since been removed has
+ * nothing left to resume in, so it does not count.
  */
 export function findConversation(cwd: string, sessionId: string): ConversationLocation | undefined {
   const own = transcriptPath(cwd, sessionId)
   // A file holding nothing but mode lines does not count as a conversation.
   if (existsSync(own) && firstUserEntry(own)) return { file: own, cwd }
 
-  for (const file of worktreeTranscripts(cwd, sessionId)) {
+  for (const file of transcriptsOf(sessionId)) {
+    if (file === own) continue
     const head = firstUserEntry(file)
     if (head && existsSync(head.cwd)) return { file, cwd: head.cwd }
   }
@@ -164,28 +169,33 @@ export function findConversation(cwd: string, sessionId: string): ConversationLo
 }
 
 /**
- * Does a transcript for this session exist at all, conversation or not? Such an id is
- * taken: Claude Code has a file for it, so it must not be handed to `--session-id`.
+ * Does a transcript for this session exist at all, conversation or not, wherever it is
+ * filed? Such an id is taken: Claude Code has a file for it, so it must not be handed to
+ * `--session-id`.
  */
 export function hasTranscript(cwd: string, sessionId: string): boolean {
-  return existsSync(transcriptPath(cwd, sessionId)) || worktreeTranscripts(cwd, sessionId).length > 0
+  return existsSync(transcriptPath(cwd, sessionId)) || transcriptsOf(sessionId).length > 0
 }
 
 /**
- * The session's transcripts under the worktrees of `cwd`. Their project directories
- * all start with the encoded `<cwd>\.claude\worktrees\`, so one listing of the projects
- * directory finds them without touching the worktrees themselves.
+ * Every transcript of this session, newest first. One listing of the projects directory
+ * finds them without reading anything but directory entries.
  */
-function worktreeTranscripts(cwd: string, sessionId: string): string[] {
-  const prefix = `${encodeProjectDir(join(cwd, '.claude', 'worktrees'))}-`
+function transcriptsOf(sessionId: string): string[] {
   let names: string[]
   try {
     names = readdirSync(projectsDir())
   } catch {
     return []
   }
-  return names
-    .filter((name) => name.startsWith(prefix))
-    .map((name) => join(projectsDir(), name, `${sessionId}.jsonl`))
-    .filter((file) => existsSync(file))
+  const found: { file: string; mtime: number }[] = []
+  for (const name of names) {
+    const file = join(projectsDir(), name, `${sessionId}.jsonl`)
+    try {
+      found.push({ file, mtime: statSync(file).mtimeMs })
+    } catch {
+      // Not in this project.
+    }
+  }
+  return found.sort((a, b) => b.mtime - a.mtime).map((f) => f.file)
 }
