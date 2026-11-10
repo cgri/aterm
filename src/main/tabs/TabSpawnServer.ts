@@ -36,6 +36,24 @@ const ANSWER_TIMEOUT_MS = 15_000
 const REGISTRY_TIMEOUT_MS = 20_000
 
 /**
+ * The same for a session started with `--worktree`, which registers only once
+ * `git worktree add` is done — minutes in a large repository. No question holds it up:
+ * without trust, `--worktree` exits at once. Given up on after 20 s, the tab was reported
+ * as asking something; its process then ended, and the next click restarted it as an
+ * empty session in the main checkout, without its task and its worktree.
+ */
+const WORKTREE_TIMEOUT_MS = 15 * 60_000
+
+/** A tab `open_tab` has started, and what the call still needs to report on it. */
+interface Opened {
+  tabId: string
+  claudeSessionId?: string
+  cwd: string
+  worktree: boolean
+  title: string
+}
+
+/**
  * How long Claude Code lets a call to this server run. `review_text` waits for the user,
  * who may be at lunch. Without it a stdio server's call is cut off after 30 minutes
  * without an answer (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`, raised to this by the server's
@@ -232,9 +250,12 @@ export class TabSpawnServer extends EventEmitter {
     const call = parseCall(line)
     if (!call) return { ok: false, error: 'Malformed request.' }
     if (call.tool === 'open_tab') {
-      const next = this.opening.then(() => this.open(call))
-      this.opening = next.catch(() => undefined)
-      return next
+      // Only the start runs one at a time: once the tab exists, it counts as occupying
+      // its folder. Waiting for it to come up may take minutes and must not hold the next.
+      const started = this.opening.then(() => this.open(call))
+      this.opening = started.catch(() => undefined)
+      const opened = await started
+      return 'ok' in opened ? opened : this.awaitOpened(call, opened)
     }
     if (call.tool === 'close_tab') return this.close(call)
     if (call.tool === 'review_text') return this.review(call, onGone)
@@ -274,7 +295,8 @@ export class TabSpawnServer extends EventEmitter {
     })
   }
 
-  private async open(call: Call): Promise<Reply> {
+  /** Starts the tab `open_tab` asks for: the error to return, or the tab to wait for. */
+  private async open(call: Call): Promise<Reply | Opened> {
     const { args } = call
     if (typeof args.cwd !== 'string' || !isAbsolute(args.cwd)) {
       return { ok: false, error: 'cwd must be an absolute path.' }
@@ -308,30 +330,37 @@ export class TabSpawnServer extends EventEmitter {
       title
     })
     if (!answer.ok) return { ok: false, error: answer.error }
+    return { tabId: answer.tabId, claudeSessionId: answer.claudeSessionId, cwd, worktree, title }
+  }
 
-    const started = await this.waitForStart(answer.tabId, answer.claudeSessionId, title)
+  /** Waits for a tab `open` started to come up, and tells the caller what it got. */
+  private async awaitOpened(call: Call, opened: Opened): Promise<Reply> {
+    const { tabId, claudeSessionId, cwd, worktree, title } = opened
+    const started = await this.waitForStart(tabId, claudeSessionId, title, worktree)
     if ('ended' in started) {
       // A tab whose session never got going would start again on the next click without
       // its task or its worktree — those belong to the first start. It goes.
       await this.ask<TabCloseRequest>('close', {
         requestId: randomUUID(),
         parentTabId: call.tabId,
-        tabId: answer.tabId
+        tabId
       })
       return {
         ok: false,
-        error: `The session ended right after it started (exit code ${started.ended.exitCode}), so the tab was closed again. It said:\n${lastLines(started.ended.head)}`
+        error: `The session ended before it got going (exit code ${started.ended.exitCode}), so the tab was closed again. It said:\n${lastLines(started.ended.head)}`
       }
     }
     const child = started.session
     const result = {
-      tabId: answer.tabId,
+      tabId,
       sessionName: child?.name ?? null,
       cwd: child?.cwd || cwd,
       isolation: worktree ? 'worktree' : 'inplace',
       note: child?.name
         ? `The session works with the user and will message you with SendMessage when its task is done. Message it as "${child.name}" - by that name, never by the uds: address its messages come from: that address belongs to one process and is gone once the session is resumed, as every tab is when aterm restarts.`
-        : 'The tab is open, but Claude Code asks something there before the session starts - usually whether to trust the folder. The tab is marked as waiting for the user; tell them. Find the session with ListAgents once it has started.'
+        : worktree
+          ? `The tab is open, but its session has not started after ${WORKTREE_TIMEOUT_MS / 60_000} minutes of creating the worktree. Tell the user to look at the tab. Find the session with ListAgents once it has started.`
+          : 'The tab is open, but Claude Code asks something there before the session starts - usually whether to trust the folder. The tab is marked as waiting for the user; tell them. Find the session with ListAgents once it has started.'
     }
     return { ok: true, text: JSON.stringify(result, null, 2) }
   }
@@ -374,9 +403,10 @@ export class TabSpawnServer extends EventEmitter {
   private async waitForStart(
     tabId: string,
     sessionId: string | undefined,
-    name: string
+    name: string,
+    worktree: boolean
   ): Promise<{ session?: LiveSession } | { ended: EndedProcess }> {
-    const deadline = Date.now() + REGISTRY_TIMEOUT_MS
+    const deadline = Date.now() + (worktree ? WORKTREE_TIMEOUT_MS : REGISTRY_TIMEOUT_MS)
     for (;;) {
       const session = sessionId ? findLiveSession(sessionId) : undefined
       if (session?.name === name) return { session }

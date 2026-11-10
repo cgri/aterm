@@ -676,6 +676,13 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   ends first, closes the tab again and returns what it printed (`PtyManager.endedProcess`).
   A child started in place in such a folder sits at the trust question instead; `open_tab`
   gives up waiting after 20 s and says so — see the next entry for how the tab shows it.
+  **A worktree child is waited for as long as `git worktree add` takes** (up to 15 minutes,
+  `WORKTREE_TIMEOUT_MS`), because it registers only after it — minutes in a repository of
+  70,000 files. The 20 s were taken for a trust question and reported as one; the process
+  ended a little later, and the next click on the tab restarted it as an empty session in
+  the main checkout. The trust question cannot be what holds such a child up, so it is not
+  marked as waiting meanwhile either. Only the start is serialised, not the wait, so one
+  slow worktree does not hold up the next `open_tab`.
   Children go behind the active tab, never in front, and into the caller's group, which is
   made for it if the caller has none. `TabState.openedBy` is what `close_tab` checks, and a
   tab that has it opens no tabs of its own.
