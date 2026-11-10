@@ -412,11 +412,14 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   as its own project.
   A tab started with a fresh worktree is the other way round: its `cwd` stays the project,
   while its transcript is filed under the worktree. So "is there a conversation, and where
-  does `claude` resume it" is `findConversation` in `transcripts.ts`, which also looks under
-  `<cwd>\.claude\worktrees\*` and returns the worktree's own `cwd` (read from the
-  transcript, because the encoded directory name is lossy) for `PtyManager.start` to spawn
-  in. Looking only under the project took the tab for one without a conversation and
-  started it with `--session-id` on its own id, in the project, with an empty conversation.
+  does `claude` resume it" is `findConversation` in `transcripts.ts`, which finds the
+  transcript by its session id in every project directory and returns the worktree's own
+  `cwd` (read from the transcript, because the encoded directory name is lossy) for
+  `PtyManager.start` to spawn in. Looking only under the project took the tab for one
+  without a conversation and started it with `--session-id` on its own id, in the project,
+  with an empty conversation. Looking under `<cwd>\.claude\worktrees\*` was not enough
+  either: started in a linked git worktree, `--worktree` puts the new one under the
+  *main* repository, and the same empty session came back on the next restart.
   A worktree that has since been removed does not count; its id is still taken
   (`hasTranscript`), so the tab gets a fresh one.
   **Removing a worktree on exit moves its transcripts to the project.** Claude Code
