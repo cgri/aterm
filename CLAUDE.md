@@ -405,7 +405,7 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   `claude --worktree` creates `<project>\.claude\worktrees\<name>`, and a session reopened
   from the picker carries *that* as its `cwd`, because `RecentSession.cwd` comes from
   `history.jsonl` — which records where Claude Code ran, not where aterm started it.
-  `renderer/src/paths.ts` splits the two apart: `projectDir` is what a tab is named after
+  `shared/paths.ts` splits the two apart: `projectDir` is what a tab is named after
   and what the picker groups by, `worktreeName` is what the picker puts on the row to tell
   two sessions of one project apart. Both are string rules on purpose — they are used while
   rendering and must not touch the disk, so a worktree added by hand somewhere else counts
@@ -419,6 +419,12 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   started it with `--session-id` on its own id, in the project, with an empty conversation.
   A worktree that has since been removed does not count; its id is still taken
   (`hasTranscript`), so the tab gets a fresh one.
+  **Removing a worktree on exit moves its transcripts to the project.** Claude Code
+  leaves the worktree's projects directory empty, while `history.jsonl` still names
+  the worktree. So the session list (`locateTranscript` in `HistoryReader.ts`) looks
+  under the project too and resumes such a session there; looking under the worktree
+  alone dropped the session from the list. Seen in the folders afterwards (2.1.32x),
+  not watched as it happened.
 - **The tab bar says three things, and only three.** What kind of tab this is (`✳` for an
   agent, `❯` for a shell — `.mark`, faint while no process runs), that something is
   happening (a breath), and whether it concerns the user (a red dot in place of the mark,

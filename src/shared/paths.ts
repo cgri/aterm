@@ -5,8 +5,8 @@
  * to. Both are needed: the project is what a session is filed under, the worktree
  * name is what tells two sessions of one project apart.
  *
- * Deliberately a string rule and not a git question: this is used while rendering,
- * so it must not touch the disk. A worktree somewhere else, added by hand rather
+ * Deliberately a string rule and not a git question: the renderer uses this while
+ * rendering, so it must not touch the disk. A worktree somewhere else, added by hand rather
  * than by Claude Code, is therefore its own project.
  */
 const WORKTREE = /[\\/]\.claude[\\/]worktrees[\\/]([^\\/]+)[\\/]*$/
