@@ -1317,11 +1317,13 @@ async function launchPane(pane: Pane): Promise<void> {
     // decided by the main process from the transcript.
     tab.everStarted = Boolean(result.resumed)
   }
-  // The worktree exists now; a later restart of this tab reuses it.
+  // `claude --worktree` registers once `git worktree add` is done, minutes in a large
+  // repository. The worktree exists after that; a later restart of this tab reuses it.
+  const creatingWorktree = Boolean(pane.worktree) && !result.resumed
   pane.worktree = false
   pane.status = 'running'
   pane.exitCode = undefined
-  if (tab.kind === 'claude') watchRegistration(pane)
+  if (tab.kind === 'claude') watchRegistration(pane, creatingWorktree)
   hideBar(pane)
   updatePlaceholder(pane)
   pane.view.refit()
@@ -1474,12 +1476,15 @@ function isWaiting(pane: Pane): boolean {
 /**
  * A Claude process has started: until its session registers it may be holding a
  * question nobody sees — a tab opened behind the active one, above all. Nothing on the
- * screen is read for it; the registry is what tells.
+ * screen is read for it; the registry is what tells. Not while it creates a worktree:
+ * that takes as long as `git worktree add` does, and asks nothing — without trust,
+ * `--worktree` exits at once.
  */
-function watchRegistration(pane: Pane): void {
+function watchRegistration(pane: Pane, creatingWorktree = false): void {
   clearTimeout(pane.startTimer)
   pane.registered = false
   pane.heldAtStart = false
+  if (creatingWorktree) return
   pane.startTimer = setTimeout(() => {
     if (pane.registered || pane.status !== 'running') return
     const waited = isWaiting(pane)
