@@ -7,6 +7,8 @@ import type {
   AgentActivityEvent,
   Appearance,
   ClipboardPayload,
+  ControlAnswer,
+  ControlRequest,
   PersistedState,
   PlanReviewAnswer,
   PlanReviewRequest,
@@ -264,6 +266,21 @@ function revealWindow(): void {
 }
 
 /**
+ * `revealWindow` for a request that comes from another program. Windows lets only the
+ * foreground process take the foreground, and the caller here is a background one, so
+ * `focus` alone would at best flash the taskbar button. Being on top for a moment is
+ * the usual way round that.
+ */
+function bringToFront(): void {
+  if (!win || win.isDestroyed() || OFFSCREEN) return
+  revealWindow()
+  win.setAlwaysOnTop(true)
+  win.moveTop()
+  win.focus()
+  win.setAlwaysOnTop(false)
+}
+
+/**
  * Keeps the detector and the process-tree poller in sync with the running tabs.
  * Called after every process start or exit, and on every poll.
  */
@@ -427,6 +444,17 @@ function registerIpc(): void {
   })
   ipcMain.on(IPC.tabsAnswer, (_e, requestId: string, answer: TabRequestAnswer) =>
     tabSpawner?.answer(requestId, answer)
+  )
+
+  // What an outside tool asks of the tabs: a note, a tab to the front, the list. Never
+  // anything that reaches a terminal.
+  tabSpawner?.on('control', (request: ControlRequest) => {
+    if (rendererReady) send(IPC.controlRequest, request)
+    else tabSpawner?.answerControl(request.requestId, { ok: false, error: 'aterm is still starting.' })
+  })
+  tabSpawner?.on('reveal', () => bringToFront())
+  ipcMain.on(IPC.controlAnswer, (_e, requestId: string, answer: ControlAnswer) =>
+    tabSpawner?.answerControl(requestId, answer)
   )
 
   // A text a session wants approved before posting it. Like a plan, the renderer has to

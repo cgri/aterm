@@ -69,7 +69,8 @@ main/                      Node side: owns all processes, files and Claude Code 
   update/releases.ts       newer GitHub releases than the running version
   update/installer.ts      downloads, verifies and silently runs the NSIS installer
   plan/PlanReviewServer.ts the named pipe the ExitPlanMode hook hands plans to
-  tabs/TabSpawnServer.ts   the named pipe behind the `aterm` MCP tools: open_tab, close_tab
+  tabs/TabSpawnServer.ts   the named pipe behind the `aterm` MCP tools (open_tab, close_tab,
+                           review_text) and outside tools' set_tab_status, focus_tab, list_sessions
   cli.ts                   the directory a launch names (--open-dir), Explorer's entry
   ipc.ts                   every channel name, shared with preload
 preload/index.ts           contextBridge → window.aterm
@@ -705,6 +706,31 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   the terminal makes Claude Code send `notifications/cancelled`; the MCP server hangs up the
   pipe, and the hang-up is what takes the panel down (`review-closed`). An open review counts
   as waiting, like a plan's.
+- **Outside tools can pin a note to a session's tab, and nothing reaches the session.**
+  The tab pipe takes three calls that are no MCP tool and need no tab: `set_tab_status`
+  (`sessionId`, `text`, `severity` of `info`/`blocked`/`needs-you`, optional `href`),
+  `focus_tab` (`sessionId`, `resume`) and `list_sessions`. Same framing as the MCP server's
+  — one line of JSON in, `{"tool", "args"}`, `tabId` empty or left out; one line out,
+  `ok` plus data fields, or `error` with an optional `code` (`unknown-session`,
+  `runs-elsewhere`). The pipe is `aterm-tabs-<pid>` and is published nowhere: a caller
+  lists `\\.\pipe\` for the prefix, and a dev run has one of its own.
+  aterm knows nothing of who sends a note or why — a dashboard of merge requests was the
+  first — and that is the point: it shows a line and a severity, holds no token, makes no
+  request. **Nothing is written to a terminal**: a note in the session would mark it as
+  waiting, which is what the sender wants to avoid. Notes are kept by conversation
+  (`notes` in `main.ts`), so a tab that resumes it shows it again; they are not persisted,
+  because the sender sets them again on its next round, and a repeated identical note
+  keeps whether it was seen. Drawn as a pip in the tab's top right corner, text in the
+  tooltip, `href` (http and https only, checked in main — a click hands it to the shell)
+  opened on a click. Only `needs-you` asks for the user, through `wantsUser`, and only
+  until the tab has been on screen; it leaves `isWaiting` alone, because the session
+  itself waits for nothing.
+  `focus_tab` takes the window to the front with a moment of always-on-top, because
+  Windows does not let a background caller hand over the foreground, and starts a
+  placeholder only with `resume`. With `resume` and no tab it opens one — unless a
+  `claude` outside aterm is in that conversation, which would be two processes on one
+  session. `list_sessions` joins the renderer's tabs with Claude Code's registry, so it
+  also lists sessions running elsewhere, with `tabOpen: false`.
 - **The images a conversation has seen come out of its transcript, and only from there.**
   Claude Code draws no image in the terminal, but every one it was shown is in the
   transcript as a base64 block: a pasted image in a `user` line's content, a Read of an

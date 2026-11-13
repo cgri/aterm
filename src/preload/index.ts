@@ -3,6 +3,8 @@ import type {
   AgentActivityEvent,
   Appearance,
   ClipboardPayload,
+  ControlAnswer,
+  ControlRequest,
   PersistedState,
   PlanReviewAnswer,
   PlanReviewRequest,
@@ -114,7 +116,13 @@ const api = {
       ipcRenderer.on(IPC.tabsClose, (_e, payload: TabCloseRequest) => cb(payload))
     },
     answer: (requestId: string, answer: TabRequestAnswer): void =>
-      ipcRenderer.send(IPC.tabsAnswer, requestId, answer)
+      ipcRenderer.send(IPC.tabsAnswer, requestId, answer),
+    /** An outside tool asks something of the tabs (`ControlRequest`). Answer it exactly once. */
+    onControl: (cb: (request: ControlRequest) => void): void => {
+      ipcRenderer.on(IPC.controlRequest, (_e, payload: ControlRequest) => cb(payload))
+    },
+    answerControl: (requestId: string, answer: ControlAnswer): void =>
+      ipcRenderer.send(IPC.controlAnswer, requestId, answer)
   },
   text: {
     /** A text a session wants approved before posting it. Acknowledge at once, answer later. */

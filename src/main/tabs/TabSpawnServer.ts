@@ -3,12 +3,17 @@ import { EventEmitter } from 'node:events'
 import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
 import { isAbsolute, join, resolve } from 'node:path'
-import type {
-  TabCloseRequest,
-  TabOpenRequest,
-  TabRequestAnswer,
-  TextReviewAnswer,
-  TextReviewRequest
+import {
+  TAB_NOTE_SEVERITIES,
+  type ControlAnswer,
+  type ControlRequest,
+  type TabCloseRequest,
+  type TabNote,
+  type TabNoteSeverity,
+  type TabOpenRequest,
+  type TabRequestAnswer,
+  type TextReviewAnswer,
+  type TextReviewRequest
 } from '@shared/types'
 import {
   findLiveSession,
@@ -16,6 +21,7 @@ import {
   readLiveSession,
   type LiveSession
 } from '../claude/sessionRegistry'
+import { conversationCwd } from '../claude/transcripts'
 import type { EndedProcess } from '../pty/PtyManager'
 import { hasChanges, workingTreeRoot } from '../util/git'
 
@@ -75,8 +81,22 @@ interface Review {
 
 type Isolation = 'auto' | 'worktree' | 'inplace'
 
+/**
+ * The calls an outside tool makes — a dashboard, a deploy watcher — rather than a session
+ * in a tab. The caller is no tab, so these take none, and an empty `tabId` is fine.
+ */
+const CONTROL_TOOLS = new Set(['set_tab_status', 'focus_tab', 'list_sessions'])
+
+/** A note is one line, not prose; anything longer is cut. */
+const MAX_NOTE_LENGTH = 200
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 interface Call {
-  /** The tab the calling session runs in — from its own MCP config, not from the environment. */
+  /**
+   * The tab the calling session runs in — from its own MCP config, not from the
+   * environment. Empty for a `CONTROL_TOOLS` call, whose caller is no tab.
+   */
   tabId: string
   /** The `claude` process that started the MCP server, which is the calling session. */
   ppid?: number
@@ -84,8 +104,14 @@ interface Call {
   args: Record<string, unknown>
 }
 
-/** What goes back to the MCP server: text for Claude, or an error it is shown as such. */
-type Reply = { ok: true; text: string } | { ok: false; error: string }
+/**
+ * What goes back to the MCP server: text for Claude, or an error it is shown as such. A
+ * `CONTROL_TOOLS` call gets data fields instead of text, and an error may carry a `code`.
+ */
+type Reply =
+  | { ok: true; text: string }
+  | ({ ok: true } & Record<string, unknown>)
+  | { ok: false; error: string; code?: string }
 
 /** What the server needs to know about the tabs' processes. */
 export interface TabProcesses {
@@ -114,11 +140,20 @@ export interface TabProcesses {
  * (TextReviewRequest), acknowledged through `acknowledgeReview` and answered through
  * `answerReview`, or `review-closed` (reviewId) when the call went away first: Esc in the
  * terminal, which makes Claude Code cancel it, or the session ending.
+ *
+ * The same pipe takes three calls from outside tools, which are no tab and are offered as
+ * no MCP tool (`CONTROL_TOOLS`): `set_tab_status` pins a one-line note to a session's tab,
+ * `focus_tab` brings that tab to the front, and `list_sessions` says which sessions run
+ * and in which tab. Each goes to the renderer as `control` (ControlRequest), answered
+ * through `answerControl`; `reveal` asks for the window to come forward. None of them
+ * ever writes to a terminal: a note is something the user sees when looking, and must not
+ * reach the session.
  */
 export class TabSpawnServer extends EventEmitter {
   private server?: Server
   private readonly pending = new Map<string, (answer: TabRequestAnswer) => void>()
   private readonly reviews = new Map<string, Review>()
+  private readonly controls = new Map<string, (answer: ControlAnswer) => void>()
   /** Per process, so a dev run and the installed app each get their own pipe. */
   private readonly pipeName = `aterm-tabs-${process.pid}`
   private readonly configDir: string
@@ -193,9 +228,17 @@ export class TabSpawnServer extends EventEmitter {
     settle?.(answer)
   }
 
+  /** The renderer's answer to a `control` request. */
+  answerControl(requestId: string, answer: ControlAnswer): void {
+    const settle = this.controls.get(requestId)
+    this.controls.delete(requestId)
+    settle?.(answer)
+  }
+
   /** Everything open goes back unanswered — the renderer that held it is gone. */
   failAll(reason: string): void {
     for (const requestId of [...this.pending.keys()]) this.answer(requestId, { ok: false, error: reason })
+    for (const requestId of [...this.controls.keys()]) this.answerControl(requestId, { ok: false, error: reason })
     for (const reviewId of [...this.reviews.keys()]) this.answerReview(reviewId, { kind: 'pass' })
   }
 
@@ -259,6 +302,9 @@ export class TabSpawnServer extends EventEmitter {
     }
     if (call.tool === 'close_tab') return this.close(call)
     if (call.tool === 'review_text') return this.review(call, onGone)
+    if (call.tool === 'set_tab_status') return this.setStatus(call.args)
+    if (call.tool === 'focus_tab') return this.focus(call.args)
+    if (call.tool === 'list_sessions') return this.list()
     return { ok: false, error: `Unknown tool ${call.tool}.` }
   }
 
@@ -417,6 +463,113 @@ export class TabSpawnServer extends EventEmitter {
     }
   }
 
+  /**
+   * Pins a note to the tab in that conversation, or takes it off again with an empty
+   * text. Nothing goes to the session: the note is drawn on the tab and that is all.
+   */
+  private async setStatus(args: Record<string, unknown>): Promise<Reply> {
+    const sessionId = sessionIdOf(args)
+    if (!sessionId) return { ok: false, error: 'sessionId must be a Claude session id.' }
+    const text = typeof args.text === 'string' ? oneLine(args.text) : ''
+    const severity = (args.severity ?? 'info') as TabNoteSeverity
+    if (!TAB_NOTE_SEVERITIES.includes(severity)) {
+      return { ok: false, error: `severity must be one of ${TAB_NOTE_SEVERITIES.join(', ')}.` }
+    }
+    let href: string | undefined
+    if (typeof args.href === 'string' && args.href.trim()) {
+      href = webUrl(args.href.trim())
+      if (!href) return { ok: false, error: 'href must be an http or https URL.' }
+    }
+    const note: TabNote | undefined = text ? { text, severity, href } : undefined
+    const answer = await this.askControl({ requestId: randomUUID(), kind: 'status', sessionId, note })
+    return answer.ok ? { ok: true, tabId: answer.tabId ?? null } : answer
+  }
+
+  /**
+   * Brings the tab in that conversation to the front. Without such a tab, and asked to
+   * `resume`, a new tab resumes the conversation — unless a `claude` outside aterm is in
+   * it: two processes on one session is what destroys a conversation.
+   */
+  private async focus(args: Record<string, unknown>): Promise<Reply> {
+    const sessionId = sessionIdOf(args)
+    if (!sessionId) return { ok: false, error: 'sessionId must be a Claude session id.' }
+    const resume = args.resume === true
+    const found = await this.askControl({ requestId: randomUUID(), kind: 'focus', sessionId, start: resume })
+    if (found.ok) {
+      this.emit('reveal')
+      return { ok: true, tabId: found.tabId ?? null, resumed: false }
+    }
+    if (found.code !== 'unknown-session' || !resume) return found
+
+    const live = findLiveSession(sessionId)
+    if (live) {
+      return {
+        ok: false,
+        code: 'runs-elsewhere',
+        error: `The session runs outside aterm (pid ${live.pid}), so it cannot be resumed in a tab.`
+      }
+    }
+    const cwd = conversationCwd(sessionId)
+    if (!cwd) return { ok: false, code: 'unknown-session', error: 'No conversation with that id was found.' }
+    const opened = await this.askControl({ requestId: randomUUID(), kind: 'resume', sessionId, cwd })
+    if (!opened.ok) return opened
+    this.emit('reveal')
+    return { ok: true, tabId: opened.tabId ?? null, resumed: true }
+  }
+
+  /**
+   * Every session aterm knows of: those its tabs are in, running or not, and those
+   * running anywhere else on this machine, which have no tab. `state` is what Claude Code
+   * says the session is doing, and null for one that does not run.
+   */
+  private async list(): Promise<Reply> {
+    const answer = await this.askControl({ requestId: randomUUID(), kind: 'list' })
+    if (!answer.ok) return answer
+    const live = new Map(listLiveSessions().map((s) => [s.sessionId, s]))
+    const sessions: Record<string, unknown>[] = []
+    for (const tab of answer.tabs ?? []) {
+      const session = live.get(tab.sessionId)
+      live.delete(tab.sessionId)
+      sessions.push({
+        sessionId: tab.sessionId,
+        tabId: tab.tabId,
+        title: tab.title,
+        name: session?.name ?? null,
+        cwd: session?.cwd || tab.cwd,
+        state: session?.status ?? null,
+        running: session !== undefined,
+        tabOpen: true
+      })
+    }
+    for (const session of live.values()) {
+      sessions.push({
+        sessionId: session.sessionId,
+        tabId: null,
+        title: null,
+        name: session.name ?? null,
+        cwd: session.cwd,
+        state: session.status ?? null,
+        running: true,
+        tabOpen: false
+      })
+    }
+    return { ok: true, sessions }
+  }
+
+  private askControl(request: ControlRequest): Promise<ControlAnswer> {
+    return new Promise((done) => {
+      const timer = setTimeout(
+        () => this.answerControl(request.requestId, { ok: false, error: 'aterm did not answer in time.' }),
+        ANSWER_TIMEOUT_MS
+      )
+      this.controls.set(request.requestId, (answer) => {
+        clearTimeout(timer)
+        done(answer)
+      })
+      this.emit('control', request)
+    })
+  }
+
   private ask<T extends { requestId: string }>(event: 'open' | 'close', request: T): Promise<TabRequestAnswer> {
     return new Promise((done) => {
       const timer = setTimeout(
@@ -475,10 +628,36 @@ function reviewReply(answer: TextReviewAnswer | undefined): Reply {
 function parseCall(line: string): Call | undefined {
   try {
     const data = JSON.parse(line) as Partial<Call>
-    if (typeof data.tabId !== 'string' || typeof data.tool !== 'string') return undefined
+    if (typeof data.tool !== 'string') return undefined
+    // An outside caller is no tab: it may leave `tabId` out, or send it empty.
+    const control = CONTROL_TOOLS.has(data.tool)
+    if (!control && typeof data.tabId !== 'string') return undefined
     const args = data.args && typeof data.args === 'object' ? data.args : {}
     const ppid = typeof data.ppid === 'number' ? data.ppid : undefined
-    return { tabId: data.tabId, ppid, tool: data.tool, args }
+    return { tabId: control ? '' : (data.tabId as string), ppid, tool: data.tool, args }
+  } catch {
+    return undefined
+  }
+}
+
+function sessionIdOf(args: Record<string, unknown>): string | undefined {
+  return typeof args.sessionId === 'string' && UUID.test(args.sessionId) ? args.sessionId : undefined
+}
+
+/** A note's text as one line, cut to `MAX_NOTE_LENGTH`. */
+function oneLine(text: string): string {
+  const line = text.replace(/\s+/g, ' ').trim()
+  return line.length > MAX_NOTE_LENGTH ? `${line.slice(0, MAX_NOTE_LENGTH - 1)}…` : line
+}
+
+/**
+ * The URL a note may open, or undefined. Only the web: a click on the note hands it to
+ * the shell, and a `file:` URL from an outside caller would be a way to run a program.
+ */
+function webUrl(href: string): string | undefined {
+  try {
+    const url = new URL(href)
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : undefined
   } catch {
     return undefined
   }

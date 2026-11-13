@@ -496,6 +496,33 @@ body {
   background: var(--badge);
 }
 
+/* A note an outside tool pinned to the tab's session (`set_tab_status`): a pip in the top
+   right corner, out of the way of mark, name and close button, with the text as its
+   tooltip. It says that there is something to read, not what — and only a `needs-you`
+   note asks for the user, through the red dot in place of the mark like any wait. The
+   pip itself stays as long as the note does. */
+.tab .note-pip {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-dim);
+}
+
+.tab .note-pip[data-severity='blocked'] {
+  background: var(--warn);
+}
+
+.tab .note-pip[data-severity='needs-you'] {
+  background: var(--badge);
+}
+
+.tab .note-pip.link {
+  cursor: pointer;
+}
+
 /* The name is a column of its own, folder above summary, so that the tab's gap stays
    between mark, name and close button. Two lines and not one: side by side the two
    halves shared one tab's width, and in a full bar both ended up as two letters and an
