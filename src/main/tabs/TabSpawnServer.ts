@@ -494,14 +494,22 @@ export class TabSpawnServer extends EventEmitter {
     const sessionId = sessionIdOf(args)
     if (!sessionId) return { ok: false, error: 'sessionId must be a Claude session id.' }
     const resume = args.resume === true
-    const found = await this.askControl({ requestId: randomUUID(), kind: 'focus', sessionId, start: resume })
+    // A running session is either in one of these tabs already, which needs no start, or
+    // somewhere else — another aterm, another terminal — where a start would put a second
+    // `claude` on it. So a tab that does not run is started only for a session nobody runs.
+    const live = findLiveSession(sessionId)
+    const found = await this.askControl({
+      requestId: randomUUID(),
+      kind: 'focus',
+      sessionId,
+      start: resume && !live
+    })
     if (found.ok) {
       this.emit('reveal')
       return { ok: true, tabId: found.tabId ?? null, resumed: false }
     }
     if (found.code !== 'unknown-session' || !resume) return found
 
-    const live = findLiveSession(sessionId)
     if (live) {
       return {
         ok: false,
