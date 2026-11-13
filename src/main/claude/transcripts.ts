@@ -1,5 +1,6 @@
 import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { projectDir } from '@shared/paths'
 import { parseJson } from '../util/json'
 import { projectsDir, transcriptPath } from './paths'
 
@@ -175,6 +176,22 @@ export function findConversation(cwd: string, sessionId: string): ConversationLo
  */
 export function hasTranscript(cwd: string, sessionId: string): boolean {
   return existsSync(transcriptPath(cwd, sessionId)) || transcriptsOf(sessionId).length > 0
+}
+
+/**
+ * Where a conversation can be resumed, found by its id alone: the folder its newest
+ * transcript was held in, or that folder's project when it was a worktree that has
+ * since been removed — Claude Code moves such transcripts to the project. Undefined when
+ * there is no conversation, or its folder is gone.
+ */
+export function conversationCwd(sessionId: string): string | undefined {
+  for (const file of transcriptsOf(sessionId)) {
+    const head = firstUserEntry(file)
+    if (!head) continue
+    const dir = [head.cwd, projectDir(head.cwd)].find((d) => existsSync(d))
+    if (dir) return dir
+  }
+  return undefined
 }
 
 /**

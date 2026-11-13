@@ -327,3 +327,53 @@ export interface TabCloseRequest {
   parentTabId: string
   tabId: string
 }
+
+/**
+ * How much a note an outside tool pins to a tab matters. Only `needs-you` asks for the
+ * user the way a waiting tab does — red dot, flashing taskbar — and only until the tab
+ * has been looked at.
+ */
+export type TabNoteSeverity = 'info' | 'blocked' | 'needs-you'
+
+export const TAB_NOTE_SEVERITIES: readonly TabNoteSeverity[] = ['info', 'blocked', 'needs-you']
+
+/**
+ * One line pinned to a session's tab by `set_tab_status`. aterm only shows it: what it
+ * says and who sent it are none of its business, and it never reaches the session.
+ */
+export interface TabNote {
+  text: string
+  severity: TabNoteSeverity
+  /** http(s) only, checked by main; a click on the note opens it in the browser. */
+  href?: string
+}
+
+/**
+ * What an outside tool asks of the tabs through the tab pipe, without being a tab itself.
+ * Tabs belong to the renderer, so it answers each exactly once (`ControlAnswer`).
+ * - `status`: pin `note` to the tabs in conversation `sessionId`; no note removes it.
+ * - `focus`: bring that tab to the front, and start it if `start` and it is not running.
+ * - `resume`: open a new tab that resumes `sessionId` in `cwd`.
+ * - `list`: every tab that is in a conversation.
+ */
+export type ControlRequest =
+  | { requestId: string; kind: 'status'; sessionId: string; note?: TabNote }
+  | { requestId: string; kind: 'focus'; sessionId: string; start: boolean }
+  | { requestId: string; kind: 'resume'; sessionId: string; cwd: string }
+  | { requestId: string; kind: 'list' }
+
+/** A tab as `list_sessions` reports it. */
+export interface ControlTab {
+  tabId: string
+  sessionId: string
+  /** What the tab bar calls it: folder, then summary. */
+  title: string
+  cwd: string
+  /** A process runs in the tab — not necessarily `claude`, in a shell tab. */
+  running: boolean
+}
+
+/** `unknown-session`: no tab is in that conversation. */
+export type ControlAnswer =
+  | { ok: true; tabId?: string; tabs?: ControlTab[] }
+  | { ok: false; error: string; code?: 'unknown-session' }

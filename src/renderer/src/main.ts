@@ -2,6 +2,9 @@ import '@xterm/xterm/css/xterm.css'
 import './theme.css'
 import {
   TAB_GROUP_COLORS,
+  type ControlAnswer,
+  type ControlRequest,
+  type ControlTab,
   type PersistedState,
   type PlanReviewAnswer,
   type PlanReviewRequest,
@@ -13,6 +16,7 @@ import {
   type TabGroupColor,
   type TabCloseRequest,
   type TabKind,
+  type TabNote,
   type TabOpenRequest,
   type TabRequestAnswer,
   type TabState,
@@ -177,6 +181,14 @@ let returnId: string | undefined
 const PAGE_ID = 'new-tab-page'
 let homeDir = ''
 let fontSize = Number(localStorage.getItem('fontSize') ?? BASE_FONT_SIZE)
+/**
+ * The notes outside tools pinned through `set_tab_status`, by conversation rather than
+ * by tab: the conversation is what the sender knows, and a tab that resumes it later
+ * shows the note again. `seen` is whether a `needs-you` note has been on screen yet —
+ * until then it asks for the user like a waiting tab. Never persisted: the sender sets
+ * it again on its next round.
+ */
+const notes = new Map<string, { note: TabNote; seen: boolean }>()
 /** sessionId → first prompt, used for titles and the "last here" bar. */
 let sessionTitles = new Map<string, string>()
 /**
@@ -267,6 +279,7 @@ async function boot(): Promise<void> {
   api.images.onImages(({ tabId, reset, images }) => onTabImages(tabId, images, reset))
   api.tabs.onOpen((request) => void answerTabRequest(request.requestId, openRequestedTab(request)))
   api.tabs.onClose((request) => void answerTabRequest(request.requestId, closeRequestedTab(request)))
+  api.tabs.onControl((request) => void answerControl(request))
 
   const overrides = (await api.system.keymap()) as Partial<Record<Action, string[]>>
 
@@ -542,6 +555,94 @@ async function closeRequestedTab(request: TabCloseRequest): Promise<TabRequestAn
   }
   await removeTab(pane.tab.id)
   return { ok: true, tabId: request.tabId }
+}
+
+/* ---------------------------------------------- What outside tools ask */
+
+async function answerControl(request: ControlRequest): Promise<void> {
+  let answer: ControlAnswer
+  try {
+    answer = await controlRequest(request)
+  } catch (err) {
+    answer = { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+  api.tabs.answerControl(request.requestId, answer)
+}
+
+/**
+ * An outside tool's request, through the tab pipe. None of these writes to a terminal:
+ * a note is drawn on the tab, and the session never hears of it.
+ */
+async function controlRequest(request: ControlRequest): Promise<ControlAnswer> {
+  if (request.kind === 'list') return { ok: true, tabs: controlTabs() }
+  if (request.kind === 'resume') {
+    const pane = await createTab('claude', request.cwd, {
+      claudeSessionId: request.sessionId,
+      summary: sessionTitles.get(request.sessionId),
+      resume: true,
+      beside: besideFor(request.cwd)
+    })
+    if (pane.status !== 'running') return { ok: false, error: 'The session could not be started.' }
+    return { ok: true, tabId: pane.tab.id }
+  }
+
+  const holders = [...panes.values()].filter((p) => p.tab.claudeSessionId === request.sessionId)
+  if (request.kind === 'status') {
+    if (!request.note) {
+      notes.delete(request.sessionId)
+      render()
+      return { ok: true, tabId: holders[0]?.tab.id }
+    }
+    if (holders.length === 0) {
+      return { ok: false, code: 'unknown-session', error: 'No tab is in that session.' }
+    }
+    const before = notes.get(request.sessionId)
+    // The sender repeats its note on every round. Only a different one is news again.
+    const same =
+      before?.note.text === request.note.text && before.note.severity === request.note.severity
+    notes.set(request.sessionId, {
+      note: request.note,
+      seen: same ? before.seen : holders.some(isOnScreen)
+    })
+    render()
+    return { ok: true, tabId: holders[0].tab.id }
+  }
+
+  // focus: the running tab, if more than one is in it — a shell tab keeps the id of
+  // the last `claude` that ran there.
+  const pane = holders.find((p) => p.status === 'running') ?? holders[0]
+  if (!pane) return { ok: false, code: 'unknown-session', error: 'No tab is in that session.' }
+  if (pageActive) leavePage()
+  activate(pane.tab.id, { start: request.start })
+  return { ok: true, tabId: pane.tab.id }
+}
+
+function controlTabs(): ControlTab[] {
+  const tabs: ControlTab[] = []
+  for (const id of order) {
+    const pane = panes.get(id)
+    const sessionId = pane?.tab.claudeSessionId
+    if (!pane || !sessionId) continue
+    tabs.push({
+      tabId: id,
+      sessionId,
+      title: paneTitle(pane),
+      cwd: pane.tab.cwd,
+      running: pane.status === 'running'
+    })
+  }
+  return tabs
+}
+
+/** The note pinned to the conversation this tab is in. */
+function noteOf(pane: Pane): { note: TabNote; seen: boolean } | undefined {
+  return pane.tab.claudeSessionId ? notes.get(pane.tab.claudeSessionId) : undefined
+}
+
+/** A `needs-you` note nobody has looked at: it asks for the user like a waiting tab. */
+function noteWantsUser(pane: Pane): boolean {
+  const entry = noteOf(pane)
+  return entry?.note.severity === 'needs-you' && !entry.seen
 }
 
 async function openSession(session: RecentSession): Promise<void> {
@@ -1386,6 +1487,8 @@ function onSessionDetected(tabId: string, sessionId: string): void {
   // is resumable. The main process still decides that for itself on every start.
   pane.tab.everStarted = true
   persist()
+  // A note belongs to the conversation the tab has just left, or to the one it is in now.
+  if (notes.size) render()
   void refreshClaudeTitles()
 }
 
@@ -1422,7 +1525,10 @@ function isOnScreen(pane: Pane): boolean {
  */
 function noteSeen(): void {
   const pane = activePane()
-  if (pane && windowFocused && isWaiting(pane)) pane.awaitingSeen = true
+  if (!pane || !windowFocused) return
+  if (isWaiting(pane)) pane.awaitingSeen = true
+  const note = noteOf(pane)
+  if (note) note.seen = true
 }
 
 /**
@@ -1524,9 +1630,13 @@ function onSessionStatus(tabId: string, status: SessionStatus): void {
   render()
 }
 
-/** Waiting and not looked at since: the red dot, the flashing taskbar, Ctrl+Q. */
+/**
+ * Waiting and not looked at since: the red dot, the flashing taskbar, Ctrl+Q. A
+ * `needs-you` note from an outside tool asks the same, and only until it is seen; it
+ * leaves `isWaiting` alone, because the session itself is not waiting for anything.
+ */
 function wantsUser(pane: Pane): boolean {
-  return isWaiting(pane) && !pane.awaitingSeen
+  return (isWaiting(pane) && !pane.awaitingSeen) || noteWantsUser(pane)
 }
 
 /**
@@ -1805,14 +1915,17 @@ function render(): void {
 }
 
 function tabModel(pane: Pane): TabViewModel {
+  const note = noteOf(pane)?.note
   return {
+    note,
     id: pane.tab.id,
     // The two halves are drawn apart so the folder can step back visually;
     // `title` is the whole name, for the tooltip — and says why a tab held at its start
     // is waiting, because its terminal is all the tab has to show for it.
-    title: pane.heldAtStart
-      ? `${paneTitle(pane)} — Claude Code asks something before it starts`
-      : paneTitle(pane),
+    title:
+      (pane.heldAtStart
+        ? `${paneTitle(pane)} — Claude Code asks something before it starts`
+        : paneTitle(pane)) + (note ? `\n${note.text}` : ''),
     folder: tabFolder(pane),
     summary: tabSummary(pane),
     // What is in the tab, not what it was started as: a shell someone ran `claude` in

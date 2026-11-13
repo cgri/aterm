@@ -1,4 +1,4 @@
-import type { TabGroupColor } from '@shared/types'
+import type { TabGroupColor, TabNote } from '@shared/types'
 import { icon } from './icons'
 
 /** Claude Code's own marker, with the variation selector that keeps it out of emoji. */
@@ -21,9 +21,14 @@ export interface TabViewModel {
   working: boolean
   /**
    * Waiting for input and not looked at since — the one thing the bar asks about. The
-   * tab's mark gives way to a red dot while it lasts.
+   * tab's mark gives way to a red dot while it lasts. An unseen `needs-you` note counts.
    */
   alarm: boolean
+  /**
+   * A line an outside tool pinned to the tab's session (`set_tab_status`), drawn as a pip
+   * in the tab's corner with the text as its tooltip.
+   */
+  note?: TabNote
 }
 
 export interface TabGroupViewModel {
@@ -542,7 +547,7 @@ export class TabBar {
     const mark = document.createElement('span')
     if (tab.alarm) {
       mark.className = 'mark waiting'
-      mark.title = 'Waiting for input'
+      mark.title = tab.note?.severity === 'needs-you' ? tab.note.text : 'Waiting for input'
       const badge = document.createElement('span')
       badge.className = 'badge'
       mark.appendChild(badge)
@@ -570,6 +575,8 @@ export class TabBar {
       name.appendChild(label)
     }
     el.appendChild(name)
+
+    if (tab.note) el.appendChild(notePip(tab.note))
 
     el.appendChild(this.closeButton(() => this.handlers.onClose(tab.id)))
 
@@ -880,4 +887,28 @@ function mid(box: { left: number; right: number }): number {
 
 function sameTarget(a: DropTarget, b: DropTarget): boolean {
   return a.before === b.before && a.groupId === b.groupId
+}
+
+/**
+ * The note an outside tool pinned to the tab: a pip in its top right corner, coloured by
+ * how much it matters, with the text as its tooltip. A note with a link opens it on a
+ * click; one without lets the click through to the tab.
+ */
+function notePip(note: TabNote): HTMLElement {
+  const pip = document.createElement('span')
+  pip.className = 'note-pip'
+  pip.dataset.severity = note.severity
+  pip.title = note.href ? `${note.text}\nClick to open ${note.href}` : note.text
+  if (note.href) {
+    const href = note.href
+    pip.classList.add('link')
+    pip.addEventListener('mousedown', (ev) => {
+      if (ev.button !== 0) return
+      ev.preventDefault()
+      ev.stopPropagation()
+      // The window's open handler hands it to the browser; main let only http(s) through.
+      window.open(href)
+    })
+  }
+  return pip
 }

@@ -31,6 +31,7 @@ export const IPC = {
   tabsAnswer: 'tabs:answer',
   textAck: 'text:ack',
   textAnswer: 'text:answer',
+  controlAnswer: 'control:answer',
 
   // Main → Renderer
   ptyData: 'pty:data',
@@ -47,5 +48,6 @@ export const IPC = {
   textReviewClosed: 'text:review-closed',
   tabsOpen: 'tabs:open',
   tabsClose: 'tabs:close',
-  tabImages: 'tabs:images'
+  tabImages: 'tabs:images',
+  controlRequest: 'control:request'
 } as const
