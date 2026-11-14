@@ -27,6 +27,10 @@ export interface KeymapContext {
   toggleActiveGroup(): void
   /** Enter on a tab that has not started → start it. true when it did. */
   startActiveTab(): boolean
+  /** Opens the task list and puts the keyboard there, or closes it if it has it. */
+  toggleTasks(): void
+  /** The "New task" dialog. */
+  newTask(): void
   /** Types the active tab's selection into its prompt as a quote. false without one. */
   quoteSelection(): boolean
   overlayOpen(): boolean
@@ -48,6 +52,8 @@ export type Action =
   | 'search'
   | 'images'
   | 'toggleReview'
+  | 'tasks'
+  | 'newTask'
   | 'paste'
   | 'copy'
   | 'quoteSelection'
@@ -77,6 +83,9 @@ export const DEFAULT_BINDINGS: Record<Action, string[]> = {
   images: ['Ctrl+Shift+I'],
   // P for plan. Ctrl+P itself stays the terminal's: only the Shift variant is taken.
   toggleReview: ['Ctrl+Shift+P'],
+  // L for list, K for the task to add: neither has a meaning of its own to a terminal.
+  tasks: ['Ctrl+Shift+L'],
+  newTask: ['Ctrl+Shift+K'],
   paste: ['Ctrl+V', 'Ctrl+Shift+V'],
   copy: ['Ctrl+Shift+C'],
   quoteSelection: ['Ctrl+Shift+Q'],
@@ -228,13 +237,15 @@ function handle(ev: KeyboardEvent, ctx: KeymapContext, bindings: Bindings): bool
 const TEXT_ACTIONS = new Set<Action>(['paste', 'copy', 'quoteSelection', 'pasteImage', 'newline'])
 
 /**
- * The keyboard is on something in the window other than a terminal — a plan review.
- * Overlays are asked for separately through `overlayOpen`; this covers what sits in a
- * pane over the terminal.
+ * The keyboard is on something in the window other than a terminal — a plan review, or
+ * the task list beside the terminals. Overlays are asked for separately through
+ * `overlayOpen`; this covers what sits in the window next to or over the terminal.
  */
 function focusOutsideTerminal(): boolean {
   const el = document.activeElement
-  return el instanceof HTMLElement && el !== document.body && Boolean(el.closest('.plan-review'))
+  return (
+    el instanceof HTMLElement && el !== document.body && Boolean(el.closest('.plan-review, .task-panel'))
+  )
 }
 
 function dispatch(action: Action, ctx: KeymapContext, ev: KeyboardEvent): boolean {
@@ -280,6 +291,12 @@ function dispatch(action: Action, ctx: KeymapContext, ev: KeyboardEvent): boolea
       return ctx.toggleImages()
     case 'toggleReview':
       return ctx.toggleReview()
+    case 'tasks':
+      ctx.toggleTasks()
+      return true
+    case 'newTask':
+      ctx.newTask()
+      return true
     // Without a terminal in front — on the new-tab page — these belong to the text
     // field that has the focus, and have to reach it.
     case 'paste':

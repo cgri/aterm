@@ -198,6 +198,7 @@ body {
 #tabbar #tabmore,
 #tabbar .tabfade,
 #tabbar #update-button,
+#tabbar #tasks-button,
 #tabbar #theme-toggle {
   -webkit-app-region: no-drag;
 }
@@ -819,10 +820,18 @@ body {
 
 /* ---------- Panes ---------- */
 
+/* The terminals, with the task list beside them when it is open. */
+#workspace {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 #panes {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
 }
 
 .pane {
@@ -2452,4 +2461,804 @@ body {
   /* Lined up with the centred text above. */
   padding: 10px max(16px, calc((100% - 940px) / 2 + 20px)) 14px max(16px, calc((100% - 940px) / 2 + 34px));
   border-top: 1px solid var(--border);
+}
+
+/* ---------- Tasks ---------- */
+
+/* The trailing button that opens the task list: the theme toggle's slot, with a count of
+   the tasks that need the user. The count is neutral while those waits have all been
+   seen, and red while one of them carries the tab bar's red dot. */
+#tasks-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 34px;
+  padding: 0 8px;
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  cursor: default;
+}
+
+#tasks-button:hover,
+#tasks-button.open {
+  color: var(--fg);
+  background: var(--bg-tab);
+}
+
+.tasks-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--hover);
+  color: var(--fg);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.tasks-badge[hidden] {
+  display: none;
+}
+
+#tasks-button.alarm .tasks-badge {
+  background: var(--badge);
+  color: var(--on-badge);
+}
+
+/* The list itself, left of the terminals. It takes its width from the terminals, which
+   refit through their ResizeObserver when it opens or closes. */
+.task-panel {
+  flex: 0 0 340px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-review);
+  border-right: 1px solid var(--border);
+  user-select: none;
+}
+
+.task-panel[hidden],
+.task-list-view[hidden],
+.task-detail-view[hidden],
+.task-dialog-recognised[hidden] {
+  display: none;
+}
+
+.task-list-view,
+.task-detail-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.task-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 8px 14px;
+}
+
+.task-head h2 {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.task-filter,
+.task-title-input,
+.task-notes {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  outline: none;
+}
+
+.task-filter {
+  margin: 0 12px 6px;
+  padding: 5px 9px;
+}
+
+.task-filter:focus,
+.task-title-input:focus,
+.task-notes:focus {
+  border-color: var(--accent);
+}
+
+.task-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0 6px 12px;
+}
+
+.task-empty {
+  padding: 16px 10px;
+  color: var(--fg-dim);
+  line-height: 1.5;
+}
+
+.task-button {
+  font: inherit;
+  padding: 4px 11px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-tab);
+  color: var(--fg);
+  cursor: default;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.task-button:hover {
+  background: var(--hover);
+}
+
+.task-button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.task-button.primary:hover {
+  filter: brightness(1.12);
+}
+
+.task-button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg-dim);
+}
+
+.task-button.quiet:hover {
+  color: var(--fg);
+  background: var(--bg-tab);
+}
+
+.task-button.danger:hover {
+  color: var(--err);
+}
+
+.task-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.task-section-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.task-count {
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+/* A row is one button: the whole task, opened on click. */
+.task-button.task-row {
+  display: flex;
+  gap: 9px;
+  width: 100%;
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  white-space: normal;
+}
+
+.task-button.task-row:hover {
+  background: var(--bg-tab);
+}
+
+.task-row.state-done {
+  color: var(--fg-dim);
+}
+
+.task-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.task-row-top {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.task-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.task-row.state-backlog .task-title,
+.task-row.state-done .task-title {
+  font-weight: 400;
+}
+
+.task-source-chip {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--bg-tab);
+  color: var(--fg-dim);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.task-reason {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.task-reason.needs {
+  color: var(--err);
+}
+
+.task-reason.blocked {
+  color: var(--warn);
+}
+
+.task-reason .task-ask-icon {
+  margin-top: 0;
+}
+
+.task-more {
+  color: var(--fg-dim);
+}
+
+.task-note {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--fg-dim);
+  overflow-wrap: anywhere;
+}
+
+.task-row-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.task-age {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+
+/* A task's state as a shape, so it is told apart without the colour: a dot for the user,
+   a square for blocked, the breathing ✳ for work, a ring for the backlog, a tick for done. */
+.task-glyph {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.task-section-head .task-glyph {
+  margin-top: 0;
+  width: 11px;
+  height: 11px;
+}
+
+.task-glyph.state-needs_user::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--badge);
+}
+
+.task-glyph.state-blocked::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border: 1.6px solid var(--warn);
+  border-radius: 2px;
+}
+
+.task-glyph.state-working {
+  color: var(--fg);
+  animation: task-breath 1.6s ease-in-out infinite;
+}
+
+.task-glyph.state-backlog::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border: 1.4px solid var(--fg-dim);
+  border-radius: 50%;
+}
+
+.task-glyph.state-done::before {
+  content: '';
+  width: 4px;
+  height: 8px;
+  margin-top: -2px;
+  border: solid var(--ok);
+  border-width: 0 1.6px 1.6px 0;
+  box-sizing: content-box;
+  transform: rotate(45deg);
+}
+
+@keyframes task-breath {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* A session as the tab bar draws it: ✳ faint while nothing runs, breathing while it
+   works, and the red dot while it waits unseen. */
+.task-session-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  font-size: 11px;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-session-mark .mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  color: var(--fg);
+}
+
+.task-session-mark .mark.faint {
+  color: var(--fg-dim);
+  opacity: 0.6;
+}
+
+.task-session-mark .mark.working {
+  animation: task-breath 1.6s ease-in-out infinite;
+}
+
+.task-session-mark .mark.alarm::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--badge);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-glyph.state-working,
+  .task-session-mark .mark.working {
+    animation: none;
+  }
+}
+
+.task-button.task-done-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 8px 6px;
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+.task-button.task-done-toggle:hover {
+  color: var(--fg);
+}
+
+/* ---- One task, opened in the list's place ---- */
+
+.task-button.task-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 10px 10px 4px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg-dim);
+}
+
+.task-title-input {
+  margin: 0 12px 8px;
+  padding: 6px 8px;
+  font-size: 15px;
+  font-weight: 600;
+  border-color: transparent;
+  background: transparent;
+}
+
+.task-title-input:hover {
+  border-color: var(--border);
+}
+
+.task-detail-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0 14px 16px;
+  user-select: text;
+}
+
+.task-detail-dynamic {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-button.task-state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 7px;
+  border-radius: 13px;
+  font-weight: 600;
+}
+
+.task-state-chip .task-glyph {
+  margin-top: 0;
+}
+
+.task-button.task-state-chip.state-needs_user {
+  border-color: var(--badge);
+}
+
+.task-button.task-state-chip.state-blocked {
+  border-color: var(--warn);
+}
+
+.task-meta-by,
+.task-source,
+.task-folder-path,
+.task-ask-by,
+.task-event-by,
+.task-session-sub {
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.task-source a {
+  color: var(--accent);
+}
+
+.task-section-title {
+  margin: 4px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.task-asks,
+.task-blocked {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--badge);
+  border-radius: 7px;
+  background: var(--bg-card);
+}
+
+.task-blocked {
+  border-color: var(--warn);
+}
+
+.task-asks .task-section-title,
+.task-blocked .task-section-title {
+  margin: 0;
+}
+
+.task-ask {
+  display: flex;
+  gap: 10px;
+}
+
+.task-ask-icon {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--err);
+}
+
+.task-ask-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.task-ask-kind {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--err);
+}
+
+.task-ask-text,
+.task-blocked-text {
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.task-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.task-sessions {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.task-session {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 6px 7px 10px;
+  background: var(--bg-card);
+}
+
+.task-session + .task-session {
+  border-top: 1px solid var(--border);
+}
+
+.task-session.closed {
+  opacity: 0.75;
+}
+
+.task-session-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.task-session-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-button.task-detach {
+  padding: 2px 7px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg-dim);
+}
+
+.task-folder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-folder-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-notes {
+  width: 100%;
+  padding: 7px 9px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.task-detail-scroll > .task-section,
+.task-activity-host > .task-section {
+  margin-top: 16px;
+}
+
+.task-activity {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  border-left: 1px solid var(--edge);
+}
+
+.task-activity li {
+  display: flex;
+  gap: 8px;
+  margin-left: -9px;
+}
+
+.task-event-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  border: 1.4px solid var(--fg-dim);
+  border-radius: 50%;
+  background: var(--bg-review);
+}
+
+.event-needs_user .task-event-dot {
+  border-color: var(--badge);
+  background: var(--badge);
+}
+
+.event-blocked .task-event-dot {
+  border-color: var(--warn);
+  border-radius: 2px;
+}
+
+.event-working .task-event-dot {
+  border-color: var(--fg);
+  background: var(--fg);
+}
+
+.event-done .task-event-dot,
+.event-resolved .task-event-dot {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+
+.task-event-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.task-footer {
+  margin-top: 18px;
+  justify-content: space-between;
+}
+
+/* ---- New task ---- */
+
+.picker-box.task-dialog {
+  width: min(560px, 90vw);
+  max-height: none;
+  padding-bottom: 0;
+}
+
+.task-dialog-head {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.picker-box input.task-dialog-input {
+  margin: 10px 18px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+}
+
+.picker-box input.task-dialog-input:focus {
+  border-color: var(--accent);
+}
+
+.task-dialog-recognised {
+  margin: 8px 18px 0;
+  padding: 6px 10px;
+  border-radius: 5px;
+  background: var(--bg-tab);
+  font-size: 12px;
+}
+
+.task-dialog-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 18px 0;
+}
+
+.task-dialog-label {
+  flex: 0 0 52px;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.task-dialog-folder {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.task-segmented button {
+  font: inherit;
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: default;
+}
+
+.task-segmented button + button {
+  border-left: 1px solid var(--border);
+}
+
+.task-segmented button[aria-checked='true'] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.task-notes.task-dialog-notes {
+  display: block;
+  width: auto;
+  margin: 12px 18px 0;
+}
+
+/* The list scrolls with the palette's own scrollbar, not Chromium's light default. */
+.task-panel {
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] .task-panel {
+  color-scheme: light;
 }

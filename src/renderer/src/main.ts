@@ -17,6 +17,9 @@ import {
   type TabRequestAnswer,
   type TabState,
   type TabStatusReport,
+  type Task,
+  type TaskSession,
+  type TaskSessionInfo,
   type TranscriptImage
 } from '@shared/types'
 import { TabBar, type DropTarget, type StripItem, type TabViewModel } from './TabBar'
@@ -35,6 +38,10 @@ import { folderName, projectDir } from '@shared/paths'
 import { PlanReview, type PlanRound } from './PlanReview'
 import { ImagePanel } from './ImagePanel'
 import { ImageViewer } from './ImageViewer'
+import { TaskPanel, type TaskSessionView, type TaskView } from './TaskPanel'
+import { TaskDialog, TextPrompt } from './TaskDialog'
+import { taskStartPrompt } from '@shared/taskBriefing'
+import { icon } from './icons'
 
 /** Font size the zoom percentage is relative to, and the target of a reset. */
 const BASE_FONT_SIZE = 14
@@ -188,6 +195,28 @@ let sessionTitles = new Map<string, string>()
 let windowFocused = document.hasFocus()
 
 const themeToggle = new ThemeToggle()
+
+/** aterm's task list, as main last sent it. Main owns it; this is only what is drawn. */
+let tasks: Task[] = []
+
+/**
+ * Opens and closes the task list. In the bar's trailing buttons rather than in the strip:
+ * the strip says three things about tabs and nothing else. Its count is the tasks that need
+ * the user, red while one of their tabs carries the red dot - the same condition as the
+ * tab bar and the taskbar, so they never disagree.
+ */
+const tasksButton = document.createElement('button')
+tasksButton.id = 'tasks-button'
+tasksButton.title = 'Tasks (Ctrl+Shift+L)'
+tasksButton.setAttribute('aria-label', 'Tasks')
+const tasksBadge = document.createElement('span')
+tasksBadge.className = 'tasks-badge'
+tasksButton.append(icon('tasks'), tasksBadge)
+tasksButton.addEventListener('click', () => {
+  taskPanel.setOpen(!taskPanel.isOpen())
+  renderTasks()
+  if (!taskPanel.isOpen()) focusFront()
+})
 const updates = new Updates({
   describeRunning: () => describeRunningTabs(),
   anyWorking: () => [...panes.values()].some((p) => p.status === 'running' && isWorking(p)),
@@ -218,7 +247,7 @@ const tabBar = new TabBar(
         'Tabs out of sight'
       )
   },
-  [updates.button, themeToggle.element]
+  [tasksButton, updates.button, themeToggle.element]
 )
 
 onThemeChange(() => {
@@ -231,6 +260,24 @@ const imageViewer = new ImageViewer((imageId) => api.images.open(imageId), () =>
 const groupDialog = new GroupDialog(() => focusFront())
 const searchBar = new SearchBar(() => activePane()?.view)
 const zoomIndicator = new ZoomIndicator(document.body)
+const taskDialog = new TaskDialog(() => focusFront())
+const textPrompt = new TextPrompt(() => focusFront())
+const taskPanel = new TaskPanel({
+  newTask: () => void newTask(),
+  act: (action) => void api.tasks.act(action),
+  goToTab: (tabId) => activate(tabId, { start: true }),
+  resume: (task, session) => void resumeTaskSession(task, session),
+  startSession: (task) => void startTaskSession(task),
+  attachCurrent: (task) => {
+    const pane = activePane() ?? (returnId ? panes.get(returnId) : undefined)
+    if (pane) void api.tasks.act({ kind: 'join', taskId: task.id, session: sessionInfo(pane) })
+  },
+  groupTabs: (task) => groupTaskTabs(task),
+  changeFolder: (task) => void changeTaskFolder(task),
+  stateMenu: (task) => openTaskStateMenu(task),
+  leave: () => focusFront()
+})
+document.getElementById('workspace')!.prepend(taskPanel.el)
 
 const page = new NewTabPage(paneRoot, {
   start: (kind, cwd, opts) =>
@@ -268,6 +315,12 @@ async function boot(): Promise<void> {
   api.images.onImages(({ tabId, reset, images }) => onTabImages(tabId, images, reset))
   api.tabs.onOpen((request) => void answerTabRequest(request.requestId, openRequestedTab(request)))
   api.tabs.onClose((request) => void answerTabRequest(request.requestId, closeRequestedTab(request)))
+  api.tasks.onChanged((list) => {
+    tasks = list
+    renderTasks()
+  })
+  tasks = await api.tasks.list()
+  renderTasks()
 
   const overrides = (await api.system.keymap()) as Partial<Record<Action, string[]>>
 
@@ -323,6 +376,8 @@ async function boot(): Promise<void> {
         return true
       },
       quoteSelection: () => activePane()?.view?.quote() ?? false,
+      toggleTasks: () => toggleTasks(),
+      newTask: () => void newTask(),
       overlayOpen: () =>
         pageActive ||
         searchBar.isOpen() ||
@@ -330,7 +385,9 @@ async function boot(): Promise<void> {
         confirmDialog.isOpen() ||
         groupDialog.isOpen() ||
         updates.isOpen() ||
-        imageViewer.isOpen()
+        imageViewer.isOpen() ||
+        taskDialog.isOpen() ||
+        textPrompt.isOpen()
     },
     buildBindings(overrides)
   )
@@ -601,6 +658,10 @@ async function removeTab(id: string): Promise<void> {
 
   if (pane.reviewId) api.plan.answer(pane.reviewId, { kind: 'pass' })
   if (pane.textReviewId) api.text.answer(pane.textReviewId, { kind: 'pass' })
+  // Its conversation stays on the task, to be resumed from there.
+  if (tasks.some((t) => t.sessions.some((s) => s.tabId === id && !s.closed))) {
+    void api.tasks.act({ kind: 'tabClosed', session: sessionInfo(pane) })
+  }
   await api.pty.kill(id)
   // Two tabs can end in the same moment, and the kill above is a turn of the event loop.
   if (!panes.has(id)) return
@@ -1539,6 +1600,15 @@ function wantsUser(pane: Pane): boolean {
 function settleWaiting(pane: Pane, waited: boolean): void {
   if (!isWaiting(pane)) pane.awaitingSeen = false
   else if (!waited) pane.awaitingSeen = isOnScreen(pane)
+  // A tab that waited and goes on has been answered: a question it asked on its task is
+  // settled. Read off the tab, like the wait itself - the session need not say so.
+  if (waited && !isWaiting(pane) && hasOpenQuestion(pane.tab.id)) {
+    void api.tasks.act({ kind: 'answered', tabId: pane.tab.id })
+  }
+}
+
+function hasOpenQuestion(tabId: string): boolean {
+  return tasks.some((t) => t.asks.some((a) => a.kind === 'question' && a.tabId === tabId))
 }
 
 /* --------------------------------------------------------------- Images */
@@ -1804,6 +1874,7 @@ function render(): void {
       : 'aterm'
   updateAttention()
   reportTabStates()
+  renderTasks()
 }
 
 /**
@@ -2234,10 +2305,188 @@ function installFocusGuard(): void {
       if (!document.hasFocus()) return
       if (searchBar.isOpen() || contextMenu.isOpen()) return
       if (confirmDialog.isOpen() || groupDialog.isOpen() || updates.isOpen()) return
-      if (imageViewer.isOpen()) return
+      if (imageViewer.isOpen() || taskDialog.isOpen() || textPrompt.isOpen()) return
       focusFront()
     })
   })
+}
+
+/* ------------------------------------------------------------ Tasks */
+
+/**
+ * What the task list shows. Main stores only what sessions and the user declared — asks,
+ * blocked, done; whether a task is worked on, or one of its tabs waits, is read off the tabs
+ * here, with the same `isWorking`, `isWaiting` and `wantsUser` the tab bar draws with.
+ */
+function taskViews(): TaskView[] {
+  return tasks.map((task) => {
+    const sessions = task.sessions.map(taskSessionView)
+    const open = sessions.filter((s) => s.open)
+    const state: TaskView['state'] = task.doneAt
+      ? 'done'
+      : task.asks.length > 0 || open.some((s) => s.waiting)
+        ? 'needs_user'
+        : task.blocked
+          ? 'blocked'
+          : open.some((s) => s.working)
+            ? 'working'
+            : 'backlog'
+    return { task, state, sessions, alarm: !task.doneAt && open.some((s) => s.alarm) }
+  })
+}
+
+function taskSessionView(session: TaskSession): TaskSessionView {
+  const pane = session.closed ? undefined : panes.get(session.tabId)
+  const running = pane?.status === 'running'
+  return {
+    session,
+    name: pane ? (tabSummary(pane) ?? tabFolder(pane)) : (session.name ?? 'Session'),
+    open: Boolean(pane),
+    agent: pane ? pane.agentRunning || pane.tab.kind === 'claude' : true,
+    running,
+    working: pane ? running && isWorking(pane) : false,
+    waiting: pane ? running && isWaiting(pane) : false,
+    alarm: pane ? wantsUser(pane) : false,
+    folder: folderName(projectDir(pane?.tab.cwd ?? session.cwd))
+  }
+}
+
+function sessionInfo(pane: Pane): TaskSessionInfo {
+  return {
+    tabId: pane.tab.id,
+    claudeSessionId: pane.tab.claudeSessionId,
+    cwd: pane.tab.cwd,
+    name: tabSummary(pane) ?? tabFolder(pane)
+  }
+}
+
+/** The panel, and the count on its button. Cheap when nothing changed: the panel diffs. */
+function renderTasks(): void {
+  const views = taskViews()
+  const needing = views.filter((v) => v.state === 'needs_user')
+  tasksBadge.textContent = needing.length > 0 ? String(needing.length) : ''
+  tasksBadge.hidden = needing.length === 0
+  tasksButton.classList.toggle('alarm', needing.some((v) => v.alarm))
+  tasksButton.classList.toggle('open', taskPanel.isOpen())
+  tasksButton.title =
+    needing.length > 0
+      ? `Tasks — ${needing.length} waiting for you (Ctrl+Shift+L)`
+      : 'Tasks (Ctrl+Shift+L)'
+  const front = activePane() ?? (returnId ? panes.get(returnId) : undefined)
+  taskPanel.update(views, {
+    current: front ? { tabId: front.tab.id, name: paneTitle(front) } : undefined
+  })
+}
+
+/** Ctrl+Shift+L: open the list and take the keyboard there, or close it from inside. */
+function toggleTasks(): void {
+  if (!taskPanel.isOpen()) {
+    taskPanel.setOpen(true)
+    renderTasks()
+    taskPanel.focus()
+  } else if (taskPanel.hasFocus()) {
+    taskPanel.setOpen(false)
+    renderTasks()
+    focusFront()
+  } else taskPanel.focus()
+}
+
+async function newTask(): Promise<void> {
+  const answer = await taskDialog.ask({
+    cwd: currentCwd(),
+    pickFolder: (startIn) => api.system.pickFolder(startIn)
+  })
+  if (!answer) return
+  const result = await api.tasks.act({
+    kind: 'create',
+    title: answer.title,
+    source: answer.source,
+    notes: answer.notes,
+    cwd: answer.cwd
+  })
+  if (!result.ok || !result.taskId) return
+  taskPanel.setOpen(true)
+  tasks = await api.tasks.list()
+  renderTasks()
+  const task = tasks.find((t) => t.id === result.taskId)
+  if (answer.start && task) await startTaskSession(task)
+}
+
+/**
+ * A Claude tab told about the task — the same briefing `open_tab` gives a child on one —
+ * and put on it at once, so the list shows it working before the session has said a word.
+ */
+async function startTaskSession(task: Task): Promise<void> {
+  const cwd = task.cwd ?? currentCwd()
+  const pane = await createTab('claude', cwd, {
+    summary: task.title,
+    initialPrompt: taskStartPrompt(task),
+    beside: besideFor(cwd)
+  })
+  void api.tasks.act({ kind: 'join', taskId: task.id, session: sessionInfo(pane) })
+}
+
+/** A session on the task whose tab was closed: its conversation, resumed in a new tab. */
+async function resumeTaskSession(task: Task, session: TaskSession): Promise<void> {
+  const open = [...panes.values()].find(
+    (p) => session.claudeSessionId && p.tab.claudeSessionId === session.claudeSessionId
+  )
+  if (open) {
+    activate(open.tab.id, { start: true })
+    return
+  }
+  const pane = await createTab('claude', session.cwd, {
+    claudeSessionId: session.claudeSessionId,
+    summary: session.name,
+    resume: true,
+    beside: besideFor(session.cwd)
+  })
+  void api.tasks.act({ kind: 'join', taskId: task.id, session: sessionInfo(pane) })
+}
+
+/**
+ * The optional "Group tabs": the task's open tabs into one group named after it. After
+ * that it is an ordinary group — a task never makes or changes a group by itself.
+ */
+function groupTaskTabs(task: Task): void {
+  const ids = order.filter((id) => task.sessions.some((s) => s.tabId === id && !s.closed))
+  if (ids.length === 0) return
+  const group = createGroup(nextGroupColor(), task.title)
+  for (const id of ids) setTabGroup(id, group.id)
+}
+
+async function changeTaskFolder(task: Task): Promise<void> {
+  const dir = await api.system.pickFolder(task.cwd ?? currentCwd())
+  if (dir) void api.tasks.act({ kind: 'edit', taskId: task.id, cwd: dir })
+}
+
+function openTaskStateMenu(task: Task): void {
+  const items: MenuItem[] = []
+  if (task.doneAt) {
+    items.push({
+      label: 'Reopen',
+      run: () => void api.tasks.act({ kind: 'setDone', taskId: task.id, done: false })
+    })
+  } else {
+    items.push({
+      label: 'Mark done',
+      run: () => void api.tasks.act({ kind: 'setDone', taskId: task.id, done: true })
+    })
+    if (task.blocked) {
+      items.push({ label: 'Unblock', run: () => void api.tasks.act({ kind: 'setBlocked', taskId: task.id }) })
+    } else {
+      items.push({
+        label: 'Mark blocked…',
+        run: () =>
+          void textPrompt
+            .ask('What is the task waiting for?', 'e.g. runner access from Ops', 'Mark blocked')
+            .then((reason) => {
+              if (reason) void api.tasks.act({ kind: 'setBlocked', taskId: task.id, reason })
+            })
+      })
+    }
+  }
+  contextMenu.show(items, task.title)
 }
 
 /* -------------------------------------------------------- Font size */

@@ -70,6 +70,7 @@ main/                      Node side: owns all processes, files and Claude Code 
   update/installer.ts      downloads, verifies and silently runs the NSIS installer
   plan/PlanReviewServer.ts the named pipe the ExitPlanMode hook hands plans to
   tabs/TabSpawnServer.ts   the named pipe behind the `aterm` MCP tools: open_tab, close_tab
+  tasks/TaskStore.ts       the task list: userData/tasks.json, and the task_* tools
   cli.ts                   the directory a launch names (--open-dir), Explorer's entry
   ipc.ts                   every channel name, shared with preload
 preload/index.ts           contextBridge → window.aterm
@@ -84,6 +85,8 @@ renderer/src/main.ts       tab lifecycle, panes, persistence — the controller
   planMarkdown.ts          the Markdown a plan is written in, as DOM
   ImagePanel.ts            the strip of those images beside a tab's terminal
   ImageViewer.ts           one of them at window size
+  TaskPanel.ts             the task list beside the terminals, and one task opened
+  TaskDialog.ts            "New task" (Ctrl+Shift+K), and a one-line prompt
 ```
 
 `shared/types.ts` is imported by all three via the `@shared` alias (configured in both
@@ -625,14 +628,15 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   answered. The keymap leaves every key to the panel while it has the focus
   (`focusOutsideTerminal`), or Ctrl+V would paste into the terminal behind it.
 - **A Claude session can open tabs, and aterm does nothing else for it.** Every Claude
-  session in a tab gets an MCP server, `resources/aterm-tabs-mcp.js`, with three tools:
+  session in a tab gets an MCP server, `resources/aterm-tabs-mcp.js`, with these tools:
   `open_tab` starts a tab with a session of its own and a task as its first prompt,
   `close_tab` closes one the caller opened, `review_text` is not about tabs at all (see
   the next entry), and `tab_status` and `wait_for_idle` say what every tab is doing — the
   latter blocks until no other tab works, e.g. before the user restarts aterm. Working and
   waiting are known only in the renderer, so it reports every tab's state to main on change
   (`reportTabStates`, `tabs:state`); main forgets it while the renderer reloads, so a wait
-  never takes a renderer that has not spoken yet for a window at rest. Finding and messaging each other is Claude Code's own `ListAgents` and
+  never takes a renderer that has not spoken yet for a window at rest. The `task_*` tools
+  belong to the task list (see further down). Finding and messaging each other is Claude Code's own `ListAgents` and
   `SendMessage` — aterm must not grow a mailbox or a list tool beside
   them. The server is aterm's own exe run with `ELECTRON_RUN_AS_NODE`, dependency-free, and
   hands each call down `\\.\pipe\aterm-tabs-<pid>` to `TabSpawnServer`.
@@ -732,6 +736,29 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   image or `Ctrl+Shift+I` (`images`) brings it back — and what a tab finds in its history
   when it starts does not open it, because a restore is not news. A renderer reload makes
   main forget what it sent (`forgetAll`), so the next `syncImages` sends it again.
+- **The task list stores what nobody can see, and reads the rest off the tabs.** A task
+  (`Task` in `shared/types.ts`) is a to-do or the work on a ticket, with any number of
+  sessions on it; a session is on one task at a time. It lives in `userData/tasks.json`,
+  owned by main (`TaskStore`), not in `state.json`: it outlives every tab that worked on it,
+  and the sessions' `task_*` calls arrive in main. The renderer gets the whole list on every
+  change and draws it in `TaskPanel`.
+  **Only declared things are stored**: blocked (with its reason), done, the last note, and
+  the *asks* — a question, or a PR/MR to review and merge. Working and waiting are derived
+  in the renderer (`taskViews` in `main.ts`) from the same `isWorking`, `isWaiting` and
+  `wantsUser` the tab bar uses, and the most urgent wins: needs you, blocked, working,
+  backlog. Asking the model to report "working" would be late and forgotten; aterm already
+  knows. A question ask is settled by the tab itself: when a tab that waited goes back to
+  work (`settleWaiting`), its open question counts as answered. A review is not — it waits,
+  often for days after every tab is closed, until the user marks it merged or a session
+  passes `resolve_reviews`.
+  **Sessions are bound to tabs**, not conversation ids, so `/clear` and `/resume` keep them
+  on the task; closing a tab keeps the conversation on the task (`closed`) to be resumed
+  from there. A session started from the list, or opened by `open_tab` from a session on a
+  task, is told which task it is on in its task file (`shared/taskBriefing.ts`) — never on
+  the command line — and when to report. Tab groups stay the user's: a task never makes one
+  by itself, the detail only offers "Group tabs". The task list's button sits with the
+  trailing buttons, not in the strip, which says three things about tabs and nothing else.
+  Its count turns red under the same condition as the red dot.
 - **A Claude tab that has not registered is waiting for the user.** A session puts its file
   into `~/.claude/sessions/` only once it is past whatever Claude Code asks before it starts
   — the trust question of a folder it does not know, above all — and it sets no title until

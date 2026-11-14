@@ -348,3 +348,101 @@ export interface TabStatusReport {
   /** Waiting and not looked at yet — the red dot. */
   unseen: boolean
 }
+/* ------------------------------------------------------------------ Tasks */
+
+/**
+ * Something the user has to do for a task: answer a question a session asked, or review
+ * and merge a PR/MR (or approve some other piece of work). Declared by a session through
+ * `task_update`. A question is settled by the answer — the tab that asked goes back to
+ * work — while a review outlives every session: it waits, often for days, until the user
+ * or a session marks it done.
+ */
+export interface TaskAsk {
+  id: string
+  kind: 'question' | 'review'
+  /** One sentence: what is asked, or what is to be reviewed. */
+  text: string
+  /** The PR/MR, ticket or page the ask is about. */
+  url?: string
+  /** The tab whose session asked. */
+  tabId?: string
+  /** The name of the session that asked, for "asked by". */
+  by?: string
+  at: number
+}
+
+/**
+ * A session working on a task. Bound to the tab rather than to a conversation id, so
+ * `/clear` and `/resume` keep it on the task; the conversation is remembered for when the
+ * tab is gone, so it can be resumed from the task.
+ */
+export interface TaskSession {
+  tabId: string
+  claudeSessionId?: string
+  cwd: string
+  name?: string
+  /** The tab was closed. Kept so the conversation can be resumed from the task. */
+  closed?: boolean
+  joinedAt: number
+}
+
+export interface TaskEvent {
+  at: number
+  kind: 'created' | 'working' | 'needs_user' | 'blocked' | 'done' | 'reopened' | 'joined' | 'left' | 'resolved'
+  text: string
+  by?: string
+}
+
+/**
+ * An entry in aterm's task list: a short-lived to-do nobody files a ticket for, or the
+ * work on a ticket or issue. Owned by the main process and kept in `userData/tasks.json`,
+ * apart from `state.json`, because a task outlives every tab that worked on it.
+ *
+ * Only what aterm cannot see for itself is stored: blocked, the asks, done, the last note.
+ * Whether a task is being worked on, or a session on it waits for an answer, the renderer
+ * reads off the tabs — see `taskState` in `TaskPanel.ts`.
+ */
+export interface Task {
+  id: string
+  title: string
+  /** A ticket key, an issue/PR/MR link, or anything else the task came from. */
+  source?: string
+  notes?: string
+  /** Where a session started on this task runs. */
+  cwd?: string
+  /** Why the task is blocked, while it is. Always declared, never derived. */
+  blocked?: string
+  asks: TaskAsk[]
+  sessions: TaskSession[]
+  /** The last sentence a session reported, shown under the title. */
+  note?: { text: string; by?: string; at: number }
+  doneAt?: number
+  createdAt: number
+  updatedAt: number
+  /** Newest last, capped. */
+  activity: TaskEvent[]
+}
+
+/** What the renderer can do to the tasks. Main applies it and sends the new list. */
+export type TaskAction =
+  | { kind: 'create'; title: string; source?: string; notes?: string; cwd?: string }
+  | { kind: 'edit'; taskId: string; title?: string; source?: string; notes?: string; cwd?: string }
+  | { kind: 'setDone'; taskId: string; done: boolean }
+  | { kind: 'setBlocked'; taskId: string; reason?: string }
+  | { kind: 'resolveAsk'; taskId: string; askId: string }
+  | { kind: 'join'; taskId: string; session: TaskSessionInfo }
+  | { kind: 'leave'; taskId: string; tabId: string }
+  /** The tab is gone; its session stays on the task, to be resumed. */
+  | { kind: 'tabClosed'; session: TaskSessionInfo }
+  /** A tab that was waiting went back to work: whatever it asked has been answered. */
+  | { kind: 'answered'; tabId: string }
+  | { kind: 'delete'; taskId: string }
+
+export interface TaskSessionInfo {
+  tabId: string
+  claudeSessionId?: string
+  cwd: string
+  name?: string
+}
+
+export type TaskActionResult = { ok: true; taskId?: string } | { ok: false; error: string }

@@ -20,6 +20,8 @@ export const IPC = {
   updateInstall: 'update:install',
   imagesOpen: 'images:open',
   openTabFolder: 'tabs:open-folder',
+  tasksList: 'tasks:list',
+  tasksAct: 'tasks:act',
 
   // Renderer → main (send, high frequency)
   ptyWrite: 'pty:write',
@@ -48,5 +50,6 @@ export const IPC = {
   textReviewClosed: 'text:review-closed',
   tabsOpen: 'tabs:open',
   tabsClose: 'tabs:close',
-  tabImages: 'tabs:images'
+  tabImages: 'tabs:images',
+  tasksChanged: 'tasks:changed'
 } as const
