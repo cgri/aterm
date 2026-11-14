@@ -87,7 +87,8 @@ or ticket link — and either keeps it in the backlog or starts a Claude session
 opened task can also be sent to the session in the current tab, which is put on it and sent
 a prompt naming the task; **Attach** puts the current tab on it without a word.
 
-Tasks are sorted by what they need: **Needs you** (a session asked you something, or a
+Every task has a short number, `T7`, which the filter finds and sessions understand
+("work on T7"). Tasks are sorted by what they need: **Needs you** (a session asked you something, or a
 PR/MR is ready for you to review and merge), **Blocked** (waiting for someone else, with
 the reason), **Working** (a session on it is at work), **Backlog** and **Done**. Any number
 of sessions can work on one task. Whether they work or wait aterm sees for itself; what it

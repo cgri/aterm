@@ -742,6 +742,13 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   owned by main (`TaskStore`), not in `state.json`: it outlives every tab that worked on it,
   and the sessions' `task_*` calls arrive in main. The renderer gets the whole list on every
   change and draws it in `TaskPanel`.
+  **A task is called `T7`** (`taskRef`): a number handed out in order of creation and never
+  reused (`lastNumber` in tasks.json), short enough to say and type and plainly not a
+  GitHub `#61`. The tools speak it and accept it in any case; the internal id stays
+  internal. The list is one line per task — number, title, source, age — and the section
+  heading is the only thing that says the state: no mark in the rows, colour only for
+  "Needs you", and a second line only for what the user is to do or what a blocked task
+  waits for. Chosen over a calmer two-line variant with sessions and notes in every row.
   **Only declared things are stored**: blocked (with its reason), done, the last note, and
   the *asks* — a question, or a PR/MR to review and merge. Working and waiting are derived
   in the renderer (`taskViews` in `main.ts`) from the same `isWorking`, `isWaiting` and

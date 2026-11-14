@@ -7,7 +7,7 @@
 export interface ParsedSource {
   /** The link or key itself, as stored on the task. */
   source: string
-  /** Short, for the chip on a task: `GH #77`, `!12`, `OPS-2211`. */
+  /** Short, for the row of a task: `#77`, `!12`, `OPS-2211`. */
   label: string
   /** Longer, for saying what was recognised: `GitHub issue cgri/aterm#77`. */
   description: string
@@ -55,7 +55,7 @@ function describeUrl(url: string): ParsedSource {
     const [, owner, repo, kind, n] = gh
     return {
       source: url,
-      label: `GH #${n}`,
+      label: `#${n}`,
       description: `GitHub ${kind === 'pull' ? 'PR' : 'issue'} ${owner}/${repo}#${n}`
     }
   }

@@ -6,9 +6,9 @@
  * Working and waiting for an answer are deliberately not asked for: aterm reads both off
  * the tab. A session only reports what aterm cannot see.
  */
-export function taskBriefing(task: { id: string; title: string }): string {
+export function taskBriefing(task: { id: string; number?: number; title: string }): string {
   return [
-    `This session works on the aterm task ${task.id} ("${task.title}") and is attached to it in aterm's task list.`,
+    `This session works on the aterm task ${taskRef(task)} ("${task.title}") and is attached to it in aterm's task list.`,
     'Report on it with the task_update tool of the aterm MCP server, each time with a one-sentence note:',
     '- status "needs_user", ask "question" - before you stop to ask the user to decide something;',
     '- status "needs_user", ask "review", url - when a PR/MR (or other piece of work) is ready for the user to review and merge;',
@@ -23,6 +23,7 @@ export function taskBriefing(task: { id: string; title: string }): string {
 /** The first prompt of a session the user starts on a task from the task list. */
 export function taskStartPrompt(task: {
   id: string
+  number?: number
   title: string
   source?: string
   notes?: string
@@ -37,4 +38,9 @@ export function taskStartPrompt(task: {
     '---',
     taskBriefing(task)
   ].join('\n')
+}
+
+/** What a task is called: `T7`. Falls back on the internal id for a task without a number. */
+export function taskRef(task: { id: string; number?: number }): string {
+  return typeof task.number === 'number' ? `T${task.number}` : task.id
 }

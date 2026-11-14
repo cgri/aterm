@@ -40,7 +40,7 @@ import { ImagePanel } from './ImagePanel'
 import { ImageViewer } from './ImageViewer'
 import { TaskPanel, type TaskSessionView, type TaskView } from './TaskPanel'
 import { TaskDialog, TextPrompt } from './TaskDialog'
-import { taskStartPrompt } from '@shared/taskBriefing'
+import { taskRef, taskStartPrompt } from '@shared/taskBriefing'
 import { icon } from './icons'
 
 /** Font size the zoom percentage is relative to, and the target of a reset. */
@@ -2413,7 +2413,8 @@ function sendTaskToCurrent(task: Task): void {
   }
   void api.tasks.act({ kind: 'join', taskId: task.id, session: sessionInfo(pane) })
   const title = task.title.replace(/[\r\n"]+/g, ' ').trim()
-  const line = `Work on aterm task ${task.id} ("${title}"): call task_join with task ${task.id} first; its answer says when to report on it.`
+  const ref = taskRef(task)
+  const line = `Work on aterm task ${ref} ("${title}"): call task_join with task ${ref} first; its answer says when to report on it.`
   api.pty.write(pane.tab.id, `${line}\r`)
   activate(pane.tab.id, { start: false })
 }

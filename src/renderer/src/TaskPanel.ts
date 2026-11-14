@@ -1,5 +1,6 @@
 import type { Task, TaskAction, TaskAsk, TaskEvent, TaskSession } from '@shared/types'
 import { describeSource, isLink } from './taskSource'
+import { taskRef } from '@shared/taskBriefing'
 
 /**
  * What the task list shows for a task. Only `blocked`, the asks and done are stored; the
@@ -101,23 +102,24 @@ export class TaskPanel {
     this.el.setAttribute('aria-label', 'Tasks')
 
     this.listView = div('task-list-view')
+    // The filter and a square "+" in one row, and no heading: the button the panel opens
+    // from says "Tasks" already.
     const head = div('task-head')
-    const h = document.createElement('h2')
-    h.textContent = 'Tasks'
-    const add = button('New task', 'task-new primary')
-    add.title = 'New task (Ctrl+Shift+K)'
-    add.addEventListener('click', () => this.handlers.newTask())
-    head.append(h, add)
-
     this.filter = document.createElement('input')
     this.filter.className = 'task-filter'
-    this.filter.placeholder = 'Filter…'
+    this.filter.placeholder = 'Filter · T7 · #61'
     this.filter.spellcheck = false
     this.filter.setAttribute('aria-label', 'Filter tasks')
     this.filter.addEventListener('input', () => this.rebuild())
+    const add = button('', 'task-new primary')
+    add.setAttribute('aria-label', 'New task')
+    add.title = 'New task (Ctrl+Shift+K)'
+    add.append(svg(12, '<path d="M6 1v10M1 6h10" stroke-linecap="round"/>', 'task-plus'))
+    add.addEventListener('click', () => this.handlers.newTask())
+    head.append(this.filter, add)
 
     this.list = div('task-list')
-    this.listView.append(head, this.filter, this.list)
+    this.listView.append(head, this.list)
 
     this.detailView = div('task-detail-view')
     this.detailView.hidden = true
@@ -203,12 +205,17 @@ export class TaskPanel {
 
   private buildList(): void {
     const query = this.filter.value.trim().toLowerCase()
-    const matching = this.views.filter(
-      (v) =>
-        !query ||
-        v.task.title.toLowerCase().includes(query) ||
-        (v.task.source ?? '').toLowerCase().includes(query)
-    )
+    const byRef = this.views.filter((v) => taskRef(v.task).toLowerCase() === query)
+    const matching =
+      byRef.length > 0
+        ? byRef
+        : this.views.filter(
+            (v) =>
+              !query ||
+              v.task.title.toLowerCase().includes(query) ||
+              (v.task.source ?? '').toLowerCase().includes(query) ||
+              (v.task.source ? describeSource(v.task.source).label.toLowerCase() === query : false)
+          )
     const nodes: HTMLElement[] = []
     for (const { state, label } of SECTIONS) {
       const tasks = matching.filter((v) => v.state === state).sort(byUrgency)
@@ -220,7 +227,7 @@ export class TaskPanel {
     if (done.length > 0) {
       const toggle = button('', 'task-done-toggle')
       toggle.setAttribute('aria-expanded', String(this.showDone))
-      toggle.append(chevron(this.showDone), text(`Done `), span('task-count', String(done.length)))
+      toggle.append(chevron(this.showDone), text(`Done · ${done.length}`))
       toggle.addEventListener('click', () => {
         this.showDone = !this.showDone
         this.rebuild()
@@ -238,32 +245,30 @@ export class TaskPanel {
     this.list.replaceChildren(...nodes)
   }
 
+  /**
+   * One line per task: its number, its title, where it came from, and - for what is under
+   * way - how long since anything happened. The section heading says the state, so a row
+   * carries no mark of its own; only a task that needs the user gets colour and a second
+   * line saying what for, and a blocked one a quiet second line saying what it waits for.
+   * Who works on it is in the tooltip and the opened task.
+   */
   private row(view: TaskView): HTMLElement {
     const { task, state } = view
-    const row = button('', `task-row state-${state}`)
+    const row = button('', `task-row state-${state}${view.alarm ? ' alarm' : ''}`)
     row.addEventListener('click', () => this.show(task.id))
+    const live = view.sessions.filter((s) => s.open).map((s) => s.name)
+    row.title = [`${taskRef(task)}  ${task.title}`, ...(live.length ? [`On it: ${live.join(', ')}`] : [])].join('\n')
 
-    const body = div('task-row-body')
-    const top = div('task-row-top')
-    top.append(span('task-title', task.title))
-    if (task.source) top.append(sourceChip(task.source))
-    body.append(top)
-
-    const line = reasonLine(view)
-    if (line) body.append(line)
-    if (task.note && state !== 'done' && task.note.text !== line?.textContent) {
-      body.append(span('task-note', `“${task.note.text}”`))
+    const line = div('task-row-line')
+    line.append(span('task-ref', taskRef(task)), span('task-title', task.title))
+    if (task.source) line.append(span('task-source-ref', describeSource(task.source).label))
+    if (state === 'needs_user' || state === 'working' || state === 'blocked') {
+      line.append(span('task-age', ago(task.updatedAt)))
     }
+    row.append(line)
 
-    const live = view.sessions.filter((s) => s.open)
-    if (live.length > 0 || state !== 'backlog') {
-      const foot = div('task-row-foot')
-      for (const s of live) foot.append(sessionMark(s))
-      foot.append(span('task-age', ago(state === 'done' ? (task.doneAt ?? task.updatedAt) : task.updatedAt)))
-      body.append(foot)
-    }
-
-    row.append(stateIcon(view), body)
+    const reason = reasonLine(view)
+    if (reason) row.append(reason)
     return row
   }
 
@@ -316,7 +321,9 @@ export class TaskPanel {
     const activity = div('task-activity-host')
     scroll.append(activity)
 
-    this.detailView.replaceChildren(back, title, scroll)
+    const heading = div('task-title-row')
+    heading.append(span('task-ref', taskRef(task)), title)
+    this.detailView.replaceChildren(back, heading, scroll)
     this.detail = { taskId: task.id, title, notes, dynamic }
   }
 
@@ -568,9 +575,9 @@ function reasonLine(view: TaskView): HTMLElement | undefined {
     const waiting = view.sessions.find((s) => s.open && s.waiting)
     const line = div('task-reason needs')
     if (ask) {
-      line.append(askIcon(ask.kind), text(ask.kind === 'review' ? `Review: ${ask.text}` : ask.text))
-      if (task.asks.length > 1) line.append(span('task-more', `+${task.asks.length - 1}`))
-    } else if (waiting) line.append(askIcon('question'), text(`${waiting.name} is waiting for you`))
+      line.append(text(ask.kind === 'review' ? `Review: ${ask.text}` : ask.text))
+      if (task.asks.length > 1) line.append(span('task-more', ` +${task.asks.length - 1}`))
+    } else if (waiting) line.append(text(`${waiting.name} is waiting for you`))
     return line
   }
   if (state === 'blocked') {
@@ -604,7 +611,7 @@ function eventText(event: TaskEvent): string {
 
 function sectionHead(state: TaskShownState, label: string, count: number): HTMLElement {
   const head = div(`task-section-head state-${state}`)
-  head.append(stateGlyph(state), text(label), span('task-count', String(count)))
+  head.textContent = `${label} · ${count}`
   return head
 }
 
@@ -613,12 +620,6 @@ function sectionTitle(label: string): HTMLElement {
   h.className = 'task-section-title'
   h.textContent = label
   return h
-}
-
-function sourceChip(source: string): HTMLElement {
-  const chip = span('task-source-chip', describeSource(source).label)
-  chip.title = source
-  return chip
 }
 
 /** A task's mark in the list: its state, breathing while it works. */

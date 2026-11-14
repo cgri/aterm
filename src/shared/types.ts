@@ -403,7 +403,14 @@ export interface TaskEvent {
  * reads off the tabs — see `taskState` in `TaskPanel.ts`.
  */
 export interface Task {
+  /** Internal and stable; what the renderer and main refer to a task by. */
   id: string
+  /**
+   * What the user and Claude call it: `T7` (`taskRef`). Handed out in order of creation
+   * and never reused, so it is short enough to say and type, and reads as a task's and
+   * not as a GitHub number.
+   */
+  number: number
   title: string
   /** A ticket key, an issue/PR/MR link, or anything else the task came from. */
   source?: string

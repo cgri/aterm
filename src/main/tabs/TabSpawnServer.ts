@@ -400,7 +400,7 @@ export class TabSpawnServer extends EventEmitter {
       requestId: randomUUID(),
       parentTabId: call.tabId,
       cwd,
-      prompt: handOver(args.prompt, parent?.name, task ? { id: task.id, title: task.title } : undefined),
+      prompt: handOver(args.prompt, parent?.name, task),
       worktree,
       title
     })
@@ -587,7 +587,7 @@ function isDirectory(path: string): boolean {
 function handOver(
   task: string,
   parentName: string | undefined,
-  atermTask?: { id: string; title: string }
+  atermTask?: { id: string; number?: number; title: string }
 ): string {
   const parent = parentName ? `the Claude Code session "${parentName}"` : 'another Claude Code session'
   const body = task.trim()

@@ -2544,14 +2544,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 12px 8px 14px;
-}
-
-.task-head h2 {
-  flex: 1 1 auto;
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+  padding: 12px 12px 10px;
 }
 
 .task-filter,
@@ -2566,8 +2559,20 @@ body {
 }
 
 .task-filter {
-  margin: 0 12px 6px;
-  padding: 5px 9px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 9px;
+}
+
+.task-button.task-new {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .task-filter:focus,
@@ -2634,10 +2639,9 @@ body {
   outline-offset: 1px;
 }
 
+/* The state is said once, here, in a word and a count. Only "Needs you" has colour:
+   it is the one section that asks something of the user. */
 .task-section-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
   padding: 12px 8px 4px;
   font-size: 11px;
   font-weight: 600;
@@ -2646,109 +2650,108 @@ body {
   color: var(--fg-dim);
 }
 
-.task-count {
-  font-weight: 400;
-  opacity: 0.8;
+.task-section-head.state-needs_user {
+  color: var(--err);
 }
 
-/* A row is one button: the whole task, opened on click. */
+/* A row is one button: the whole task, opened on click. One line - number, title, where
+   it came from, age - and a second only for what the user is to do, or what a blocked
+   task waits for. */
 .task-button.task-row {
   display: flex;
-  gap: 9px;
+  flex-direction: column;
+  gap: 2px;
   width: 100%;
-  padding: 8px;
+  padding: 6px 8px;
   border: none;
   border-radius: 6px;
   background: transparent;
   text-align: left;
-  white-space: normal;
 }
 
 .task-button.task-row:hover {
   background: var(--bg-tab);
 }
 
-.task-row.state-done {
+.task-button.task-row.state-needs_user {
+  background: color-mix(in srgb, var(--badge) 9%, transparent);
+}
+
+.task-button.task-row.state-needs_user:hover {
+  background: color-mix(in srgb, var(--badge) 15%, transparent);
+}
+
+.task-row-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.task-ref {
+  flex: 0 0 30px;
+  font-family: var(--font-mono);
+  font-size: 12px;
   color: var(--fg-dim);
 }
 
-.task-row-body {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.task-row-top {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
+.task-row.state-needs_user .task-ref {
+  color: var(--err);
 }
 
 .task-title {
   flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-row.state-needs_user .task-title,
+.task-row.state-working .task-title,
+.task-row.state-blocked .task-title {
   font-weight: 600;
-  overflow-wrap: anywhere;
 }
 
-.task-row.state-backlog .task-title,
-.task-row.state-done .task-title {
-  font-weight: 400;
-}
-
-.task-source-chip {
-  flex: 0 0 auto;
-  padding: 0 6px;
-  border-radius: 4px;
-  background: var(--bg-tab);
+.task-row.state-backlog,
+.task-row.state-done {
   color: var(--fg-dim);
+}
+
+.task-row.state-backlog .task-title {
+  color: var(--fg);
+  opacity: 0.85;
+}
+
+.task-source-ref {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
   font-size: 11px;
-  line-height: 17px;
+  color: var(--fg-dim);
+}
+
+.task-age {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--fg-dim);
 }
 
 .task-reason {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  margin-left: 38px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   line-height: 17px;
+  color: var(--fg-dim);
 }
 
 .task-reason.needs {
   color: var(--err);
 }
 
-.task-reason.blocked {
-  color: var(--warn);
-}
-
-.task-reason .task-ask-icon {
-  margin-top: 0;
-}
-
 .task-more {
-  color: var(--fg-dim);
-}
-
-.task-note {
-  font-size: 12px;
-  line-height: 17px;
-  color: var(--fg-dim);
-  overflow-wrap: anywhere;
-}
-
-.task-row-foot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
-}
-
-.task-age {
-  margin-left: auto;
-  font-size: 11px;
   color: var(--fg-dim);
 }
 
@@ -2900,8 +2903,21 @@ body {
   color: var(--fg-dim);
 }
 
+.task-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 0 12px 8px 20px;
+}
+
+.task-title-row .task-ref {
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+
 .task-title-input {
-  margin: 0 12px 8px;
+  flex: 1 1 auto;
+  min-width: 0;
   padding: 6px 8px;
   font-size: 15px;
   font-weight: 600;

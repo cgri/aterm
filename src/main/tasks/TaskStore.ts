@@ -11,7 +11,7 @@ import type {
   TaskSession,
   TaskSessionInfo
 } from '@shared/types'
-import { taskBriefing } from '@shared/taskBriefing'
+import { taskBriefing, taskRef } from '@shared/taskBriefing'
 import { readJsonFile } from '../util/json'
 
 const SCHEMA_VERSION = 1
@@ -25,6 +25,8 @@ const DONE_KEPT_MS = 30 * 24 * 60 * 60 * 1000
 interface StoredTasks {
   version: number
   tasks: Task[]
+  /** The last number handed out, kept so that no number is ever given twice. */
+  lastNumber?: number
 }
 
 /** A call to one of the `task_*` tools, as `TabSpawnServer` hands it over. */
@@ -54,6 +56,7 @@ type DeclaredStatus = (typeof STATUSES)[number]
 export class TaskStore extends EventEmitter {
   private readonly file: string
   private tasks: Task[] = []
+  private lastNumber = 0
   private pending?: NodeJS.Timeout
 
   constructor(
@@ -79,6 +82,14 @@ export class TaskStore extends EventEmitter {
         sessions: Array.isArray(t.sessions) ? t.sessions : [],
         activity: Array.isArray(t.activity) ? t.activity : []
       }))
+    // Numbers came later than the tasks: those without one get theirs in order of creation.
+    this.lastNumber = Math.max(
+      typeof stored.lastNumber === 'number' ? stored.lastNumber : 0,
+      ...this.tasks.map((t) => (typeof t.number === 'number' ? t.number : 0))
+    )
+    for (const task of [...this.tasks].sort((a, b) => a.createdAt - b.createdAt)) {
+      if (typeof task.number !== 'number') task.number = ++this.lastNumber
+    }
   }
 
   list(): Task[] {
@@ -99,7 +110,7 @@ export class TaskStore extends EventEmitter {
     try {
       mkdirSync(dirname(this.file), { recursive: true })
       const tmp = `${this.file}.tmp`
-      const data: StoredTasks = { version: SCHEMA_VERSION, tasks: this.tasks }
+      const data: StoredTasks = { version: SCHEMA_VERSION, tasks: this.tasks, lastNumber: this.lastNumber }
       writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8')
       renameSync(tmp, this.file)
     } catch {
@@ -222,7 +233,7 @@ export class TaskStore extends EventEmitter {
     const tasks = this.tasks
       .filter((t) => all || !t.doneAt)
       .map((t) => ({
-        id: t.id,
+        id: taskRef(t),
         title: t.title,
         source: t.source ?? null,
         done: Boolean(t.doneAt),
@@ -241,7 +252,7 @@ export class TaskStore extends EventEmitter {
       ok: true,
       text: JSON.stringify(
         {
-          id: task.id,
+          id: taskRef(task),
           title: task.title,
           source: task.source ?? null,
           notes: task.notes ?? null,
@@ -280,8 +291,8 @@ export class TaskStore extends EventEmitter {
       ok: true,
       text:
         args.join === true && info
-          ? `Created task ${task.id}: "${task.title}", and this session is on it now.\n\n${taskBriefing(task)}`
-          : `Created task ${task.id}: "${task.title}", in the backlog.`
+          ? `Created task ${taskRef(task)}: "${task.title}", and this session is on it now.\n\n${taskBriefing(task)}`
+          : `Created task ${taskRef(task)}: "${task.title}", in the backlog.`
     }
   }
 
@@ -295,7 +306,7 @@ export class TaskStore extends EventEmitter {
     this.touch(task)
     return {
       ok: true,
-      text: `This session is on task ${task.id} now: "${task.title}".\n\n${taskBriefing(task)}`
+      text: `This session is on task ${taskRef(task)} now: "${task.title}".\n\n${taskBriefing(task)}`
     }
   }
 
@@ -304,7 +315,7 @@ export class TaskStore extends EventEmitter {
     if (!task) return { ok: true, text: 'This session was not on a task.' }
     this.leave(task, call.tabId, call.by)
     this.touch(task)
-    return { ok: true, text: `This session left task ${task.id}.` }
+    return { ok: true, text: `This session left task ${taskRef(task)}.` }
   }
 
   private toolUpdate(call: TaskCall): TaskReply {
@@ -369,7 +380,7 @@ export class TaskStore extends EventEmitter {
 
     const shown =
       task.doneAt ? 'Done' : task.asks.length > 0 ? 'Needs you' : task.blocked ? 'Blocked' : 'Working'
-    return { ok: true, text: `Task ${task.id} "${task.title}" is shown as ${shown} now.` }
+    return { ok: true, text: `Task ${taskRef(task)} "${task.title}" is shown as ${shown} now.` }
   }
 
   /** The task a call is about: the one it names, or the caller's own. */
@@ -388,6 +399,7 @@ export class TaskStore extends EventEmitter {
     const now = Date.now()
     const task: Task = {
       id: this.newId(),
+      number: ++this.lastNumber,
       title,
       source: source?.trim() || undefined,
       notes: notes?.trim() ? notes : undefined,
@@ -404,7 +416,7 @@ export class TaskStore extends EventEmitter {
     return task
   }
 
-  /** Short, so Claude can carry it around and the user can read it: `t3f9a1`. */
+  /** Internal only; what the user and Claude see is the number (`taskRef`). */
   private newId(): string {
     for (;;) {
       const id = `t${randomBytes(3).toString('hex')}`
@@ -412,8 +424,10 @@ export class TaskStore extends EventEmitter {
     }
   }
 
+  /** By `T7` (any case) as the user and Claude say it, or by the internal id. */
   private find(id: string): Task | undefined {
-    return this.tasks.find((t) => t.id === id)
+    const ref = id.trim().toLowerCase()
+    return this.tasks.find((t) => t.id === id || taskRef(t).toLowerCase() === ref)
   }
 
   /** A session is on one task at a time; joining one takes it off the other. */
