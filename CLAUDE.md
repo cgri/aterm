@@ -783,7 +783,9 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   two repositories. "Send" puts a session on a task and sends it a single line that asks for
   `task_join` — so the briefing reaches it through the join's
   answer like any other. It is sent, not left typed in the prompt: the user picks the
-  moment, as the owner asked. With something already typed in that prompt nothing happens
+  moment, as the owner asked. The Enter is written on its own, `SUBMIT_DELAY_MS` after the
+  text: in the same chunk Claude Code takes it for the end of a paste and makes a line
+  break of it, and the line sat in the prompt unsent. With something already typed in that prompt nothing happens
   at all, join included, and the tab's bar says so: sending would take the half-written
   prompt along. "Attach" is the same without the line. Handing a task back to a session
   already on it is what the opened task is mostly for — a session loses sight of its task

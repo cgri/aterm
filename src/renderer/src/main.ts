@@ -46,6 +46,12 @@ import { icon } from './icons'
 /** Font size the zoom percentage is relative to, and the target of a reset. */
 const BASE_FONT_SIZE = 14
 
+/**
+ * How long after typing a line its Enter follows, so Claude Code reads it as a key press
+ * and not as the end of a paste, which would only add a line break.
+ */
+const SUBMIT_DELAY_MS = 150
+
 /** How many tabs one Claude session may have open through `open_tab` at a time. */
 const MAX_OPENED_TABS = 8
 
@@ -2421,7 +2427,13 @@ function sendTaskTo(task: Task, tabId: string): void {
   const title = task.title.replace(/[\r\n"]+/g, ' ').trim()
   const ref = taskRef(task)
   const line = `Work on aterm task ${ref} ("${title}"): call task_join with task ${ref} first; its answer says when to report on it.`
-  api.pty.write(pane.tab.id, `${line}\r`)
+  // Enter goes on its own, a moment later. Arriving in the same chunk as the text, it was
+  // taken for part of a paste - Claude Code turns a CR inside a paste into a line break -
+  // and the prompt was left with the line and an empty one under it, unsent.
+  api.pty.write(pane.tab.id, line)
+  setTimeout(() => {
+    if (pane.status === 'running') api.pty.write(pane.tab.id, '\r')
+  }, SUBMIT_DELAY_MS)
   activate(pane.tab.id, { start: false })
 }
 
