@@ -200,10 +200,11 @@ const themeToggle = new ThemeToggle()
 let tasks: Task[] = []
 
 /**
- * Opens and closes the task list. In the bar's trailing buttons rather than in the strip:
- * the strip says three things about tabs and nothing else. Its count is the tasks that need
- * the user, red while one of their tabs carries the red dot - the same condition as the
- * tab bar and the taskbar, so they never disagree.
+ * Opens and closes the task list. At the left end of the bar, above the panel it opens,
+ * and in front of the strip rather than in it: the strip says three things about tabs and
+ * nothing else. Its count is the tasks that need the user, red while one of their tabs
+ * carries the red dot - the same condition as the tab bar and the taskbar, so they never
+ * disagree.
  */
 const tasksButton = document.createElement('button')
 tasksButton.id = 'tasks-button'
@@ -247,7 +248,8 @@ const tabBar = new TabBar(
         'Tabs out of sight'
       )
   },
-  [tasksButton, updates.button, themeToggle.element]
+  [updates.button, themeToggle.element],
+  [tasksButton]
 )
 
 onThemeChange(() => {

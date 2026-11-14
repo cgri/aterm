@@ -80,7 +80,7 @@ portable exe leaves the registry alone and so has no entry.
 
 ### A task list that sessions keep up to date
 
-The checklist button at the right of the tab bar (`Ctrl+Shift+L`) opens a task list beside
+The checklist button at the left end of the tab bar (`Ctrl+Shift+L`) opens a task list beside
 the terminals: short-lived to-dos you file no ticket for, and the work on a ticket or
 issue that is under way. `Ctrl+Shift+K` adds one — type a title or paste an issue, PR, MR
 or ticket link — and either keeps it in the backlog or starts a Claude session on it.

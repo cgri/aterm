@@ -756,9 +756,10 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   from there. A session started from the list, or opened by `open_tab` from a session on a
   task, is told which task it is on in its task file (`shared/taskBriefing.ts`) — never on
   the command line — and when to report. Tab groups stay the user's: a task never makes one
-  by itself, the detail only offers "Group tabs". The task list's button sits with the
-  trailing buttons, not in the strip, which says three things about tabs and nothing else.
-  Its count turns red under the same condition as the red dot.
+  by itself, the detail only offers "Group tabs". The task list's button is `TabBar`'s
+  `leading` element, at the left end of the bar above the panel, and not in the strip,
+  which says three things about tabs and nothing else. Its count turns red under the same
+  condition as the red dot.
 - **A Claude tab that has not registered is waiting for the user.** A session puts its file
   into `~/.claude/sessions/` only once it is past whatever Claude Code asks before it starts
   — the trust question of a folder it does not know, above all — and it sets no title until

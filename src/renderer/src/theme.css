@@ -2465,20 +2465,22 @@ body {
 
 /* ---------- Tasks ---------- */
 
-/* The trailing button that opens the task list: the theme toggle's slot, with a count of
-   the tasks that need the user. The count is neutral while those waits have all been
-   seen, and red while one of them carries the tab bar's red dot. */
+/* The button that opens the task list, first in the bar and right above the panel it
+   opens, with a count of the tasks that need the user. The count is neutral while those
+   waits have all been seen, and red while one of them carries the tab bar's red dot. The
+   line on its right sets it off from the tabs. */
 #tasks-button {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  min-width: 34px;
-  padding: 0 8px;
+  gap: 5px;
+  min-width: 40px;
+  padding: 0 10px 0 12px;
   flex: 0 0 auto;
   background: transparent;
   border: none;
+  border-right: 1px solid var(--border);
   color: var(--fg-dim);
   cursor: default;
 }
@@ -3254,11 +3256,21 @@ body {
   margin: 12px 18px 0;
 }
 
-/* The list scrolls with the palette's own scrollbar, not Chromium's light default. */
-.task-panel {
-  color-scheme: dark;
+/* The list scrolls with a thin bar in the palette's colours, not Chromium's light
+   default, which `color-scheme` did not change here. */
+.task-panel ::-webkit-scrollbar {
+  width: 8px;
 }
 
-:root[data-theme='light'] .task-panel {
-  color-scheme: light;
+.task-panel ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.task-panel ::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--edge);
+}
+
+.task-panel ::-webkit-scrollbar-thumb:hover {
+  background: var(--hover);
 }
