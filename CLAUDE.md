@@ -749,6 +749,9 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   heading is the only thing that says the state: no mark in the rows, colour only for
   "Needs you", and a second line only for what the user is to do or what a blocked task
   waits for. Chosen over a calmer two-line variant with sessions and notes in every row.
+  The opened task follows the same rule: one primary button ("New session"), every other
+  action a quiet link, a frame only around what the user is asked for, the title wrapping
+  in a textarea grown to fit, and the activity folded away.
   **The panel is as wide as it was dragged, and no wider.** Rows that no longer wrap made
   the flex item as wide as its longest line - a "Needs you" sentence took most of the
   window - so `.task-panel` has `min-width: 0` and clips. The width is a custom property
@@ -757,8 +760,11 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   **Only declared things are stored**: blocked (with its reason), done, the last note, and
   the *asks* — a question, or a PR/MR to review and merge. Working and waiting are derived
   in the renderer (`taskViews` in `main.ts`) from the same `isWorking`, `isWaiting` and
-  `wantsUser` the tab bar uses, and the most urgent wins: needs you, blocked, working,
-  backlog. Asking the model to report "working" would be late and forgotten; aterm already
+  `wantsUser` the tab bar uses. The order: an open ask, then blocked, then a tab that only
+  waits, then working, then backlog. Blocked ranks above the bare wait because a session
+  idling at its prompt is exactly what a blocked task looks like, and the user marking a
+  task blocked is their answer to its questions (`setBlocked` drops them; reviews stay) —
+  before that, the open question kept a task the user had just blocked under "Needs you". Asking the model to report "working" would be late and forgotten; aterm already
   knows. A question ask is settled by the tab itself: when a tab that waited goes back to
   work (`settleWaiting`), its open question counts as answered. A review is not — it waits,
   often for days after every tab is closed, until the user marks it merged or a session

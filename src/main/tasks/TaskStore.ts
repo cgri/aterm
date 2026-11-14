@@ -156,6 +156,10 @@ export class TaskStore extends EventEmitter {
         break
       case 'setBlocked':
         task.blocked = action.reason?.trim() || undefined
+        // The user saying "it is blocked" is their answer to what the sessions asked: the
+        // task waits for something else now, and a question left open would keep it under
+        // "Needs you". A review stays - it is a piece of work, not a question.
+        if (task.blocked) task.asks = task.asks.filter((a) => a.kind !== 'question')
         this.log(
           task,
           task.blocked ? 'blocked' : 'working',

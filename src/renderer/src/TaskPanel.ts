@@ -89,11 +89,12 @@ export class TaskPanel {
   private ctx: TaskPanelContext = {}
   private openId?: string
   private showDone = false
+  private showActivity = false
   private signature = ''
   /** The opened task's fields, kept across rebuilds. */
   private detail?: {
     taskId: string
-    title: HTMLInputElement
+    title: HTMLTextAreaElement
     notes: HTMLTextAreaElement
     dynamic: HTMLDivElement
     notesTimer?: ReturnType<typeof setTimeout>
@@ -246,7 +247,8 @@ export class TaskPanel {
       this.views.map((v) => [v.task, v.state, v.sessions.map((s) => [s.name, s.open, s.agent, s.running, s.working, s.waiting, s.alarm])]),
       this.ctx.current,
       this.openId,
-      this.showDone
+      this.showDone,
+    this.showActivity
     ])
     if (!force && signature === this.signature) return
     this.signature = signature
@@ -336,7 +338,10 @@ export class TaskPanel {
     const { task } = view
     if (this.detail?.taskId !== task.id) this.makeDetail(task)
     const detail = this.detail!
-    if (document.activeElement !== detail.title) detail.title.value = task.title
+    if (document.activeElement !== detail.title) {
+      detail.title.value = task.title
+      fitHeight(detail.title)
+    }
     if (document.activeElement !== detail.notes) detail.notes.value = task.notes ?? ''
     detail.dynamic.replaceChildren(...this.detailSections(view))
   }
@@ -347,19 +352,25 @@ export class TaskPanel {
     back.append(chevron(false, true), text('Tasks'))
     back.addEventListener('click', () => this.back())
 
-    const title = document.createElement('input')
+    // A textarea, so a long title wraps instead of being cut off; Enter still ends the edit.
+    const title = document.createElement('textarea')
     title.className = 'task-title-input'
+    title.rows = 1
     title.setAttribute('aria-label', 'Title')
     title.spellcheck = false
+    title.addEventListener('input', () => fitHeight(title))
     title.addEventListener('change', () => this.handlers.act({ kind: 'edit', taskId: task.id, title: title.value }))
     title.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter') title.blur()
+      if (ev.key === 'Enter') {
+        ev.preventDefault()
+        title.blur()
+      }
     })
 
     const notes = document.createElement('textarea')
     notes.className = 'task-notes'
-    notes.rows = 4
-    notes.placeholder = 'Notes — every session on this task reads them through task_get.'
+    notes.rows = 3
+    notes.placeholder = 'Notes — every session on this task reads them'
     notes.setAttribute('aria-label', 'Notes')
     const saveNotes = (): void => this.handlers.act({ kind: 'edit', taskId: task.id, notes: notes.value })
     notes.addEventListener('input', () => {
@@ -372,14 +383,10 @@ export class TaskPanel {
     })
 
     const dynamic = div('task-detail-dynamic')
-    const notesBlock = div('task-section')
-    notesBlock.append(sectionTitle('Notes'), notes)
     const scroll = div('task-detail-scroll')
-    scroll.append(dynamic, notesBlock)
-    // Notes sit between the live part and the activity, which `detailSections` appends to
-    // the end of the scroll area through `activity`.
-    const activity = div('task-activity-host')
-    scroll.append(activity)
+    // Notes sit between the live part and the activity, which `detailSections` puts into
+    // the host after them; the notes themselves are never rebuilt, or typing would stop.
+    scroll.append(dynamic, notes, div('task-activity-host'))
 
     const heading = div('task-title-row')
     heading.append(span('task-ref', taskRef(task)), title)
@@ -387,185 +394,187 @@ export class TaskPanel {
     this.detail = { taskId: task.id, title, notes, dynamic }
   }
 
+  /**
+   * What the opened task shows, in the list's own spirit: one primary action, everything
+   * else a quiet link, and no box but where the user is asked for something.
+   */
   private detailSections(view: TaskView): HTMLElement[] {
     const { task } = view
     const nodes: HTMLElement[] = []
 
-    // State, who set it, and where the task came from.
+    // State, who set it and when, and where the task came from - one line.
     const meta = div('task-meta')
     const chip = button('', `task-state-chip state-${view.state}`)
     chip.title = 'Change state'
-    chip.append(stateIcon(view), text(STATE_LABELS[view.state]), chevron(true))
+    chip.append(text(STATE_LABELS[view.state]), chevron(true))
     chip.addEventListener('click', () => this.handlers.stateMenu(task, chip))
     meta.append(chip)
-    const last = lastDeclared(task)
-    if (last) meta.append(span('task-meta-by', `${last.by ? `${last.by} · ` : ''}${ago(last.at)}`))
-    nodes.push(meta)
     if (task.source) {
       const src = describeSource(task.source)
-      const line = div('task-source')
       if (isLink(task.source)) {
         const a = document.createElement('a')
+        a.className = 'task-source'
         a.href = task.source
         a.target = '_blank'
         a.rel = 'noreferrer'
-        a.textContent = src.description
-        line.append(a)
-      } else line.textContent = src.description
-      nodes.push(line)
+        a.textContent = src.label
+        a.title = src.description
+        meta.append(a)
+      } else meta.append(span('task-source', src.label))
     }
+    const last = lastDeclared(task)
+    if (last) meta.append(span('task-meta-by', `${last.by ? `${last.by} · ` : ''}${ago(last.at)}`))
+    nodes.push(meta)
 
-    // What waits for the user: what sessions asked, and tabs that wait without having said.
+    // What the user is asked for: the one place with a frame around it.
     const asked = new Set(task.asks.map((a) => a.tabId).filter(Boolean))
-    const silent = view.sessions.filter((s) => s.open && s.waiting && !asked.has(s.session.tabId))
+    const silent = task.blocked
+      ? []
+      : view.sessions.filter((s) => s.open && s.waiting && !asked.has(s.session.tabId))
     if (task.asks.length > 0 || silent.length > 0) {
       const box = div('task-asks')
-      box.append(sectionTitle('Waiting for you'))
-      for (const ask of task.asks) box.append(this.askCard(task, ask, view))
+      for (const ask of task.asks) box.append(this.askItem(task, ask, view))
       for (const s of silent) {
-        const card = div('task-ask')
-        card.append(askIcon('question'))
-        const body = div('task-ask-body')
-        body.append(span('task-ask-text', `${s.name} is waiting for you`))
-        const actions = div('task-actions')
-        actions.append(this.goTo(s.session.tabId))
-        body.append(actions)
-        card.append(body)
-        box.append(card)
+        const item = div('task-ask')
+        item.append(span('task-ask-kind', 'Waiting'), span('task-ask-text', `${s.name} is waiting for you.`))
+        item.append(links(this.link('Go to tab', () => this.handlers.goToTab(s.session.tabId))))
+        box.append(item)
       }
       nodes.push(box)
     }
 
     if (task.blocked && !task.doneAt) {
-      const box = div('task-blocked')
-      box.append(sectionTitle('Blocked'), span('task-blocked-text', task.blocked))
-      const unblock = button('Unblock', '')
-      unblock.addEventListener('click', () => this.handlers.act({ kind: 'setBlocked', taskId: task.id }))
-      const actions = div('task-actions')
-      actions.append(unblock)
-      box.append(actions)
-      nodes.push(box)
+      const line = div('task-blocked')
+      line.append(span('task-blocked-label', 'Blocked'), span('task-blocked-text', task.blocked))
+      line.append(this.link('Unblock', () => this.handlers.act({ kind: 'setBlocked', taskId: task.id })))
+      nodes.push(line)
     }
 
-    // The sessions on it, and ways to put more on it.
+    // Who works on it, and the ways to put a session on it.
     const sessions = div('task-section')
-    const live = view.sessions.filter((s) => s.open)
-    sessions.append(sectionTitle(`Sessions${view.sessions.length ? ` · ${view.sessions.length}` : ''}`))
-    if (view.sessions.length > 0) {
-      const box = div('task-sessions')
-      for (const s of [...live, ...view.sessions.filter((s) => !s.open)]) box.append(this.sessionRow(task, s))
-      sessions.append(box)
+    for (const s of [...view.sessions.filter((s) => s.open), ...view.sessions.filter((s) => !s.open)]) {
+      sessions.append(this.sessionRow(task, s))
     }
-    const actions = div('task-actions')
-    const start = button('Start a session', 'primary')
+    const start = button('New session', 'primary task-start')
     start.title = task.cwd ? `A Claude tab in ${task.cwd}, told about this task` : 'A Claude tab, told about this task'
     start.addEventListener('click', () => this.handlers.startSession(task))
-    actions.append(start)
-    // The tab in front is the one the user means: sending the task there is the other way
-    // to start on it, next to a new session. Attaching is the quiet variant - the tab goes
-    // on the task, and its session is told nothing.
+    const more: HTMLElement[] = []
+    // The tab in front is the one the user means. Sending the task there is the other way to
+    // start on it; attaching is the quiet variant - the tab goes on the task, its session is
+    // told nothing.
     const current = this.ctx.current
     if (current && !view.sessions.some((s) => s.open && s.session.tabId === current.tabId)) {
       if (current.claude) {
-        const send = button('Send to current tab', '')
+        const send = this.link('Send to current tab', () => this.handlers.sendToCurrent(task))
         send.title = `Put “${current.name}” on this task and send its session the task`
-        send.addEventListener('click', () => this.handlers.sendToCurrent(task))
-        actions.append(send)
+        more.push(send)
       }
-      const attach = button('Attach', 'quiet')
+      const attach = this.link('Attach', () => this.handlers.attachCurrent(task))
       attach.title = `Put “${current.name}” on this task without telling its session`
-      attach.addEventListener('click', () => this.handlers.attachCurrent(task))
-      actions.append(attach)
+      more.push(attach)
     }
-    if (live.length >= 2) {
-      const group = button('Group tabs', 'quiet')
+    if (view.sessions.filter((s) => s.open).length >= 2) {
+      const group = this.link('Group tabs', () => this.handlers.groupTabs(task))
       group.title = 'Put the open tabs of this task into one tab group, named after it'
-      group.addEventListener('click', () => this.handlers.groupTabs(task))
-      actions.append(group)
+      more.push(group)
     }
-    sessions.append(actions)
+    const startRow = div('task-start-row')
+    startRow.append(start, links(...more))
+    sessions.append(startRow)
+    const folder = div('task-folder')
+    folder.append(
+      span('task-folder-path', task.cwd ? `in ${task.cwd}` : 'in the current tab’s folder'),
+      this.link('Change', () => this.handlers.changeFolder(task))
+    )
+    folder.title = task.cwd ?? ''
+    sessions.append(folder)
     nodes.push(sessions)
 
-    const folder = div('task-folder')
-    folder.append(span('task-folder-path', task.cwd ?? 'No folder — sessions start in the current tab’s'))
-    const change = button('Change…', 'quiet')
-    change.addEventListener('click', () => this.handlers.changeFolder(task))
-    folder.append(change)
-    nodes.push(folder)
-
-    // The activity goes to the end, below the notes, which are not rebuilt.
+    // The activity goes below the notes, which are not rebuilt.
     const host = this.detailView.querySelector('.task-activity-host')
     if (host) host.replaceChildren(this.activity(task), this.footer(task))
     return nodes
   }
 
-  private askCard(task: Task, ask: TaskAsk, view: TaskView): HTMLElement {
-    const card = div(`task-ask kind-${ask.kind}`)
-    card.append(askIcon(ask.kind))
-    const body = div('task-ask-body')
-    body.append(span('task-ask-kind', ask.kind === 'review' ? 'Review & merge' : 'Question'))
-    body.append(span('task-ask-text', ask.text))
-    body.append(span('task-ask-by', `${ask.by ?? 'A session'} · ${ago(ask.at)}`))
-    const actions = div('task-actions')
+  private askItem(task: Task, ask: TaskAsk, view: TaskView): HTMLElement {
+    const item = div(`task-ask kind-${ask.kind}`)
+    item.append(
+      span('task-ask-kind', `${ask.kind === 'review' ? 'Review & merge' : 'Question'} · ${ask.by ?? 'a session'} · ${ago(ask.at)}`),
+      span('task-ask-text', ask.text)
+    )
+    const actions: HTMLElement[] = []
     if (ask.url) {
       const a = document.createElement('a')
-      a.className = 'task-button primary'
+      a.className = 'task-link'
       a.href = ask.url
       a.target = '_blank'
       a.rel = 'noreferrer'
-      a.textContent = ask.kind === 'review' ? 'Open in browser' : 'Open link'
-      actions.append(a)
+      a.textContent = 'Open'
+      a.title = ask.url
+      actions.push(a)
     }
     const tab = ask.tabId ? view.sessions.find((s) => s.session.tabId === ask.tabId && s.open) : undefined
-    if (tab) actions.append(this.goTo(tab.session.tabId))
-    const done = button(ask.kind === 'review' ? 'Mark merged' : 'Mark answered', '')
-    done.addEventListener('click', () => this.handlers.act({ kind: 'resolveAsk', taskId: task.id, askId: ask.id }))
-    actions.append(done)
-    body.append(actions)
-    card.append(body)
-    return card
+    if (tab) actions.push(this.link('Go to tab', () => this.handlers.goToTab(tab.session.tabId)))
+    actions.push(
+      this.link(ask.kind === 'review' ? 'Mark merged' : 'Mark answered', () =>
+        this.handlers.act({ kind: 'resolveAsk', taskId: task.id, askId: ask.id })
+      )
+    )
+    item.append(links(...actions))
+    return item
   }
 
+  /**
+   * A session on the task, one line: its mark, its name and what it does. A click goes to
+   * its tab - or resumes it, once the tab is closed; × takes it off the task.
+   */
   private sessionRow(task: Task, s: TaskSessionView): HTMLElement {
     const row = div(`task-session${s.open ? '' : ' closed'}`)
-    row.append(sessionMark(s, false))
-    const body = div('task-session-body')
-    body.append(span('task-session-name', s.name))
+    const main = button('', 'task-session-main')
     const what = !s.open
-      ? 'tab closed · resumable'
+      ? 'closed'
       : s.alarm || s.waiting
-        ? 'waiting for you'
+        ? 'waiting'
         : s.working
           ? 'working'
           : s.running
             ? 'idle'
             : 'not started'
-    body.append(span('task-session-sub', `${s.folder} · ${what}`))
-    row.append(body)
-    if (s.open) row.append(this.goTo(s.session.tabId))
-    else if (s.session.claudeSessionId) {
-      const resume = button('Resume', '')
-      resume.addEventListener('click', () => this.handlers.resume(task, s.session))
-      row.append(resume)
-    }
-    const detach = button('', 'task-detach')
+    main.append(sessionMark(s, false), span('task-session-name', s.name), span('task-session-sub', what))
+    main.title = s.open ? `Go to ${s.name} (${s.folder})` : `Resume ${s.name} (${s.folder})`
+    if (s.open) main.addEventListener('click', () => this.handlers.goToTab(s.session.tabId))
+    else if (s.session.claudeSessionId) main.addEventListener('click', () => this.handlers.resume(task, s.session))
+    else main.disabled = true
+    const detach = button('×', 'task-detach')
     detach.setAttribute('aria-label', `Take ${s.name} off this task`)
     detach.title = 'Take off this task'
-    detach.textContent = '×'
     detach.addEventListener('click', () => this.handlers.act({ kind: 'leave', taskId: task.id, tabId: s.session.tabId }))
-    row.append(detach)
+    row.append(main, detach)
     return row
   }
 
-  private goTo(tabId: string): HTMLButtonElement {
-    const go = button('Go to tab', '')
-    go.addEventListener('click', () => this.handlers.goToTab(tabId))
-    return go
+  /** A quiet action: text in the accent colour, no frame. */
+  private link(label: string, run: () => void): HTMLButtonElement {
+    const el = document.createElement('button')
+    el.type = 'button'
+    el.className = 'task-link'
+    el.textContent = label
+    el.addEventListener('click', run)
+    return el
   }
 
+  /** The activity, folded away by default: it is a log to look things up in, not to read. */
   private activity(task: Task): HTMLElement {
     const box = div('task-section')
-    box.append(sectionTitle('Activity'))
+    const toggle = button('', 'task-done-toggle task-activity-toggle')
+    toggle.setAttribute('aria-expanded', String(this.showActivity))
+    toggle.append(chevron(this.showActivity), text(`Activity · ${task.activity.length}`))
+    toggle.addEventListener('click', () => {
+      this.showActivity = !this.showActivity
+      this.rebuild()
+    })
+    box.append(toggle)
+    if (!this.showActivity) return box
     const list = document.createElement('ol')
     list.className = 'task-activity'
     for (const event of [...task.activity].reverse().slice(0, 15)) {
@@ -583,15 +592,18 @@ export class TaskPanel {
   }
 
   private footer(task: Task): HTMLElement {
-    const foot = div('task-actions task-footer')
-    const done = button(task.doneAt ? 'Reopen' : 'Mark done', '')
-    done.addEventListener('click', () => this.handlers.act({ kind: 'setDone', taskId: task.id, done: !task.doneAt }))
-    const del = button('Delete task', 'quiet danger')
-    del.addEventListener('click', () => {
+    const foot = div('task-footer')
+    foot.append(
+      this.link(task.doneAt ? 'Reopen' : 'Mark done', () =>
+        this.handlers.act({ kind: 'setDone', taskId: task.id, done: !task.doneAt })
+      )
+    )
+    const del = this.link('Delete task', () => {
       this.handlers.act({ kind: 'delete', taskId: task.id })
       this.back()
     })
-    foot.append(done, del)
+    del.classList.add('danger')
+    foot.append(del)
     return foot
   }
 
@@ -613,6 +625,22 @@ export class TaskPanel {
 }
 
 /* ------------------------------------------------------------------ Pieces */
+
+/** Grows a textarea to its content, so a title wraps onto as many lines as it needs. */
+function fitHeight(el: HTMLTextAreaElement): void {
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight}px`
+}
+
+/** Quiet actions in a row, separated by a middle dot. */
+function links(...items: HTMLElement[]): HTMLElement {
+  const row = div('task-links')
+  items.forEach((item, i) => {
+    if (i > 0) row.append(span('task-links-sep', '·'))
+    row.append(item)
+  })
+  return row
+}
 
 const STATE_LABELS: Record<TaskShownState, string> = {
   needs_user: 'Needs you',
@@ -675,26 +703,6 @@ function sectionHead(state: TaskShownState, label: string, count: number): HTMLE
   return head
 }
 
-function sectionTitle(label: string): HTMLElement {
-  const h = document.createElement('h3')
-  h.className = 'task-section-title'
-  h.textContent = label
-  return h
-}
-
-/** A task's mark in the list: its state, breathing while it works. */
-function stateIcon(view: TaskView): HTMLElement {
-  const el = stateGlyph(view.state)
-  if (view.alarm) el.classList.add('alarm')
-  return el
-}
-
-function stateGlyph(state: TaskShownState): HTMLElement {
-  const el = span(`task-glyph state-${state}`, state === 'working' ? '✳︎' : '')
-  el.setAttribute('aria-hidden', 'true')
-  return el
-}
-
 /** A session on a task, as the tab bar draws it: ✳, breathing, or the red dot. */
 function sessionMark(s: TaskSessionView, withName = true): HTMLElement {
   const el = span('task-session-mark', '')
@@ -705,14 +713,6 @@ function sessionMark(s: TaskSessionView, withName = true): HTMLElement {
   el.append(mark)
   if (withName) el.append(text(s.name))
   return el
-}
-
-function askIcon(kind: TaskAsk['kind']): SVGSVGElement {
-  const body =
-    kind === 'review'
-      ? '<circle cx="4" cy="4" r="2"/><circle cx="4" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><path d="M4 6v4M12 10V7a3 3 0 0 0-3-3H7"/>'
-      : '<path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" stroke-linejoin="round"/>'
-  return svg(16, body, 'task-ask-icon')
 }
 
 function chevron(down: boolean, left = false): SVGSVGElement {

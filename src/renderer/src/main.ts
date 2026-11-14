@@ -2325,15 +2325,19 @@ function taskViews(): TaskView[] {
   return tasks.map((task) => {
     const sessions = task.sessions.map(taskSessionView)
     const open = sessions.filter((s) => s.open)
+    // What is asked outright wins; then blocked, because a session idling at its prompt is
+    // exactly what a blocked task looks like; then a tab that waits without having said why.
     const state: TaskView['state'] = task.doneAt
       ? 'done'
-      : task.asks.length > 0 || open.some((s) => s.waiting)
+      : task.asks.length > 0
         ? 'needs_user'
         : task.blocked
           ? 'blocked'
-          : open.some((s) => s.working)
-            ? 'working'
-            : 'backlog'
+          : open.some((s) => s.waiting)
+            ? 'needs_user'
+            : open.some((s) => s.working)
+              ? 'working'
+              : 'backlog'
     return { task, state, sessions, alarm: !task.doneAt && open.some((s) => s.alarm) }
   })
 }
