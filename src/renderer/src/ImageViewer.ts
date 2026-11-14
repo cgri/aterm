@@ -55,13 +55,27 @@ export class ImageViewer {
     this.root.addEventListener('mousedown', (ev) => {
       if (ev.target === this.root) this.close()
     })
-    this.root.addEventListener('keydown', (ev) => {
+    // Every key is the viewer's while it is open, wherever the focus happens to be.
+    // A listener on the overlay alone missed them whenever the focus was elsewhere —
+    // on <body> after a click on the image, or back in a terminal something else
+    // focused — and Esc then reached the terminal behind and interrupted Claude.
+    // Capture on window runs ahead of the keymap's listener on document.
+    const swallow = (ev: KeyboardEvent): void => {
+      if (!this.open) return
+      ev.preventDefault()
+      ev.stopImmediatePropagation()
+      if (ev.type !== 'keydown') return
       if (ev.key === 'Escape') this.close()
       else if (ev.key === 'ArrowLeft') this.show(this.index - 1)
       else if (ev.key === 'ArrowRight') this.show(this.index + 1)
-      else return
-      ev.preventDefault()
-      ev.stopPropagation()
+    }
+    window.addEventListener('keydown', swallow, true)
+    window.addEventListener('keypress', swallow, true)
+    window.addEventListener('keyup', swallow, true)
+    // And the focus stays on the overlay, so nothing behind it starts out with the keyboard
+    // once the viewer closes. A button in its bar may hold it.
+    document.addEventListener('focusin', (ev) => {
+      if (this.open && !(ev.target instanceof Node && this.root.contains(ev.target))) this.root.focus()
     })
   }
 
