@@ -21,6 +21,20 @@ function arg(name) {
 const PIPE = arg('--pipe')
 const TAB = arg('--tab')
 
+/**
+ * Told to Claude Code once, at the start of every session, and put into its system prompt
+ * as this server's instructions. The tool descriptions alone were not enough: a session
+ * asked to create tasks and start on one created them, began working and never joined,
+ * so the task list could show nothing of it.
+ */
+const INSTRUCTIONS = [
+  'This session runs in an aterm tab. aterm keeps a task list the user follows beside the terminals.',
+  'Whenever you start working on one of its tasks - because the user named it, asked you to pick one,',
+  'or you created it to work on now - call task_join first (or task_create with join: true), so the',
+  'list shows this session on it. task_join answers with when to report on the task through',
+  'task_update; follow that for as long as the session is on the task.'
+].join(' ')
+
 const TOOLS = [
   {
     name: 'open_tab',
@@ -164,7 +178,10 @@ const TOOLS = [
         source: { type: 'string', description: 'A ticket key or an issue/PR/MR link, if there is one.' },
         notes: { type: 'string', description: 'What else there is to know, in a few lines.' },
         cwd: { type: 'string', description: 'Where a session on it would work. Defaults to this session\'s folder.' },
-        join: { type: 'boolean', description: 'Put this session on the new task. Default: it goes to the backlog.' }
+        join: {
+          type: 'boolean',
+          description: 'Put this session on the new task - set it when you are about to work on it. Default: it goes to the backlog.'
+        }
       },
       required: ['title']
     }
@@ -172,8 +189,10 @@ const TOOLS = [
   {
     name: 'task_join',
     description:
-      'Put this session on an aterm task, when the user says it works on one. A session is on one ' +
-      'task at a time; several sessions can be on the same task.',
+      'Put this session on an aterm task. Call it as soon as you start working on a task from the ' +
+      'list, whoever picked it; without it the user sees nobody working on the task. A session is ' +
+      'on one task at a time; several sessions can be on the same task. The answer says when to ' +
+      'report with task_update.',
     inputSchema: {
       type: 'object',
       properties: { task: { type: 'string', description: 'The task id from task_list.' } },
@@ -271,7 +290,8 @@ async function handle(message) {
       result: {
         protocolVersion: (params && params.protocolVersion) || '2025-06-18',
         capabilities: { tools: {} },
-        serverInfo: { name: 'aterm', version: '1' }
+        serverInfo: { name: 'aterm', version: '1' },
+        instructions: INSTRUCTIONS
       }
     })
   } else if (method === 'tools/list') {

@@ -11,6 +11,7 @@ import type {
   TaskSession,
   TaskSessionInfo
 } from '@shared/types'
+import { taskBriefing } from '@shared/taskBriefing'
 import { readJsonFile } from '../util/json'
 
 const SCHEMA_VERSION = 1
@@ -274,11 +275,13 @@ export class TaskStore extends EventEmitter {
       this.join(task, { ...info, name: call.by ?? info.name }, call.by)
       this.touch(task)
     }
+    // Joining is where a session learns when to report; the briefing goes with the answer.
     return {
       ok: true,
       text:
-        `Created task ${task.id}: "${task.title}"` +
-        (args.join === true ? ', and this session is on it now.' : ', in the backlog.')
+        args.join === true && info
+          ? `Created task ${task.id}: "${task.title}", and this session is on it now.\n\n${taskBriefing(task)}`
+          : `Created task ${task.id}: "${task.title}", in the backlog.`
     }
   }
 
@@ -290,7 +293,10 @@ export class TaskStore extends EventEmitter {
     if (!info) return { ok: false, error: 'This session is not running in an aterm tab aterm knows.' }
     this.join(task, { ...info, name: call.by ?? info.name }, call.by)
     this.touch(task)
-    return { ok: true, text: `This session is on task ${task.id} now: "${task.title}".` }
+    return {
+      ok: true,
+      text: `This session is on task ${task.id} now: "${task.title}".\n\n${taskBriefing(task)}`
+    }
   }
 
   private toolLeave(call: TaskCall): TaskReply {
@@ -309,6 +315,12 @@ export class TaskStore extends EventEmitter {
     const status = args.status as DeclaredStatus
     if (!STATUSES.includes(status)) {
       return { ok: false, error: `status must be one of ${STATUSES.join(', ')}.` }
+    }
+    // A session reporting on a task while on none is working on it: it joins, or the list
+    // would show the state and nobody behind it.
+    if (!this.taskOfTab(call.tabId) && status !== 'done') {
+      const info = this.tabInfo(call.tabId)
+      if (info) this.join(task, { ...info, name: call.by ?? info.name }, call.by)
     }
     const note = str(args.note)
     const url = str(args.url)

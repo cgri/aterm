@@ -755,7 +755,12 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   on the task; closing a tab keeps the conversation on the task (`closed`) to be resumed
   from there. A session started from the list, or opened by `open_tab` from a session on a
   task, is told which task it is on in its task file (`shared/taskBriefing.ts`) — never on
-  the command line — and when to report. Tab groups stay the user's: a task never makes one
+  the command line — and when to report. A session that picks a task up by itself gets the
+  same briefing as the answer to `task_join` (or `task_create` with `join`), and the MCP
+  server's `instructions` tell every session to join before it starts on a task: with the
+  tool descriptions alone, a session asked to create tasks and start on one created them,
+  went to work and never joined, so the list showed nobody on it. `task_update` from a
+  session on no task joins it to the task it names, for the same reason. Tab groups stay the user's: a task never makes one
   by itself, the detail only offers "Group tabs". The task list's button is `TabBar`'s
   `leading` element, at the left end of the bar above the panel, and not in the strip,
   which says three things about tabs and nothing else. Its count turns red under the same
