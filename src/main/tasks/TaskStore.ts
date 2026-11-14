@@ -90,6 +90,7 @@ export class TaskStore extends EventEmitter {
     for (const task of [...this.tasks].sort((a, b) => a.createdAt - b.createdAt)) {
       if (typeof task.number !== 'number') task.number = ++this.lastNumber
     }
+    for (const task of this.tasks) dropQuestionsBeforeBlocked(task)
   }
 
   list(): Task[] {
@@ -514,6 +515,19 @@ export class TaskStore extends EventEmitter {
     this.pending = setTimeout(() => this.flush(), 300)
     this.emit('changed', this.tasks)
   }
+}
+
+/**
+ * A blocked task's questions that are older than the block count as answered - the rule
+ * `setBlocked` applies when the user blocks a task, applied again to what is stored. Tasks
+ * blocked before that rule existed kept their question and stayed under "Needs you",
+ * because an open question outranks blocked. A question asked after the block stays.
+ */
+function dropQuestionsBeforeBlocked(task: Task): void {
+  if (!task.blocked) return
+  const blockedAt = [...task.activity].reverse().find((e) => e.kind === 'blocked')?.at
+  if (blockedAt === undefined) return
+  task.asks = task.asks.filter((a) => a.kind !== 'question' || a.at > blockedAt)
 }
 
 function str(value: unknown): string | undefined {

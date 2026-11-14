@@ -763,7 +763,9 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   waits, then working, then backlog. Blocked ranks above the bare wait because a session
   idling at its prompt is exactly what a blocked task looks like, and the user marking a
   task blocked is their answer to its questions (`setBlocked` drops them; reviews stay) —
-  before that, the open question kept a task the user had just blocked under "Needs you". Asking the model to report "working" would be late and forgotten; aterm already
+  before that, the open question kept a task the user had just blocked under "Needs you". `load` applies the same rule to what is stored
+  (`dropQuestionsBeforeBlocked`): a question older than the block counts as answered, so a
+  task blocked before the rule existed does not stay under "Needs you" for good. Asking the model to report "working" would be late and forgotten; aterm already
   knows. A question ask is settled by the tab itself: when a tab that waited goes back to
   work (`settleWaiting`), its open question counts as answered. A review is not — it waits,
   often for days after every tab is closed, until the user marks it merged or a session
