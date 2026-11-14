@@ -271,9 +271,10 @@ const taskPanel = new TaskPanel({
   resume: (task, session) => void resumeTaskSession(task, session),
   startSession: (task) => void startTaskSession(task),
   attachCurrent: (task) => {
-    const pane = activePane() ?? (returnId ? panes.get(returnId) : undefined)
+    const pane = frontPane()
     if (pane) void api.tasks.act({ kind: 'join', taskId: task.id, session: sessionInfo(pane) })
   },
+  sendToCurrent: (task) => sendTaskToCurrent(task),
   groupTabs: (task) => groupTaskTabs(task),
   changeFolder: (task) => void changeTaskFolder(task),
   stateMenu: (task) => openTaskStateMenu(task),
@@ -2374,10 +2375,42 @@ function renderTasks(): void {
     needing.length > 0
       ? `Tasks — ${needing.length} waiting for you (Ctrl+Shift+L)`
       : 'Tasks (Ctrl+Shift+L)'
-  const front = activePane() ?? (returnId ? panes.get(returnId) : undefined)
+  const front = frontPane()
   taskPanel.update(views, {
-    current: front ? { tabId: front.tab.id, name: paneTitle(front) } : undefined
+    current: front
+      ? { tabId: front.tab.id, name: paneTitle(front), claude: isClaudeRunning(front) }
+      : undefined
   })
+}
+
+/** The tab in front, or the one the new-tab page was opened from. */
+function frontPane(): Pane | undefined {
+  return activePane() ?? (returnId ? panes.get(returnId) : undefined)
+}
+
+/** A Claude session runs in the tab: a Claude tab, or a shell someone ran `claude` in. */
+function isClaudeRunning(pane: Pane): boolean {
+  return pane.status === 'running' && (pane.tab.kind === 'claude' || pane.agentRunning)
+}
+
+/**
+ * "Send to current tab": the session in front is put on the task and the task is typed
+ * into its prompt - typed, not sent, so the user can add to it and sends it with Enter,
+ * and a turn under way is neither cut off nor queued behind. One line, because a typed
+ * newline would submit; it only names the task and asks for `task_join`, whose answer
+ * carries the reporting rules, so they reach the session the same way however it joined.
+ */
+function sendTaskToCurrent(task: Task): void {
+  const pane = frontPane()
+  if (!pane || !isClaudeRunning(pane) || !pane.view) return
+  void api.tasks.act({ kind: 'join', taskId: task.id, session: sessionInfo(pane) })
+  const title = task.title.replace(/[\r\n"]+/g, ' ').trim()
+  const line = `Work on aterm task ${task.id} ("${title}"): call task_join with task ${task.id} first; its answer says when to report on it.`
+  // Claude Code's input line starts with its prompt marker; anything after it means the
+  // user has typed something already, and the task goes on a line of its own (ESC CR).
+  const typed = pane.view.textBeforeCursor().replace(/^\s*[^\p{L}\p{N}\s"']?\s*/u, '')
+  api.pty.write(pane.tab.id, `${typed ? '\x1b\r' : ''}${line}`)
+  activate(pane.tab.id, { start: false })
 }
 
 /** Ctrl+Shift+L: open the list and take the keyboard there, or close it from inside. */

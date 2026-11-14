@@ -39,7 +39,10 @@ export interface TaskPanelHandlers {
   goToTab(tabId: string): void
   resume(task: Task, session: TaskSession): void
   startSession(task: Task): void
+  /** Puts the tab in front on the task without a word to its session. */
   attachCurrent(task: Task): void
+  /** Puts the tab in front on the task and types the task into its prompt. */
+  sendToCurrent(task: Task): void
   groupTabs(task: Task): void
   changeFolder(task: Task): void
   stateMenu(task: Task, anchor: HTMLElement): void
@@ -50,7 +53,12 @@ export interface TaskPanelHandlers {
 /** What the panel needs to know besides the tasks. */
 export interface TaskPanelContext {
   /** The tab in front, to offer attaching it. */
-  current?: { tabId: string; name: string }
+  current?: {
+    tabId: string
+    name: string
+    /** A Claude session runs in it, which can be told about the task. */
+    claude: boolean
+  }
 }
 
 const SECTIONS: Array<{ state: TaskShownState; label: string }> = [
@@ -386,10 +394,19 @@ export class TaskPanel {
     start.title = task.cwd ? `A Claude tab in ${task.cwd}, told about this task` : 'A Claude tab, told about this task'
     start.addEventListener('click', () => this.handlers.startSession(task))
     actions.append(start)
+    // The tab in front is the one the user means: sending the task there is the other way
+    // to start on it, next to a new session. Attaching is the quiet variant - the tab goes
+    // on the task, and its session is told nothing.
     const current = this.ctx.current
     if (current && !view.sessions.some((s) => s.open && s.session.tabId === current.tabId)) {
-      const attach = button('Attach current tab', '')
-      attach.title = `Put “${current.name}” on this task`
+      if (current.claude) {
+        const send = button('Send to current tab', '')
+        send.title = `Put “${current.name}” on this task and type the task into its prompt`
+        send.addEventListener('click', () => this.handlers.sendToCurrent(task))
+        actions.append(send)
+      }
+      const attach = button('Attach', 'quiet')
+      attach.title = `Put “${current.name}” on this task without telling its session`
       attach.addEventListener('click', () => this.handlers.attachCurrent(task))
       actions.append(attach)
     }

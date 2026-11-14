@@ -83,7 +83,9 @@ portable exe leaves the registry alone and so has no entry.
 The checklist button at the left end of the tab bar (`Ctrl+Shift+L`) opens a task list beside
 the terminals: short-lived to-dos you file no ticket for, and the work on a ticket or
 issue that is under way. `Ctrl+Shift+K` adds one — type a title or paste an issue, PR, MR
-or ticket link — and either keeps it in the backlog or starts a Claude session on it.
+or ticket link — and either keeps it in the backlog or starts a Claude session on it. An
+opened task can also be sent to the session in the current tab, which is put on it and gets
+the task typed into its prompt; **Attach** puts the current tab on it without a word.
 
 Tasks are sorted by what they need: **Needs you** (a session asked you something, or a
 PR/MR is ready for you to review and merge), **Blocked** (waiting for someone else, with

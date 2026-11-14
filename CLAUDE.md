@@ -763,7 +763,10 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   session on no task joins it to the task it names, for the same reason. The same
   instructions say that a task is one piece of work as the user sees it, never one per
   repository: a session asked to file its topics made two tasks of every topic that spanned
-  two repositories. Tab groups stay the user's: a task never makes one
+  two repositories. "Send to current tab" puts the session in front on a task and types a
+  single line into its prompt, typed and not sent, that asks for `task_join` — so the
+  briefing reaches it through the join's answer like any other; "Attach" is the same
+  without the line. Tab groups stay the user's: a task never makes one
   by itself, the detail only offers "Group tabs". The task list's button is `TabBar`'s
   `leading` element, at the left end of the bar above the panel, and not in the strip,
   which says three things about tabs and nothing else. Its count turns red under the same
