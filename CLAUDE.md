@@ -786,7 +786,9 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   answer like any other. It is sent, not left typed in the prompt: the user picks the
   moment, as the owner asked. With something already typed in that prompt nothing happens
   at all, join included, and the tab's bar says so: sending would take the half-written
-  prompt along. "Attach" is the same without the line. Tab groups stay the user's: a task never makes one
+  prompt along. "Attach" is the same without the line. Send stays offered for a tab that is
+  on the task already - a session can lose sight of its task after a `/clear` or a restart,
+  and sending it again is how it gets it back; only Attach goes away there. Tab groups stay the user's: a task never makes one
   by itself, the detail only offers "Group tabs". The task list's button is `TabBar`'s
   `leading` element, at the left end of the bar above the panel, and not in the strip,
   which says three things about tabs and nothing else. Its count turns red under the same

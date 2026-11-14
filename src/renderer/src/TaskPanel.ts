@@ -462,16 +462,24 @@ export class TaskPanel {
     // The tab in front is the one the user means. Sending the task there is the other way to
     // start on it; attaching is the quiet variant - the tab goes on the task, its session is
     // told nothing.
+    // A tab that is on the task already can still be sent it: its session may have lost
+    // sight of it - after a /clear, a restart, or a detour - and that is the way to hand it
+    // back. Only attaching makes no sense there.
     const current = this.ctx.current
-    if (current && !view.sessions.some((s) => s.open && s.session.tabId === current.tabId)) {
+    if (current) {
+      const onIt = view.sessions.some((s) => s.open && s.session.tabId === current.tabId)
       if (current.claude) {
         const send = this.link('Send to current tab', () => this.handlers.sendToCurrent(task))
-        send.title = `Put “${current.name}” on this task and send its session the task`
+        send.title = onIt
+          ? `Send the task to “${current.name}” again`
+          : `Put “${current.name}” on this task and send its session the task`
         more.push(send)
       }
-      const attach = this.link('Attach', () => this.handlers.attachCurrent(task))
-      attach.title = `Put “${current.name}” on this task without telling its session`
-      more.push(attach)
+      if (!onIt) {
+        const attach = this.link('Attach', () => this.handlers.attachCurrent(task))
+        attach.title = `Put “${current.name}” on this task without telling its session`
+        more.push(attach)
+      }
     }
     if (view.sessions.filter((s) => s.open).length >= 2) {
       const group = this.link('Group tabs', () => this.handlers.groupTabs(task))
