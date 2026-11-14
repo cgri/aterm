@@ -2515,14 +2515,39 @@ body {
 
 /* The list itself, left of the terminals. It takes its width from the terminals, which
    refit through their ResizeObserver when it opens or closes. */
+/* As wide as the user dragged it (`--task-panel-width`, set by TaskPanel), and never wider:
+   `min-width: 0` and the clip are what keep a long title on one line from widening the
+   panel to its own length, which is what a flex item does by default once its rows stop
+   wrapping. */
 .task-panel {
-  flex: 0 0 340px;
+  position: relative;
+  flex: 0 0 var(--task-panel-width, 340px);
+  width: var(--task-panel-width, 340px);
+  min-width: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--bg-review);
   border-right: 1px solid var(--border);
   user-select: none;
+}
+
+/* The grip along the panel's right edge. It shows itself only under the pointer, as a
+   line in the accent colour, so the panel's edge stays a hairline otherwise. */
+.task-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 5px;
+  z-index: 5;
+  cursor: col-resize;
+}
+
+.task-resize:hover,
+.task-resize.dragging {
+  background: color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
 .task-panel[hidden],

@@ -749,6 +749,11 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   heading is the only thing that says the state: no mark in the rows, colour only for
   "Needs you", and a second line only for what the user is to do or what a blocked task
   waits for. Chosen over a calmer two-line variant with sessions and notes in every row.
+  **The panel is as wide as it was dragged, and no wider.** Rows that no longer wrap made
+  the flex item as wide as its longest line - a "Needs you" sentence took most of the
+  window - so `.task-panel` has `min-width: 0` and clips. The width is a custom property
+  set from the grip on its right edge (`makeResizer`), kept in localStorage; a double
+  click on the grip goes back to the default.
   **Only declared things are stored**: blocked (with its reason), done, the last note, and
   the *asks* — a question, or a PR/MR to review and merge. Working and waiting are derived
   in the renderer (`taskViews` in `main.ts`) from the same `isWorking`, `isWaiting` and

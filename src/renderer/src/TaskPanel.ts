@@ -62,6 +62,9 @@ export interface TaskPanelContext {
   }
 }
 
+/** The narrowest the panel can be dragged: a number and a few words of a title. */
+const MIN_WIDTH = 200
+
 const SECTIONS: Array<{ state: TaskShownState; label: string }> = [
   { state: 'needs_user', label: 'Needs you' },
   { state: 'blocked', label: 'Blocked' },
@@ -124,7 +127,7 @@ export class TaskPanel {
     this.detailView = div('task-detail-view')
     this.detailView.hidden = true
 
-    this.el.append(this.listView, this.detailView)
+    this.el.append(this.listView, this.detailView, this.makeResizer())
     this.el.addEventListener('keydown', (ev) => this.onKey(ev))
 
     let open = false
@@ -142,6 +145,63 @@ export class TaskPanel {
 
   isOpen(): boolean {
     return !this.el.hidden
+  }
+
+  /**
+   * The grip on the panel's right edge. The width lives in a custom property on the panel
+   * and in localStorage, so it is there again on the next start; the terminals beside it
+   * refit through their own ResizeObserver, as they do for a window resize.
+   */
+  private makeResizer(): HTMLElement {
+    const grip = div('task-resize')
+    grip.setAttribute('aria-hidden', 'true')
+    grip.title = 'Drag to resize'
+    let stored: number | undefined
+    try {
+      stored = Number(localStorage.getItem('tasksWidth')) || undefined
+    } catch {
+      // The default width, then.
+    }
+    if (stored) this.setWidth(stored)
+
+    grip.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault()
+      grip.setPointerCapture(ev.pointerId)
+      grip.classList.add('dragging')
+      const left = this.el.getBoundingClientRect().left
+      const move = (e: PointerEvent): void => this.setWidth(e.clientX - left)
+      const up = (): void => {
+        grip.classList.remove('dragging')
+        grip.removeEventListener('pointermove', move)
+        grip.removeEventListener('pointerup', up)
+        grip.removeEventListener('pointercancel', up)
+        try {
+          localStorage.setItem('tasksWidth', String(Math.round(this.el.getBoundingClientRect().width)))
+        } catch {
+          // Kept for this run only.
+        }
+      }
+      grip.addEventListener('pointermove', move)
+      grip.addEventListener('pointerup', up)
+      grip.addEventListener('pointercancel', up)
+    })
+    // A double click puts it back to the width it started with.
+    grip.addEventListener('dblclick', () => {
+      this.el.style.removeProperty('--task-panel-width')
+      try {
+        localStorage.removeItem('tasksWidth')
+      } catch {
+        // Nothing to forget.
+      }
+    })
+    return grip
+  }
+
+  /** Never narrower than a title can still be read in, never more than most of the window. */
+  private setWidth(px: number): void {
+    const max = Math.max(MIN_WIDTH, Math.floor(window.innerWidth * 0.6))
+    const width = Math.round(Math.min(max, Math.max(MIN_WIDTH, px)))
+    this.el.style.setProperty('--task-panel-width', `${width}px`)
   }
 
   /** Whether the keyboard is in the panel. */
