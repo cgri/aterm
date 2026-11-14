@@ -760,7 +760,10 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   server's `instructions` tell every session to join before it starts on a task: with the
   tool descriptions alone, a session asked to create tasks and start on one created them,
   went to work and never joined, so the list showed nobody on it. `task_update` from a
-  session on no task joins it to the task it names, for the same reason. Tab groups stay the user's: a task never makes one
+  session on no task joins it to the task it names, for the same reason. The same
+  instructions say that a task is one piece of work as the user sees it, never one per
+  repository: a session asked to file its topics made two tasks of every topic that spanned
+  two repositories. Tab groups stay the user's: a task never makes one
   by itself, the detail only offers "Group tabs". The task list's button is `TabBar`'s
   `leading` element, at the left end of the bar above the panel, and not in the strip,
   which says three things about tabs and nothing else. Its count turns red under the same

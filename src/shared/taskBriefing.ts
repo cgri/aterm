@@ -15,7 +15,8 @@ export function taskBriefing(task: { id: string; title: string }): string {
     '- status "blocked" - when the task waits for someone or something other than the user (CI, another team, another task);',
     '- status "working" - when you take up the task again after one of those;',
     '- status "done" - when the task is finished. Pass resolve_reviews once a PR/MR you asked to be reviewed has been merged.',
-    'There is no need to report anything else: aterm sees for itself whether you are working.'
+    'There is no need to report anything else: aterm sees for itself whether you are working.',
+    'If the work takes you into another repository, it stays this task: do not create a task per repository.'
   ].join('\n')
 }
 

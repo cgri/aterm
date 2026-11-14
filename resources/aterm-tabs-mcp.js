@@ -32,7 +32,11 @@ const INSTRUCTIONS = [
   'Whenever you start working on one of its tasks - because the user named it, asked you to pick one,',
   'or you created it to work on now - call task_join first (or task_create with join: true), so the',
   'list shows this session on it. task_join answers with when to report on the task through',
-  'task_update; follow that for as long as the session is on the task.'
+  'task_update; follow that for as long as the session is on the task.',
+  'A task is one piece of work as the user sees it - a ticket, an issue, a topic - not one per',
+  'repository: work that spans several repositories is still one task, and the sessions in those',
+  'repositories (or one session working in all of them) are on that same task. Before creating a',
+  'task, check task_list for one that already covers the work.'
 ].join(' ')
 
 const TOOLS = [
@@ -170,7 +174,9 @@ const TOOLS = [
     name: 'task_create',
     description:
       "Add a task to aterm's task list - for work that comes up and is to be done later or by " +
-      'another session. Only when the user asks for it or agrees.',
+      'another session. Only when the user asks for it or agrees. One task per piece of work as ' +
+      'the user sees it (a ticket, an issue, a topic), never one per repository: work spanning ' +
+      'several repositories is one task, with a note naming them. Check task_list first.',
     inputSchema: {
       type: 'object',
       properties: {
