@@ -42,8 +42,8 @@ export interface TaskPanelHandlers {
   startSession(task: Task): void
   /** Puts the tab in front on the task without a word to its session. */
   attachCurrent(task: Task): void
-  /** Puts the tab in front on the task and sends its session the task. */
-  sendToCurrent(task: Task): void
+  /** Puts a tab on the task, if it is not, and sends its session the task. */
+  sendTo(task: Task, tabId: string): void
   groupTabs(task: Task): void
   changeFolder(task: Task): void
   stateMenu(task: Task, anchor: HTMLElement): void
@@ -455,40 +455,40 @@ export class TaskPanel {
     for (const s of [...view.sessions.filter((s) => s.open), ...view.sessions.filter((s) => !s.open)]) {
       sessions.append(this.sessionRow(task, s))
     }
-    const start = button('New session', 'primary task-start')
-    start.title = task.cwd ? `A Claude tab in ${task.cwd}, told about this task` : 'A Claude tab, told about this task'
-    start.addEventListener('click', () => this.handlers.startSession(task))
-    const more: HTMLElement[] = []
-    // The tab in front is the one the user means. Sending the task there is the other way to
-    // start on it; attaching is the quiet variant - the tab goes on the task, its session is
-    // told nothing.
-    // A tab that is on the task already can still be sent it: its session may have lost
-    // sight of it - after a /clear, a restart, or a detour - and that is the way to hand it
-    // back. Only attaching makes no sense there.
+    // Handing the task back to a session that is on it is what this view is mostly for, so
+    // it is on that session's row ("Send"). What is left goes on one quiet line: with no
+    // session yet, the two ways to start - the tab in front, or a new one - side by side;
+    // with sessions, the rarer extras.
+    const newSession = this.link('New session', () => this.handlers.startSession(task))
+    newSession.title = task.cwd ? `A Claude tab in ${task.cwd}, told about this task` : 'A Claude tab, told about this task'
     const current = this.ctx.current
-    if (current) {
-      const onIt = view.sessions.some((s) => s.open && s.session.tabId === current.tabId)
-      if (current.claude) {
-        const send = this.link('Send to current tab', () => this.handlers.sendToCurrent(task))
-        send.title = onIt
-          ? `Send the task to “${current.name}” again`
-          : `Put “${current.name}” on this task and send its session the task`
-        more.push(send)
+    const open = view.sessions.filter((s) => s.open)
+    const currentFree = current && !open.some((s) => s.session.tabId === current.tabId) ? current : undefined
+    const line = div('task-start-row')
+    if (open.length === 0) {
+      const start: HTMLElement[] = []
+      if (currentFree?.claude) {
+        const send = this.link(`Current tab (${currentFree.name})`, () => this.handlers.sendTo(task, currentFree.tabId))
+        send.title = `Put “${currentFree.name}” on this task and send its session the task`
+        start.push(send)
       }
-      if (!onIt) {
-        const attach = this.link('Attach', () => this.handlers.attachCurrent(task))
-        attach.title = `Put “${current.name}” on this task without telling its session`
+      start.push(newSession)
+      line.append(span('task-start-label', 'Start on it:'), links(...start))
+    } else {
+      const more: HTMLElement[] = [newSession]
+      if (currentFree) {
+        const attach = this.link('Attach current tab', () => this.handlers.attachCurrent(task))
+        attach.title = `Put “${currentFree.name}” on this task without telling its session`
         more.push(attach)
       }
+      if (open.length >= 2) {
+        const group = this.link('Group tabs', () => this.handlers.groupTabs(task))
+        group.title = 'Put the open tabs of this task into one tab group, named after it'
+        more.push(group)
+      }
+      line.append(links(...more))
     }
-    if (view.sessions.filter((s) => s.open).length >= 2) {
-      const group = this.link('Group tabs', () => this.handlers.groupTabs(task))
-      group.title = 'Put the open tabs of this task into one tab group, named after it'
-      more.push(group)
-    }
-    const startRow = div('task-start-row')
-    startRow.append(start, links(...more))
-    sessions.append(startRow)
+    sessions.append(line)
     const folder = div('task-folder')
     folder.append(
       span('task-folder-path', task.cwd ? `in ${task.cwd}` : 'in the current tab’s folder'),
@@ -553,6 +553,14 @@ export class TaskPanel {
     if (s.open) main.addEventListener('click', () => this.handlers.goToTab(s.session.tabId))
     else if (s.session.claudeSessionId) main.addEventListener('click', () => this.handlers.resume(task, s.session))
     else main.disabled = true
+    // Giving the task back to this session: after a /clear, a restart, or a change of the
+    // task's state, it may have lost sight of it. Only where a Claude session runs to hear it.
+    if (s.open && s.running && s.agent) {
+      const send = this.link('Send', () => this.handlers.sendTo(task, s.session.tabId))
+      send.classList.add('task-send')
+      send.title = `Send the task to “${s.name}”`
+      row.append(send)
+    }
     const detach = button('×', 'task-detach')
     detach.setAttribute('aria-label', `Take ${s.name} off this task`)
     detach.title = 'Take off this task'

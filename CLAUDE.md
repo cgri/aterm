@@ -749,8 +749,7 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   heading is the only thing that says the state: no mark in the rows, colour only for
   "Needs you", and a second line only for what the user is to do or what a blocked task
   waits for. Chosen over a calmer two-line variant with sessions and notes in every row.
-  The opened task follows the same rule: one primary button ("New session"), every other
-  action a quiet link, a frame only around what the user is asked for, the title wrapping
+  The opened task follows the same rule: no primary button, every action a quiet link, a frame only around what the user is asked for, the title wrapping
   in a textarea grown to fit, and the activity folded away.
   **The panel is as wide as it was dragged, and no wider.** Rows that no longer wrap made
   the flex item as wide as its longest line - a "Needs you" sentence took most of the
@@ -781,14 +780,18 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   session on no task joins it to the task it names, for the same reason. The same
   instructions say that a task is one piece of work as the user sees it, never one per
   repository: a session asked to file its topics made two tasks of every topic that spanned
-  two repositories. "Send to current tab" puts the session in front on a task and sends it
-  a single line that asks for `task_join` — so the briefing reaches it through the join's
+  two repositories. "Send" puts a session on a task and sends it a single line that asks for
+  `task_join` — so the briefing reaches it through the join's
   answer like any other. It is sent, not left typed in the prompt: the user picks the
   moment, as the owner asked. With something already typed in that prompt nothing happens
   at all, join included, and the tab's bar says so: sending would take the half-written
-  prompt along. "Attach" is the same without the line. Send stays offered for a tab that is
-  on the task already - a session can lose sight of its task after a `/clear` or a restart,
-  and sending it again is how it gets it back; only Attach goes away there. Tab groups stay the user's: a task never makes one
+  prompt along. "Attach" is the same without the line. Handing a task back to a session
+  already on it is what the opened task is mostly for — a session loses sight of its task
+  after a `/clear`, a restart, or a change of state — so "Send" sits on every session row
+  that runs Claude, whichever tab is in front. With no session yet, the line reads "Start
+  on it: Current tab (…) · New session"; with sessions, "New session" is one of the quiet
+  extras below them. A bold "New session" button was tried and read as the main action,
+  which it is the least often. Tab groups stay the user's: a task never makes one
   by itself, the detail only offers "Group tabs". The task list's button is `TabBar`'s
   `leading` element, at the left end of the bar above the panel, and not in the strip,
   which says three things about tabs and nothing else. Its count turns red under the same

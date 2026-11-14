@@ -84,8 +84,9 @@ The checklist button at the left end of the tab bar (`Ctrl+Shift+L`) opens a tas
 the terminals: short-lived to-dos you file no ticket for, and the work on a ticket or
 issue that is under way. `Ctrl+Shift+K` adds one — type a title or paste an issue, PR, MR
 or ticket link — and either keeps it in the backlog or starts a Claude session on it. An
-opened task can also be sent to the session in the current tab, which is put on it and sent
-a prompt naming the task; **Attach** puts the current tab on it without a word.
+opened task is handed to a session with **Send** on that session's row — after a `/clear`
+or a change of state, that is how it gets the task back — or, before any session is on
+it, to the session in the current tab; **Attach** puts the current tab on it without a word.
 
 Every task has a short number, `T7`, which the filter finds and sessions understand
 ("work on T7"). Tasks are sorted by what they need: **Needs you** (a session asked you something, or a

@@ -3106,13 +3106,21 @@ span.task-source {
 .task-start-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 12px;
-  margin-top: 8px;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 6px;
 }
 
-.task-button.task-start {
-  padding: 3px 12px;
+.task-start-label {
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+/* Handing the task back is the row's own action, so it stays in sight; only × waits for
+   the pointer. */
+.task-link.task-send {
+  flex: 0 0 auto;
+  padding: 0 6px;
 }
 
 .task-folder {

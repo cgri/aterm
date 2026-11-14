@@ -274,7 +274,7 @@ const taskPanel = new TaskPanel({
     const pane = frontPane()
     if (pane) void api.tasks.act({ kind: 'join', taskId: task.id, session: sessionInfo(pane) })
   },
-  sendToCurrent: (task) => sendTaskToCurrent(task),
+  sendTo: (task, tabId) => sendTaskTo(task, tabId),
   groupTabs: (task) => groupTaskTabs(task),
   changeFolder: (task) => void changeTaskFolder(task),
   stateMenu: (task) => openTaskStateMenu(task),
@@ -2398,20 +2398,22 @@ function isClaudeRunning(pane: Pane): boolean {
 }
 
 /**
- * "Send to current tab": the session in front is put on the task and is sent one line
- * that names it and asks for `task_join`, whose answer carries the reporting rules - so
- * they reach the session the same way however it joined. It is sent, not only typed: the
+ * "Send": a tab is put on the task, if it is not on it, and its session is sent one line
+ * that names the task and asks for `task_join`, whose answer carries the reporting rules -
+ * so they reach the session the same way however it joined. It is sent, not only typed: the
  * user asked for it, and picks the moment; a turn under way takes it as Claude Code takes
  * any prompt sent meanwhile. One line, because a typed newline would submit half of it.
+ * The tab comes to the front either way, so the user sees what happened.
  */
-function sendTaskToCurrent(task: Task): void {
-  const pane = frontPane()
+function sendTaskTo(task: Task, tabId: string): void {
+  const pane = panes.get(tabId)
   if (!pane || !isClaudeRunning(pane) || !pane.view) return
   // Claude Code's input line starts with its prompt marker; anything after it is something
   // the user is in the middle of typing. Sending would send that half-written prompt along
   // with the task, so nothing is done - not even the join - and the tab says why.
   const typed = pane.view.textBeforeCursor().replace(/^\s*[^\p{L}\p{N}\s"']?\s*/u, '')
   if (typed) {
+    activate(pane.tab.id, { start: false })
     showBar(pane, 'Task not sent: the prompt is not empty', [])
     return
   }
