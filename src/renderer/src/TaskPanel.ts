@@ -41,7 +41,7 @@ export interface TaskPanelHandlers {
   startSession(task: Task): void
   /** Puts the tab in front on the task without a word to its session. */
   attachCurrent(task: Task): void
-  /** Puts the tab in front on the task and types the task into its prompt. */
+  /** Puts the tab in front on the task and sends its session the task. */
   sendToCurrent(task: Task): void
   groupTabs(task: Task): void
   changeFolder(task: Task): void
@@ -401,7 +401,7 @@ export class TaskPanel {
     if (current && !view.sessions.some((s) => s.open && s.session.tabId === current.tabId)) {
       if (current.claude) {
         const send = button('Send to current tab', '')
-        send.title = `Put “${current.name}” on this task and type the task into its prompt`
+        send.title = `Put “${current.name}” on this task and send its session the task`
         send.addEventListener('click', () => this.handlers.sendToCurrent(task))
         actions.append(send)
       }
