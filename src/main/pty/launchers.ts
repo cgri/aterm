@@ -123,7 +123,8 @@ export function claudeLaunch(opts: {
   if (opts.prompt && !opts.resume) claudeArgs.push(promptFileArg(opts.tabId, opts.prompt))
   // Claude Code names a session after its first prompt, which is now only the request to
   // read the task file. The name is kept in the transcript, so a resume does not need it.
-  if (opts.name && !opts.resume) claudeArgs.push(`--name=${opts.name}`)
+  const name = opts.name ? sessionName(opts.name) : ''
+  if (name && !opts.resume) claudeArgs.push(`--name=${name}`)
 
   if (opts.planSettings) claudeArgs.push('--settings', opts.planSettings)
   // Attached with `=`: `--mcp-config` takes any number of values, and in the separate
@@ -157,4 +158,20 @@ function promptFileArg(tabId: string, prompt: string): string {
   const file = join(dir, `task-${tabId}.md`)
   writeFileSync(file, prompt)
   return `Read your task from ${file} and work on it.`
+}
+
+/**
+ * A session's name as `claude --name` gets it. Unlike a task it does go onto the command
+ * line, so it is cut down to words: endpoint protection reads command lines
+ * (`promptFileArg`), and a `::` was enough to get aterm killed. cmd.exe, which runs a
+ * `claude.cmd`, would also act on `&`, `|` and the like. Applied here, for every name,
+ * because a task's title is typed by the user and goes the same way.
+ */
+export function sessionName(title: string): string {
+  return title
+    .replace(/[^\p{L}\p{N} .,'_-]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s.,'_-]+/, '')
+    .slice(0, 60)
+    .trim()
 }

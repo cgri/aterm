@@ -13,6 +13,9 @@ import type {
   SessionStatusEvent,
   StartSpec,
   StartResult,
+  Task,
+  TaskAction,
+  TaskActionResult,
   TabImagesEvent,
   TabCloseRequest,
   TabOpenRequest,
@@ -131,6 +134,14 @@ const api = {
     acknowledge: (reviewId: string): void => ipcRenderer.send(IPC.textAck, reviewId),
     answer: (reviewId: string, answer: TextReviewAnswer): void =>
       ipcRenderer.send(IPC.textAnswer, reviewId, answer)
+  },
+  tasks: {
+    /** The task list as it stands. Every change after that arrives through `onChanged`. */
+    list: (): Promise<Task[]> => ipcRenderer.invoke(IPC.tasksList),
+    act: (action: TaskAction): Promise<TaskActionResult> => ipcRenderer.invoke(IPC.tasksAct, action),
+    onChanged: (cb: (tasks: Task[]) => void): void => {
+      ipcRenderer.on(IPC.tasksChanged, (_e, tasks: Task[]) => cb(tasks))
+    }
   },
   images: {
     /** Images a tab's conversation has seen — pasted, or returned by a tool. */

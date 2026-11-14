@@ -78,6 +78,27 @@ window, and the window comes forward.
 The installer registers the entry and the uninstaller removes it again; the
 portable exe leaves the registry alone and so has no entry.
 
+### A task list that sessions keep up to date
+
+The checklist button at the left end of the tab bar (`Ctrl+Shift+L`) opens a task list beside
+the terminals: short-lived to-dos you file no ticket for, and the work on a ticket or
+issue that is under way. `Ctrl+Shift+K` adds one — type a title or paste an issue, PR, MR
+or ticket link — and either keeps it in the backlog or starts a Claude session on it. An
+opened task is handed to a session with **Send** on that session's row — after a `/clear`
+or a change of state, that is how it gets the task back — or, before any session is on
+it, to the session in the current tab; **Attach** puts the current tab on it without a word.
+
+Every task has a short number, `T7`, which the filter finds and sessions understand
+("work on T7"). Tasks are sorted by what they need: **Needs you** (a session asked you something, or a
+PR/MR is ready for you to review and merge), **Blocked** (waiting for someone else, with
+the reason), **Working** (a session on it is at work), **Backlog** and **Done**. Any number
+of sessions can work on one task. Whether they work or wait aterm sees for itself; what it
+cannot see — a question, a review, blocked, done — the sessions report through the `aterm`
+MCP server's `task_update`. A review stays on the task until it is merged, however long
+after the tabs are closed, and a closed tab's session can be resumed from the task. The
+button's count turns red when a task waits for you unseen. "Group tabs" on a task puts its
+tabs into a tab group, if you want one.
+
 ### Updates
 
 When a newer release is out, an arrow appears next to the theme button. Clicking it
@@ -111,6 +132,8 @@ behind them.
 | `Ctrl+Shift+F` | Search the scrollback |
 | `Ctrl+Shift+I` | Show or close the images the conversation has seen |
 | `Ctrl+Shift+P` | While a plan or text review is open: switch between it and the terminal |
+| `Ctrl+Shift+L` | Open the task list, or close it from inside |
+| `Ctrl+Shift+K` | New task |
 | `Ctrl+V` | Paste — text directly, an image as a file in the temp directory (the path is pasted) |
 | `Alt+V` | Passed through as `ESC v` → Claude Code's own image paste |
 | `Shift+Enter` | Newline in the prompt (`ESC CR`) |
@@ -131,7 +154,7 @@ action entirely; an empty array disables it:
 ```
 
 Actions: `newTabMenu`, `newClaudeTab`, `newShellTab`, `closeTab`, `restartTab`,
-`nextTab`, `previousTab`, `nextWaitingTab`, `sessionPicker`, `search`, `paste`, `copy`, `pasteImage`,
+`nextTab`, `previousTab`, `nextWaitingTab`, `sessionPicker`, `search`, `tasks`, `newTask`, `paste`, `copy`, `pasteImage`,
 `newline`, `fontLarger`, `fontSmaller`, `fontReset`. `newTabMenu` and `sessionPicker`
 both open the new-tab page; the names are kept so existing keymaps go on working.
 `newClaudeTab` has no default — `Ctrl+T` opens the page instead — so bind it if you want

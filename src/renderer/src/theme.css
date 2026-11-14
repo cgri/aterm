@@ -198,6 +198,7 @@ body {
 #tabbar #tabmore,
 #tabbar .tabfade,
 #tabbar #update-button,
+#tabbar #tasks-button,
 #tabbar #theme-toggle {
   -webkit-app-region: no-drag;
 }
@@ -819,10 +820,18 @@ body {
 
 /* ---------- Panes ---------- */
 
+/* The terminals, with the task list beside them when it is open. */
+#workspace {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 #panes {
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
 }
 
 .pane {
@@ -2452,4 +2461,857 @@ body {
   /* Lined up with the centred text above. */
   padding: 10px max(16px, calc((100% - 940px) / 2 + 20px)) 14px max(16px, calc((100% - 940px) / 2 + 34px));
   border-top: 1px solid var(--border);
+}
+
+/* ---------- Tasks ---------- */
+
+/* The button that opens the task list, first in the bar and right above the panel it
+   opens, with a count of the tasks that need the user. The count is neutral while those
+   waits have all been seen, and red while one of them carries the tab bar's red dot. The
+   line on its right sets it off from the tabs. */
+#tasks-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 40px;
+  padding: 0 10px 0 12px;
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--fg-dim);
+  cursor: default;
+}
+
+#tasks-button:hover,
+#tasks-button.open {
+  color: var(--fg);
+  background: var(--bg-tab);
+}
+
+.tasks-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--hover);
+  color: var(--fg);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.tasks-badge[hidden] {
+  display: none;
+}
+
+#tasks-button.alarm .tasks-badge {
+  background: var(--badge);
+  color: var(--on-badge);
+}
+
+/* The list itself, left of the terminals. It takes its width from the terminals, which
+   refit through their ResizeObserver when it opens or closes. */
+/* As wide as the user dragged it (`--task-panel-width`, set by TaskPanel), and never wider:
+   `min-width: 0` and the clip are what keep a long title on one line from widening the
+   panel to its own length, which is what a flex item does by default once its rows stop
+   wrapping. */
+.task-panel {
+  position: relative;
+  flex: 0 0 var(--task-panel-width, 340px);
+  width: var(--task-panel-width, 340px);
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-review);
+  border-right: 1px solid var(--border);
+  user-select: none;
+}
+
+/* The grip along the panel's right edge. It shows itself only under the pointer, as a
+   line in the accent colour, so the panel's edge stays a hairline otherwise. */
+.task-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 5px;
+  z-index: 5;
+  cursor: col-resize;
+}
+
+.task-resize:hover,
+.task-resize.dragging {
+  background: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.task-panel[hidden],
+.task-list-view[hidden],
+.task-detail-view[hidden],
+.task-dialog-recognised[hidden] {
+  display: none;
+}
+
+.task-list-view,
+.task-detail-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.task-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 10px;
+}
+
+.task-filter,
+.task-title-input,
+.task-notes {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  outline: none;
+}
+
+.task-filter {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 9px;
+}
+
+.task-button.task-new {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.task-filter:focus,
+.task-title-input:focus,
+.task-notes:focus {
+  border-color: var(--accent);
+}
+
+.task-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0 6px 12px;
+}
+
+.task-empty {
+  padding: 16px 10px;
+  color: var(--fg-dim);
+  line-height: 1.5;
+}
+
+.task-button {
+  font: inherit;
+  padding: 4px 11px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-tab);
+  color: var(--fg);
+  cursor: default;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.task-button:hover {
+  background: var(--hover);
+}
+
+.task-button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.task-button.primary:hover {
+  filter: brightness(1.12);
+}
+
+.task-button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg-dim);
+}
+
+.task-button.quiet:hover {
+  color: var(--fg);
+  background: var(--bg-tab);
+}
+
+.task-button.danger:hover {
+  color: var(--err);
+}
+
+.task-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The state is said once, here, in a word and a count. Only "Needs you" has colour:
+   it is the one section that asks something of the user. */
+.task-section-head {
+  padding: 12px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.task-section-head.state-needs_user {
+  color: var(--err);
+}
+
+/* A row is one button: the whole task, opened on click. One line - number, title, where
+   it came from, age - and a second only for what the user is to do, or what a blocked
+   task waits for. */
+.task-button.task-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+}
+
+.task-button.task-row:hover {
+  background: var(--bg-tab);
+}
+
+.task-button.task-row.state-needs_user {
+  background: color-mix(in srgb, var(--badge) 9%, transparent);
+}
+
+.task-button.task-row.state-needs_user:hover {
+  background: color-mix(in srgb, var(--badge) 15%, transparent);
+}
+
+.task-row-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.task-ref {
+  flex: 0 0 30px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.task-row.state-needs_user .task-ref {
+  color: var(--err);
+}
+
+.task-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-row.state-needs_user .task-title,
+.task-row.state-working .task-title,
+.task-row.state-blocked .task-title {
+  font-weight: 600;
+}
+
+.task-row.state-backlog,
+.task-row.state-done {
+  color: var(--fg-dim);
+}
+
+.task-row.state-backlog .task-title {
+  color: var(--fg);
+  opacity: 0.85;
+}
+
+.task-source-ref {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+
+.task-age {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.task-reason {
+  margin-left: 38px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--fg-dim);
+}
+
+.task-reason.needs {
+  color: var(--err);
+}
+
+.task-more {
+  color: var(--fg-dim);
+}
+
+@keyframes task-breath {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* A session as the tab bar draws it: ✳ faint while nothing runs, breathing while it
+   works, and the red dot while it waits unseen. */
+.task-session-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  font-size: 11px;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-session-mark .mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  color: var(--fg);
+}
+
+.task-session-mark .mark.faint {
+  color: var(--fg-dim);
+  opacity: 0.6;
+}
+
+.task-session-mark .mark.working {
+  animation: task-breath 1.6s ease-in-out infinite;
+}
+
+.task-session-mark .mark.alarm::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--badge);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-session-mark .mark.working {
+    animation: none;
+  }
+}
+
+.task-button.task-done-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 8px 6px;
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+.task-button.task-done-toggle:hover {
+  color: var(--fg);
+}
+
+/* ---- One task, opened in the list's place ----
+   Calm like the list: one primary button, every other action a quiet link, and a frame
+   only around what the user is asked for. */
+
+.task-button.task-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 10px 10px 2px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg-dim);
+}
+
+.task-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  margin: 0 12px 6px 20px;
+}
+
+.task-title-row .task-ref {
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+
+/* A textarea grown to its content (`fitHeight`), so a long title wraps. */
+.task-title-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 6px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  border-color: transparent;
+  background: transparent;
+  resize: none;
+  overflow: hidden;
+}
+
+.task-title-input:hover {
+  border-color: var(--border);
+}
+
+.task-detail-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0 14px 16px 20px;
+  user-select: text;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.task-detail-dynamic {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 12px;
+}
+
+.task-button.task-state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px 1px 9px;
+  border-radius: 11px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.task-button.task-state-chip.state-needs_user {
+  border-color: var(--badge);
+  color: var(--err);
+}
+
+.task-source {
+  font-family: var(--font-mono);
+  color: var(--accent);
+}
+
+span.task-source {
+  color: var(--fg-dim);
+}
+
+.task-meta-by,
+.task-folder-path,
+.task-event-by,
+.task-session-sub {
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+/* Quiet actions: accent-coloured text, no frame, separated by a middle dot. */
+.task-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  cursor: default;
+}
+
+.task-link:hover {
+  text-decoration: underline;
+}
+
+.task-link.danger {
+  color: var(--fg-dim);
+}
+
+.task-link.danger:hover {
+  color: var(--err);
+}
+
+.task-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.task-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+}
+
+.task-links-sep {
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+/* What the user is asked for: the one framed thing in the view. */
+.task-asks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--badge) 55%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--badge) 6%, transparent);
+}
+
+.task-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.task-ask-kind {
+  font-size: 11px;
+  color: var(--err);
+}
+
+.task-ask-text {
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* Blocked is a line, not a box: what it waits for, and the way out. */
+.task-blocked {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  line-height: 1.45;
+}
+
+.task-blocked-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.task-blocked-text {
+  overflow-wrap: anywhere;
+}
+
+.task-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* A session is one line, the whole of it a button to its tab. */
+.task-session {
+  display: flex;
+  align-items: center;
+}
+
+.task-button.task-session-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 6px;
+  margin-left: -6px;
+  border: none;
+  background: transparent;
+  text-align: left;
+}
+
+.task-button.task-session-main:hover:not(:disabled) {
+  background: var(--bg-tab);
+}
+
+.task-session-main .task-session-mark {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+.task-session-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-session.closed .task-session-name {
+  color: var(--fg-dim);
+}
+
+.task-button.task-detach {
+  padding: 2px 7px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg-dim);
+  opacity: 0;
+}
+
+.task-session:hover .task-detach,
+.task-detach:focus-visible {
+  opacity: 1;
+}
+
+.task-start-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 6px;
+}
+
+.task-start-label {
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+/* Handing the task back is the row's own action, so it stays in sight; only × waits for
+   the pointer. */
+.task-link.task-send {
+  flex: 0 0 auto;
+  padding: 0 6px;
+}
+
+.task-folder {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.task-folder-path {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-notes {
+  width: 100%;
+  padding: 7px 9px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.task-button.task-activity-toggle {
+  margin-top: 0;
+  padding: 8px 0 4px;
+}
+
+.task-activity {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0 0 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  border-left: 1px solid var(--edge);
+}
+
+.task-activity li {
+  display: flex;
+  gap: 8px;
+  margin-left: -9px;
+}
+
+.task-event-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  border: 1.4px solid var(--fg-dim);
+  border-radius: 50%;
+  background: var(--bg-review);
+}
+
+.event-needs_user .task-event-dot {
+  border-color: var(--badge);
+  background: var(--badge);
+}
+
+.event-blocked .task-event-dot {
+  border-color: var(--warn);
+  border-radius: 2px;
+}
+
+.event-working .task-event-dot {
+  border-color: var(--fg);
+  background: var(--fg);
+}
+
+.event-done .task-event-dot,
+.event-resolved .task-event-dot {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+
+.task-event-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.task-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+/* ---- New task ---- */
+
+.picker-box.task-dialog {
+  width: min(560px, 90vw);
+  max-height: none;
+  padding-bottom: 0;
+}
+
+.task-dialog-head {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.picker-box input.task-dialog-input {
+  margin: 10px 18px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+}
+
+.picker-box input.task-dialog-input:focus {
+  border-color: var(--accent);
+}
+
+.task-dialog-recognised {
+  margin: 8px 18px 0;
+  padding: 6px 10px;
+  border-radius: 5px;
+  background: var(--bg-tab);
+  font-size: 12px;
+}
+
+.task-dialog-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 18px 0;
+}
+
+.task-dialog-label {
+  flex: 0 0 52px;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.task-dialog-folder {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.task-segmented button {
+  font: inherit;
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: default;
+}
+
+.task-segmented button + button {
+  border-left: 1px solid var(--border);
+}
+
+.task-segmented button[aria-checked='true'] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.task-notes.task-dialog-notes {
+  display: block;
+  width: auto;
+  margin: 12px 18px 0;
+}
+
+/* The list scrolls with a thin bar in the palette's colours, not Chromium's light
+   default, which `color-scheme` did not change here. */
+.task-panel ::-webkit-scrollbar {
+  width: 8px;
+}
+
+.task-panel ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.task-panel ::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--edge);
+}
+
+.task-panel ::-webkit-scrollbar-thumb:hover {
+  background: var(--hover);
 }

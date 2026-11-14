@@ -180,8 +180,10 @@ export class TabBar {
   private scrollFrame?: number
 
   /**
-   * `trailing` is put at the right end of the bar and survives every re-render —
-   * rendering replaces the whole bar, so nothing may be appended from outside.
+   * `trailing` is put at the right end of the bar and `leading` at its left, in front of
+   * the tabs; both survive every re-render — rendering replaces the whole bar, so nothing
+   * may be appended from outside. Everything the bar measures is relative to the strip, so
+   * whatever sits in front of it moves nothing.
    *
    * Dragging is handled once, on the bar itself, from the pointer's x alone: which element
    * happens to be under it says too little, and the dragged one is under it all the time.
@@ -189,7 +191,8 @@ export class TabBar {
   constructor(
     private readonly root: HTMLElement,
     private readonly handlers: TabBarHandlers,
-    private readonly trailing: HTMLElement[] = []
+    private readonly trailing: HTMLElement[] = [],
+    private readonly leading: HTMLElement[] = []
   ) {
     root.addEventListener('dragover', (ev) => {
       if (!this.dragging) return
@@ -286,7 +289,7 @@ export class TabBar {
     const handle = document.createElement('div')
     handle.id = 'draghandle'
 
-    this.root.replaceChildren(strip, ...this.fades, this.more, plus, handle, ...this.trailing)
+    this.root.replaceChildren(...this.leading, strip, ...this.fades, this.more, plus, handle, ...this.trailing)
     strip.scrollLeft = this.scrolled
     strip.addEventListener('scroll', () => this.updateOverflow(), { passive: true })
     // Only when the tab in front changes, or a working tab — which renders about once a

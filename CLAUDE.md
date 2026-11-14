@@ -70,6 +70,7 @@ main/                      Node side: owns all processes, files and Claude Code 
   update/installer.ts      downloads, verifies and silently runs the NSIS installer
   plan/PlanReviewServer.ts the named pipe the ExitPlanMode hook hands plans to
   tabs/TabSpawnServer.ts   the named pipe behind the `aterm` MCP tools: open_tab, close_tab
+  tasks/TaskStore.ts       the task list: userData/tasks.json, and the task_* tools
   cli.ts                   the directory a launch names (--open-dir), Explorer's entry
   ipc.ts                   every channel name, shared with preload
 preload/index.ts           contextBridge → window.aterm
@@ -84,6 +85,8 @@ renderer/src/main.ts       tab lifecycle, panes, persistence — the controller
   planMarkdown.ts          the Markdown a plan is written in, as DOM
   ImagePanel.ts            the strip of those images beside a tab's terminal
   ImageViewer.ts           one of them at window size
+  TaskPanel.ts             the task list beside the terminals, and one task opened
+  TaskDialog.ts            "New task" (Ctrl+Shift+K), and a one-line prompt
 ```
 
 `shared/types.ts` is imported by all three via the `@shared` alias (configured in both
@@ -625,14 +628,15 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   answered. The keymap leaves every key to the panel while it has the focus
   (`focusOutsideTerminal`), or Ctrl+V would paste into the terminal behind it.
 - **A Claude session can open tabs, and aterm does nothing else for it.** Every Claude
-  session in a tab gets an MCP server, `resources/aterm-tabs-mcp.js`, with three tools:
+  session in a tab gets an MCP server, `resources/aterm-tabs-mcp.js`, with these tools:
   `open_tab` starts a tab with a session of its own and a task as its first prompt,
   `close_tab` closes one the caller opened, `review_text` is not about tabs at all (see
   the next entry), and `tab_status` and `wait_for_idle` say what every tab is doing — the
   latter blocks until no other tab works, e.g. before the user restarts aterm. Working and
   waiting are known only in the renderer, so it reports every tab's state to main on change
   (`reportTabStates`, `tabs:state`); main forgets it while the renderer reloads, so a wait
-  never takes a renderer that has not spoken yet for a window at rest. Finding and messaging each other is Claude Code's own `ListAgents` and
+  never takes a renderer that has not spoken yet for a window at rest. The `task_*` tools
+  belong to the task list (see further down). Finding and messaging each other is Claude Code's own `ListAgents` and
   `SendMessage` — aterm must not grow a mailbox or a list tool beside
   them. The server is aterm's own exe run with `ELECTRON_RUN_AS_NODE`, dependency-free, and
   hands each call down `\\.\pipe\aterm-tabs-<pid>` to `TabSpawnServer`.
@@ -732,6 +736,68 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   image or `Ctrl+Shift+I` (`images`) brings it back — and what a tab finds in its history
   when it starts does not open it, because a restore is not news. A renderer reload makes
   main forget what it sent (`forgetAll`), so the next `syncImages` sends it again.
+- **The task list stores what nobody can see, and reads the rest off the tabs.** A task
+  (`Task` in `shared/types.ts`) is a to-do or the work on a ticket, with any number of
+  sessions on it; a session is on one task at a time. It lives in `userData/tasks.json`,
+  owned by main (`TaskStore`), not in `state.json`: it outlives every tab that worked on it,
+  and the sessions' `task_*` calls arrive in main. The renderer gets the whole list on every
+  change and draws it in `TaskPanel`.
+  **A task is called `T7`** (`taskRef`): a number handed out in order of creation and never
+  reused (`lastNumber` in tasks.json), short enough to say and type and plainly not a
+  GitHub `#61`. The tools speak it and accept it in any case; the internal id stays
+  internal. The list is one line per task — number, title, source, age — and the section
+  heading is the only thing that says the state: no mark in the rows, colour only for
+  "Needs you", and a second line only for what the user is to do or what a blocked task
+  waits for. Chosen over a calmer two-line variant with sessions and notes in every row.
+  The opened task follows the same rule: no primary button, every action a quiet link, a frame only around what the user is asked for, the title wrapping
+  in a textarea grown to fit, and the activity folded away.
+  **The panel is as wide as it was dragged, and no wider.** Rows that no longer wrap made
+  the flex item as wide as its longest line - a "Needs you" sentence took most of the
+  window - so `.task-panel` has `min-width: 0` and clips. The width is a custom property
+  set from the grip on its right edge (`makeResizer`), kept in localStorage; a double
+  click on the grip goes back to the default.
+  **Only declared things are stored**: blocked (with its reason), done, the last note, and
+  the *asks* — a question, or a PR/MR to review and merge. Working and waiting are derived
+  in the renderer (`taskViews` in `main.ts`) from the same `isWorking`, `isWaiting` and
+  `wantsUser` the tab bar uses. The order: an open ask, then blocked, then a tab that only
+  waits, then working, then backlog. Blocked ranks above the bare wait because a session
+  idling at its prompt is exactly what a blocked task looks like, and the user marking a
+  task blocked is their answer to its questions (`setBlocked` drops them; reviews stay) —
+  before that, the open question kept a task the user had just blocked under "Needs you". Asking the model to report "working" would be late and forgotten; aterm already
+  knows. A question ask is settled by the tab itself: when a tab that waited goes back to
+  work (`settleWaiting`), its open question counts as answered. A review is not — it waits,
+  often for days after every tab is closed, until the user marks it merged or a session
+  passes `resolve_reviews`.
+  **Sessions are bound to tabs**, not conversation ids, so `/clear` and `/resume` keep them
+  on the task; closing a tab keeps the conversation on the task (`closed`) to be resumed
+  from there. A session started from the list, or opened by `open_tab` from a session on a
+  task, is told which task it is on in its task file (`shared/taskBriefing.ts`) — never on
+  the command line — and when to report. A session that picks a task up by itself gets the
+  same briefing as the answer to `task_join` (or `task_create` with `join`), and the MCP
+  server's `instructions` tell every session to join before it starts on a task: with the
+  tool descriptions alone, a session asked to create tasks and start on one created them,
+  went to work and never joined, so the list showed nobody on it. `task_update` from a
+  session on no task joins it to the task it names, for the same reason. The same
+  instructions say that a task is one piece of work as the user sees it, never one per
+  repository: a session asked to file its topics made two tasks of every topic that spanned
+  two repositories. "Send" puts a session on a task and sends it a single line that asks for
+  `task_join` — so the briefing reaches it through the join's
+  answer like any other. It is sent, not left typed in the prompt: the user picks the
+  moment, as the owner asked. The Enter is written on its own, `SUBMIT_DELAY_MS` after the
+  text: in the same chunk Claude Code takes it for the end of a paste and makes a line
+  break of it, and the line sat in the prompt unsent. With something already typed in that prompt nothing happens
+  at all, join included, and the tab's bar says so: sending would take the half-written
+  prompt along. "Attach" is the same without the line. Handing a task back to a session
+  already on it is what the opened task is mostly for — a session loses sight of its task
+  after a `/clear`, a restart, or a change of state — so "Send" sits on every session row
+  that runs Claude, whichever tab is in front. With no session yet, the line reads "Start
+  on it: Current tab (…) · New session"; with sessions, "New session" is one of the quiet
+  extras below them. A bold "New session" button was tried and read as the main action,
+  which it is the least often. Tab groups stay the user's: a task never makes one
+  by itself, the detail only offers "Group tabs". The task list's button is `TabBar`'s
+  `leading` element, at the left end of the bar above the panel, and not in the strip,
+  which says three things about tabs and nothing else. Its count turns red under the same
+  condition as the red dot.
 - **A Claude tab that has not registered is waiting for the user.** A session puts its file
   into `~/.claude/sessions/` only once it is past whatever Claude Code asks before it starts
   — the trust question of a folder it does not know, above all — and it sets no title until
