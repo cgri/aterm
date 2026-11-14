@@ -327,3 +327,24 @@ export interface TabCloseRequest {
   parentTabId: string
   tabId: string
 }
+
+/**
+ * A tab as the renderer sees it, reported to main for the aterm MCP server's `tab_status`
+ * and `wait_for_idle`. Only the renderer knows it: working and waiting are read off the
+ * title and Claude Code's registry there, with the same `isWorking` and `isWaiting` the tab
+ * bar draws with.
+ */
+export interface TabStatusReport {
+  tabId: string
+  /** The tab's whole name, `<folder> - <summary>`. */
+  name: string
+  /** An agent tab (✳) or a shell (❯), as the tab bar tells them apart. */
+  agent: boolean
+  /**
+   * `working` breathes, `waiting` waits for the user, `idle` runs and does neither;
+   * `stopped` has not started (a restored placeholder), `exited` has ended.
+   */
+  state: 'working' | 'waiting' | 'idle' | 'stopped' | 'exited'
+  /** Waiting and not looked at yet — the red dot. */
+  unseen: boolean
+}

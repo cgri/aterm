@@ -7,6 +7,7 @@ import type {
   TabCloseRequest,
   TabOpenRequest,
   TabRequestAnswer,
+  TabStatusReport,
   TextReviewAnswer,
   TextReviewRequest
 } from '@shared/types'
@@ -93,7 +94,18 @@ export interface TabProcesses {
   dirs(): Map<string, string>
   /** How a tab's process ended, if it has. */
   ended(tabId: string): EndedProcess | undefined
+  /** What every tab is doing, as the renderer last said; undefined before it has. */
+  states(): TabStatusReport[] | undefined
 }
+
+/** How long `wait_for_idle` waits at most when the call does not say. */
+const IDLE_TIMEOUT_DEFAULT_MIN = 30
+
+/** How long no other tab may have worked before `wait_for_idle` counts the window as idle. */
+const IDLE_QUIET_DEFAULT_S = 5
+
+/** How often `wait_for_idle` looks again. The renderer reports on change, so this is cheap. */
+const IDLE_POLL_MS = 500
 
 /**
  * The aterm end of the `aterm` MCP server Claude sessions are started with
@@ -259,7 +271,57 @@ export class TabSpawnServer extends EventEmitter {
     }
     if (call.tool === 'close_tab') return this.close(call)
     if (call.tool === 'review_text') return this.review(call, onGone)
+    if (call.tool === 'tab_status') return this.tabStatus(call)
+    if (call.tool === 'wait_for_idle') return this.waitForIdle(call, onGone)
     return { ok: false, error: `Unknown tool ${call.tool}.` }
+  }
+
+  /** Every tab and what it is doing, the caller's own marked. */
+  private tabStatus(call: Call): Reply {
+    const states = this.tabs.states()
+    if (!states) return { ok: false, error: 'aterm is still starting; ask again in a moment.' }
+    return { ok: true, text: JSON.stringify(describeTabs(states, call.tabId), null, 2) }
+  }
+
+  /**
+   * Holds the call until no tab but the caller's has been working for `quiet_seconds` — what
+   * the tab bar draws as the breath. A tab waiting for the user counts as at rest, as it
+   * does for "Install when idle"; so does a shell tab running a build, because the breath is
+   * all this goes by. Gives up after `timeout_minutes` and says which tabs still work.
+   */
+  private waitForIdle(call: Call, onGone: (cb: () => void) => void): Promise<Reply> {
+    const quiet = clampNumber(call.args.quiet_seconds, IDLE_QUIET_DEFAULT_S, 1, 600) * 1000
+    const timeout = clampNumber(call.args.timeout_minutes, IDLE_TIMEOUT_DEFAULT_MIN, 0.1, 24 * 60) * 60_000
+    const deadline = Date.now() + timeout
+    return new Promise((done) => {
+      let gone = false
+      onGone(() => (gone = true))
+      let calmSince: number | undefined
+      const look = (): void => {
+        if (gone) return
+        const states = this.tabs.states()
+        const busy = states?.filter((t) => t.tabId !== call.tabId && t.state === 'working')
+        if (states && busy && busy.length === 0) {
+          calmSince ??= Date.now()
+          if (Date.now() - calmSince >= quiet) {
+            done({
+              ok: true,
+              text: `IDLE. No other tab has been working for ${quiet / 1000} s.\n\n${JSON.stringify(describeTabs(states, call.tabId), null, 2)}`
+            })
+            return
+          }
+        } else calmSince = undefined
+        if (Date.now() >= deadline) {
+          done({
+            ok: true,
+            text: `TIMEOUT. Still working after ${timeout / 60_000} min: ${(busy ?? []).map((t) => `"${t.name}"`).join(', ') || 'unknown - aterm has not reported its tabs'}.`
+          })
+          return
+        }
+        setTimeout(look, IDLE_POLL_MS)
+      }
+      look()
+    })
   }
 
   /**
@@ -539,4 +601,20 @@ function lastLines(output: string): string {
     .map((line) => line.trim())
     .filter(Boolean)
   return lines.slice(-6).join('\n') || '(nothing)'
+}
+
+/** The tabs as `tab_status` and `wait_for_idle` hand them to Claude. */
+function describeTabs(states: TabStatusReport[], callerTabId: string): object[] {
+  return states.map((t) => ({
+    tabId: t.tabId,
+    name: t.name,
+    kind: t.agent ? 'claude' : 'shell',
+    state: t.state,
+    ...(t.unseen ? { unseen: true } : {}),
+    ...(t.tabId === callerTabId ? { you: true } : {})
+  }))
+}
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
 }

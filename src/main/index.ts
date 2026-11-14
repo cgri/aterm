@@ -19,6 +19,7 @@ import type {
   TabImagesEvent,
   TabOpenRequest,
   TabRequestAnswer,
+  TabStatusReport,
   TextReviewAnswer,
   TextReviewRequest
 } from '@shared/types'
@@ -77,6 +78,13 @@ let plans: PlanReviewServer | undefined
 let tabSpawner: TabSpawnServer | undefined
 let win: BrowserWindow | undefined
 let agentRunning: Record<string, boolean> = {}
+
+/**
+ * What every tab is doing, as the renderer last reported it — only it can tell. Undefined
+ * until the first report and again while the renderer reloads, so `wait_for_idle` never
+ * takes a renderer that has not spoken yet for a window where nothing works.
+ */
+let tabStates: TabStatusReport[] | undefined
 
 /**
  * Height of the window controls overlay: the tab bar (`#tabbar` in theme.css, 46px)
@@ -197,6 +205,7 @@ function createWindow(state: PersistedState): void {
   win.webContents.on('did-start-loading', () => {
     plans?.passAll()
     tabSpawner?.failAll('aterm reloaded before it could answer.')
+    tabStates = undefined
     images.forgetAll()
   })
 
@@ -428,6 +437,9 @@ function registerIpc(): void {
   ipcMain.on(IPC.tabsAnswer, (_e, requestId: string, answer: TabRequestAnswer) =>
     tabSpawner?.answer(requestId, answer)
   )
+  ipcMain.on(IPC.tabsState, (_e, tabs: TabStatusReport[]) => {
+    tabStates = tabs
+  })
 
   // A text a session wants approved before posting it. Like a plan, the renderer has to
   // confirm it took it, or the call comes back as one aterm could not show.
@@ -554,7 +566,8 @@ app.whenReady().then(() => {
   void plans.start().then((settings) => ptys.setPlanSettings(settings))
   const spawner = new TabSpawnServer(userData, resourceFile('aterm-tabs-mcp.js'), {
     dirs: () => ptys.cwds(),
-    ended: (tabId) => ptys.endedProcess(tabId)
+    ended: (tabId) => ptys.endedProcess(tabId),
+    states: () => tabStates
   })
   tabSpawner = spawner
   void spawner.start().then((up) => ptys.setMcpConfig(up ? (tabId) => spawner.configFor(tabId) : undefined))
