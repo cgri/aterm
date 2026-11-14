@@ -2403,14 +2403,18 @@ function isClaudeRunning(pane: Pane): boolean {
 function sendTaskToCurrent(task: Task): void {
   const pane = frontPane()
   if (!pane || !isClaudeRunning(pane) || !pane.view) return
+  // Claude Code's input line starts with its prompt marker; anything after it is something
+  // the user is in the middle of typing. Sending would send that half-written prompt along
+  // with the task, so nothing is done - not even the join - and the tab says why.
+  const typed = pane.view.textBeforeCursor().replace(/^\s*[^\p{L}\p{N}\s"']?\s*/u, '')
+  if (typed) {
+    showBar(pane, 'Task not sent: the prompt is not empty', [])
+    return
+  }
   void api.tasks.act({ kind: 'join', taskId: task.id, session: sessionInfo(pane) })
   const title = task.title.replace(/[\r\n"]+/g, ' ').trim()
   const line = `Work on aterm task ${task.id} ("${title}"): call task_join with task ${task.id} first; its answer says when to report on it.`
-  // Claude Code's input line starts with its prompt marker; anything after it means the
-  // user has typed something already, and the task goes on a line of its own (ESC CR),
-  // sent together with it.
-  const typed = pane.view.textBeforeCursor().replace(/^\s*[^\p{L}\p{N}\s"']?\s*/u, '')
-  api.pty.write(pane.tab.id, `${typed ? '\x1b\r' : ''}${line}\r`)
+  api.pty.write(pane.tab.id, `${line}\r`)
   activate(pane.tab.id, { start: false })
 }
 
