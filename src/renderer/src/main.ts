@@ -16,6 +16,7 @@ import {
   type TabOpenRequest,
   type TabRequestAnswer,
   type TabState,
+  type TabStatusReport,
   type TranscriptImage
 } from '@shared/types'
 import { TabBar, type DropTarget, type StripItem, type TabViewModel } from './TabBar'
@@ -1802,6 +1803,45 @@ function render(): void {
       ? `${paneTitle(active)} — aterm`
       : 'aterm'
   updateAttention()
+  reportTabStates()
+}
+
+/**
+ * Tells main what every tab is doing, for the aterm MCP server's `tab_status` and
+ * `wait_for_idle` — main cannot tell, because working and waiting are read off the title
+ * and the registry here. Sent only on change: `render` runs about once a second per
+ * working tab, and what it reports changes far less often.
+ */
+let tabStatesSent = ''
+
+function reportTabStates(): void {
+  const tabs: TabStatusReport[] = order.flatMap((id) => {
+    const pane = panes.get(id)
+    if (!pane) return []
+    const state: TabStatusReport['state'] =
+      pane.status === 'stopped'
+        ? 'stopped'
+        : pane.status === 'exited'
+          ? 'exited'
+          : isWaiting(pane)
+            ? 'waiting'
+            : isWorking(pane)
+              ? 'working'
+              : 'idle'
+    return [
+      {
+        tabId: id,
+        name: paneTitle(pane),
+        agent: pane.agentRunning || pane.tab.kind === 'claude',
+        state,
+        unseen: wantsUser(pane)
+      }
+    ]
+  })
+  const signature = JSON.stringify(tabs)
+  if (signature === tabStatesSent) return
+  tabStatesSent = signature
+  api.tabs.reportState(tabs)
 }
 
 function tabModel(pane: Pane): TabViewModel {

@@ -2,7 +2,7 @@
 //
 // Claude Code starts it over stdio, as aterm's own executable with
 // ELECTRON_RUN_AS_NODE=1, so it is plain Node without any dependencies. It
-// speaks just enough MCP to offer three tools, and hands every call to the aterm
+// speaks just enough MCP to offer its tools, and hands every call to the aterm
 // that started the tab, over a named pipe: one JSON line there, one back.
 //
 // Arguments: --pipe <name> --tab <tabId>. Both come from the tab's own MCP
@@ -101,6 +101,32 @@ const TOOLS = [
         text: { type: 'string', description: 'The text, in Markdown, exactly as it would be posted.' }
       },
       required: ['title', 'target', 'text']
+    }
+  },
+  {
+    name: 'tab_status',
+    description:
+      "Every tab in this aterm window and what it is doing, as aterm's tab bar shows it: " +
+      '"working" (busy), "waiting" (waiting for the user), "idle", "stopped" (restored, not ' +
+      'started) or "exited". Your own tab is marked "you".',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'wait_for_idle',
+    description:
+      'Wait until no other tab in this aterm window is working - for example before the user ' +
+      'restarts aterm, which ends every session in it. Tabs waiting for the user count as at ' +
+      'rest; so does a shell tab running a command, which aterm cannot tell from one at rest. ' +
+      'Returns IDLE with every tab\'s state, or TIMEOUT naming the tabs still working.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        quiet_seconds: {
+          type: 'number',
+          description: 'How long no other tab may have worked before it counts as idle. Default 5.'
+        },
+        timeout_minutes: { type: 'number', description: 'How long to wait at most. Default 30.' }
+      }
     }
   }
 ]

@@ -627,8 +627,12 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
 - **A Claude session can open tabs, and aterm does nothing else for it.** Every Claude
   session in a tab gets an MCP server, `resources/aterm-tabs-mcp.js`, with three tools:
   `open_tab` starts a tab with a session of its own and a task as its first prompt,
-  `close_tab` closes one the caller opened, and `review_text` is not about tabs at all (see
-  the next entry). Finding and messaging each other is Claude Code's own `ListAgents` and
+  `close_tab` closes one the caller opened, `review_text` is not about tabs at all (see
+  the next entry), and `tab_status` and `wait_for_idle` say what every tab is doing — the
+  latter blocks until no other tab works, e.g. before the user restarts aterm. Working and
+  waiting are known only in the renderer, so it reports every tab's state to main on change
+  (`reportTabStates`, `tabs:state`); main forgets it while the renderer reloads, so a wait
+  never takes a renderer that has not spoken yet for a window at rest. Finding and messaging each other is Claude Code's own `ListAgents` and
   `SendMessage` — aterm must not grow a mailbox or a list tool beside
   them. The server is aterm's own exe run with `ELECTRON_RUN_AS_NODE`, dependency-free, and
   hands each call down `\\.\pipe\aterm-tabs-<pid>` to `TabSpawnServer`.

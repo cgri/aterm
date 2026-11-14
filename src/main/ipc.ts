@@ -31,6 +31,7 @@ export const IPC = {
   tabsAnswer: 'tabs:answer',
   textAck: 'text:ack',
   textAnswer: 'text:answer',
+  tabsState: 'tabs:state',
 
   // Main → Renderer
   ptyData: 'pty:data',

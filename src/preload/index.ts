@@ -17,6 +17,7 @@ import type {
   TabCloseRequest,
   TabOpenRequest,
   TabRequestAnswer,
+  TabStatusReport,
   TextReviewAnswer,
   TextReviewRequest,
   UpdateCheck,
@@ -114,7 +115,9 @@ const api = {
       ipcRenderer.on(IPC.tabsClose, (_e, payload: TabCloseRequest) => cb(payload))
     },
     answer: (requestId: string, answer: TabRequestAnswer): void =>
-      ipcRenderer.send(IPC.tabsAnswer, requestId, answer)
+      ipcRenderer.send(IPC.tabsAnswer, requestId, answer),
+    /** What every tab is doing, for the aterm MCP server's tab tools. Sent on change. */
+    reportState: (tabs: TabStatusReport[]): void => ipcRenderer.send(IPC.tabsState, tabs)
   },
   text: {
     /** A text a session wants approved before posting it. Acknowledge at once, answer later. */
