@@ -237,9 +237,9 @@ const TOOLS = [
         resolve_reviews: {
           type: 'boolean',
           description:
-            "A review asked for is no longer the user's to do: its PR/MR was merged or closed, or went to " +
-            'others for review. With url, only the review of that PR/MR; otherwise all of them. An open ' +
-            'review keeps the task under "Needs you" even when it is blocked.'
+            'The PR/MR asked to be reviewed has been merged or closed: its review is no longer open. ' +
+            'With url, only the review of that PR/MR; otherwise all of them. (A review handed to ' +
+            'colleagues is not resolved: report blocked, and it waits behind the block.)'
         },
         title: { type: 'string', description: 'A better title for the task, e.g. when it was created from a bare link.' },
         task: { type: 'string', description: 'Task id. Defaults to the task this session is on.' }

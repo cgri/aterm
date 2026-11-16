@@ -1,6 +1,6 @@
 import type { Task, TaskAction, TaskAsk, TaskEvent, TaskSession } from '@shared/types'
 import { describeSource, isLink } from './taskSource'
-import { taskRef } from '@shared/taskBriefing'
+import { asksForUser, taskRef } from '@shared/taskBriefing'
 
 /**
  * What the task list shows for a task. Only `blocked`, the asks and done are stored; the
@@ -506,8 +506,13 @@ export class TaskPanel {
 
   private askItem(task: Task, ask: TaskAsk, view: TaskView): HTMLElement {
     const item = div(`task-ask kind-${ask.kind}`)
+    // A review the task was blocked after waits behind the block, and says so.
+    const behind = !asksForUser(task).includes(ask)
     item.append(
-      span('task-ask-kind', `${ask.kind === 'review' ? 'Review & merge' : 'Question'} · ${ask.by ?? 'a session'} · ${ago(ask.at)}`),
+      span(
+        'task-ask-kind',
+        `${ask.kind === 'review' ? 'Review & merge' : 'Question'}${behind ? ' · on hold while blocked' : ''} · ${ask.by ?? 'a session'} · ${ago(ask.at)}`
+      ),
       span('task-ask-text', ask.text)
     )
     const actions: HTMLElement[] = []
@@ -675,12 +680,13 @@ function byUrgency(a: TaskView, b: TaskView): number {
 function reasonLine(view: TaskView): HTMLElement | undefined {
   const { task, state } = view
   if (state === 'needs_user') {
-    const ask = task.asks[task.asks.length - 1]
+    const asks = asksForUser(task)
+    const ask = asks[asks.length - 1]
     const waiting = view.sessions.find((s) => s.open && s.waiting)
     const line = div('task-reason needs')
     if (ask) {
       line.append(text(ask.kind === 'review' ? `Review: ${ask.text}` : ask.text))
-      if (task.asks.length > 1) line.append(span('task-more', ` +${task.asks.length - 1}`))
+      if (asks.length > 1) line.append(span('task-more', ` +${asks.length - 1}`))
     } else if (waiting) line.append(text(`${waiting.name} is waiting for you`))
     return line
   }

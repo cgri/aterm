@@ -769,11 +769,13 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   knows. A question ask is settled by the tab itself: when a tab that waited goes back to
   work (`settleWaiting`), its open question counts as answered. A review is not — it waits,
   often for days after every tab is closed, until the user marks it merged or a session
-  passes `resolve_reviews` — which also covers a PR/MR handed to others for review, and
-  takes a `url` for one review of several. A session declaring `blocked` settles the
-  questions, as the user's `setBlocked` does, but not the reviews; the answer then says
-  that the task stays under "Needs you" and why, because a `blocked` that silently changed
-  nothing was what sessions ran into.
+  passes `resolve_reviews` (with a `url` for one review of several). **A review asked
+  before the task was blocked waits behind the block** (`asksForUser`, against
+  `Task.blockedAt`): a PR/MR handed to colleagues is still open, but not the user's to do,
+  and blocking is how both the user and a session say so — reviews outranking blocked had
+  made "Mark blocked…" do nothing visible, and sessions resolved reviews of open MRs to get
+  round it. Unblocking brings them back under "Needs you"; a review asked after the block
+  counts at once. A session's `blocked` settles questions, as the user's does.
   **Sessions are bound to tabs**, not conversation ids, so `/clear` and `/resume` keep them
   on the task; closing a tab keeps the conversation on the task (`closed`) to be resumed
   from there. A session started from the list, or opened by `open_tab` from a session on a

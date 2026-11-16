@@ -419,6 +419,8 @@ export interface Task {
   cwd?: string
   /** Why the task is blocked, while it is. Always declared, never derived. */
   blocked?: string
+  /** When it was blocked. A review asked before that waits behind the block (`asksForUser`). */
+  blockedAt?: number
   asks: TaskAsk[]
   sessions: TaskSession[]
   /** The last sentence a session reported, shown under the title. */
