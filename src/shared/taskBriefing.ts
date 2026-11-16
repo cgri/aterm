@@ -14,7 +14,8 @@ export function taskBriefing(task: { id: string; number?: number; title: string 
     '- status "needs_user", ask "review", url - when a PR/MR (or other piece of work) is ready for the user to review and merge;',
     '- status "blocked" - when the task waits for someone or something other than the user (CI, another team, another task);',
     '- status "working" - when you take up the task again after one of those;',
-    '- status "done" - when the task is finished. Pass resolve_reviews once a PR/MR you asked to be reviewed has been merged.',
+    '- status "done" - when the task is finished.',
+    'Pass resolve_reviews (with url for just one) once a review you asked for is no longer the user\'s to do: the PR/MR was merged or closed, or went to others for review. An open review keeps the task under "Needs you", blocked or not.',
     'There is no need to report anything else: aterm sees for itself whether you are working.',
     'If the work takes you into another repository, it stays this task: do not create a task per repository.'
   ].join('\n')

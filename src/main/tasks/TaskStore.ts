@@ -342,9 +342,13 @@ export class TaskStore extends EventEmitter {
     const url = str(args.url)
     const title = str(args.title)
     if (title) task.title = title
+    // A review leaves the user's hands when its PR/MR is merged or closed, or goes to others
+    // for review. With a url (and a status other than needs_user, where the url names the
+    // new ask) only that one; otherwise all of them.
     if (args.resolve_reviews === true) {
-      const reviews = task.asks.filter((a) => a.kind === 'review')
-      task.asks = task.asks.filter((a) => a.kind !== 'review')
+      const only = status !== 'needs_user' ? url : undefined
+      const reviews = task.asks.filter((a) => a.kind === 'review' && (!only || a.url === only))
+      task.asks = task.asks.filter((a) => !reviews.includes(a))
       for (const r of reviews) this.log(task, 'resolved', `Done: ${r.text}`, call.by)
     }
 
@@ -374,6 +378,9 @@ export class TaskStore extends EventEmitter {
       case 'blocked':
         if (!note) return { ok: false, error: 'note must say what the task is waiting for.' }
         task.blocked = note
+        // As when the user blocks it: the task waits for something else now, so the open
+        // questions are settled. Reviews stay - see resolve_reviews.
+        task.asks = task.asks.filter((a) => a.kind !== 'question')
         this.log(task, 'blocked', note, call.by)
         break
       case 'done':
@@ -385,7 +392,17 @@ export class TaskStore extends EventEmitter {
 
     const shown =
       task.doneAt ? 'Done' : task.asks.length > 0 ? 'Needs you' : task.blocked ? 'Blocked' : 'Working'
-    return { ok: true, text: `Task ${taskRef(task)} "${task.title}" is shown as ${shown} now.` }
+    let answer = `Task ${taskRef(task)} "${task.title}" is shown as ${shown} now.`
+    // An open review outranks blocked. Say so, or "blocked" looks ignored.
+    const reviews = task.asks.filter((a) => a.kind === 'review')
+    if (status === 'blocked' && reviews.length > 0) {
+      const list = reviews.map((r) => `- ${r.text}${r.url ? ` (${r.url})` : ''}`).join('\n')
+      answer +=
+        `\nIt stays under "Needs you" because ${reviews.length === 1 ? 'a review is' : `${reviews.length} reviews are`} still open:\n${list}\n` +
+        'If a review is no longer the user\'s to do (merged, closed, or handed to others for review), ' +
+        'call task_update again with resolve_reviews: true - with url to resolve only that one.'
+    }
+    return { ok: true, text: answer }
   }
 
   /** The task a call is about: the one it names, or the caller's own. */
