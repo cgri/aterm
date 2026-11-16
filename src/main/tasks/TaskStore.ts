@@ -11,7 +11,7 @@ import type {
   TaskSession,
   TaskSessionInfo
 } from '@shared/types'
-import { taskBriefing, taskRef } from '@shared/taskBriefing'
+import { asksForUser, taskBriefing, taskRef } from '@shared/taskBriefing'
 import { readJsonFile } from '../util/json'
 
 const SCHEMA_VERSION = 1
@@ -157,9 +157,11 @@ export class TaskStore extends EventEmitter {
         break
       case 'setBlocked':
         task.blocked = action.reason?.trim() || undefined
+        task.blockedAt = task.blocked ? Date.now() : undefined
         // The user saying "it is blocked" is their answer to what the sessions asked: the
         // task waits for something else now, and a question left open would keep it under
-        // "Needs you". A review stays - it is a piece of work, not a question.
+        // "Needs you". A review stays, behind the block (`asksForUser`) - it is a piece of
+        // work, not a question, and is back once the block is lifted.
         if (task.blocked) task.asks = task.asks.filter((a) => a.kind !== 'question')
         this.log(
           task,
@@ -342,15 +344,20 @@ export class TaskStore extends EventEmitter {
     const url = str(args.url)
     const title = str(args.title)
     if (title) task.title = title
+    // A review leaves the user's hands when its PR/MR is merged or closed, or goes to others
+    // for review. With a url (and a status other than needs_user, where the url names the
+    // new ask) only that one; otherwise all of them.
     if (args.resolve_reviews === true) {
-      const reviews = task.asks.filter((a) => a.kind === 'review')
-      task.asks = task.asks.filter((a) => a.kind !== 'review')
+      const only = status !== 'needs_user' ? url : undefined
+      const reviews = task.asks.filter((a) => a.kind === 'review' && (!only || a.url === only))
+      task.asks = task.asks.filter((a) => !reviews.includes(a))
       for (const r of reviews) this.log(task, 'resolved', `Done: ${r.text}`, call.by)
     }
 
     switch (status) {
       case 'working':
         task.blocked = undefined
+        task.blockedAt = undefined
         task.doneAt = undefined
         task.asks = task.asks.filter((a) => !(a.kind === 'question' && a.tabId === call.tabId))
         this.log(task, 'working', note ?? 'Working', call.by)
@@ -374,6 +381,10 @@ export class TaskStore extends EventEmitter {
       case 'blocked':
         if (!note) return { ok: false, error: 'note must say what the task is waiting for.' }
         task.blocked = note
+        task.blockedAt = Date.now()
+        // As when the user blocks it: the open questions are settled, and the reviews wait
+        // behind the block.
+        task.asks = task.asks.filter((a) => a.kind !== 'question')
         this.log(task, 'blocked', note, call.by)
         break
       case 'done':
@@ -383,8 +394,13 @@ export class TaskStore extends EventEmitter {
     if (note) task.note = { text: note, by: call.by, at: Date.now() }
     this.touch(task)
 
-    const shown =
-      task.doneAt ? 'Done' : task.asks.length > 0 ? 'Needs you' : task.blocked ? 'Blocked' : 'Working'
+    const shown = task.doneAt
+      ? 'Done'
+      : asksForUser(task).length > 0
+        ? 'Needs you'
+        : task.blocked
+          ? 'Blocked'
+          : 'Working'
     return { ok: true, text: `Task ${taskRef(task)} "${task.title}" is shown as ${shown} now.` }
   }
 
@@ -497,6 +513,7 @@ export class TaskStore extends EventEmitter {
     task.doneAt = Date.now()
     task.asks = []
     task.blocked = undefined
+    task.blockedAt = undefined
     this.log(task, 'done', note ?? 'Done', by)
   }
 
@@ -524,8 +541,13 @@ export class TaskStore extends EventEmitter {
  * because an open question outranks blocked. A question asked after the block stays.
  */
 function dropQuestionsBeforeBlocked(task: Task): void {
-  if (!task.blocked) return
-  const blockedAt = [...task.activity].reverse().find((e) => e.kind === 'blocked')?.at
+  if (!task.blocked) {
+    task.blockedAt = undefined
+    return
+  }
+  // Tasks blocked before `blockedAt` existed: the last "blocked" in the activity.
+  task.blockedAt ??= [...task.activity].reverse().find((e) => e.kind === 'blocked')?.at
+  const blockedAt = task.blockedAt
   if (blockedAt === undefined) return
   task.asks = task.asks.filter((a) => a.kind !== 'question' || a.at > blockedAt)
 }

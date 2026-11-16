@@ -40,7 +40,7 @@ import { ImagePanel } from './ImagePanel'
 import { ImageViewer } from './ImageViewer'
 import { TaskPanel, type TaskSessionView, type TaskView } from './TaskPanel'
 import { TaskDialog, TextPrompt } from './TaskDialog'
-import { taskRef, taskStartPrompt } from '@shared/taskBriefing'
+import { asksForUser, taskRef, taskStartPrompt } from '@shared/taskBriefing'
 import { icon } from './icons'
 
 /** Font size the zoom percentage is relative to, and the target of a reset. */
@@ -2331,11 +2331,12 @@ function taskViews(): TaskView[] {
   return tasks.map((task) => {
     const sessions = task.sessions.map(taskSessionView)
     const open = sessions.filter((s) => s.open)
-    // What is asked outright wins; then blocked, because a session idling at its prompt is
-    // exactly what a blocked task looks like; then a tab that waits without having said why.
+    // What is asked outright wins, unless it is a review the block came after; then
+    // blocked, because a session idling at its prompt is exactly what a blocked task looks
+    // like; then a tab that waits without having said why.
     const state: TaskView['state'] = task.doneAt
       ? 'done'
-      : task.asks.length > 0
+      : asksForUser(task).length > 0
         ? 'needs_user'
         : task.blocked
           ? 'blocked'
