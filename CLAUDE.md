@@ -844,6 +844,15 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   but both orders are handled. A Shift+drag still makes an xterm.js selection there.
   Measured with synthetic CDP mouse events, which need a hover move and many small steps
   before Claude Code reports the selection at all.
+- **Links are opened by aterm, never by xterm.js's default.** Claude Code writes URLs as
+  OSC 8 hyperlinks; xterm.js's own handler asks with a native `confirm()` and opens
+  `about:blank` before setting the URL, so `setWindowOpenHandler` handed `about:blank` to
+  Windows. `linkHandler` in `TerminalView` opens http(s)/mailto with `window.open(uri)` and
+  `file:` through main. A Ctrl+click while the program tracks the mouse is left to it:
+  Claude Code's fullscreen mode opens such a link itself. File paths in plain text are
+  links too (`pathLinks.ts`), Ctrl+click only, and only those main finds on disk, relative
+  ones against the tab's folders as "Open folder" sees them. `openInShell` shows anything
+  Windows would execute in Explorer instead of opening it — the text came from a program.
 - **Only the tab in front holds a WebGL context.** Chromium drops the oldest context once
   a page holds about sixteen, and a GPU reset drops them all; a terminal whose context is
   gone draws nothing — not after a resize, not after a restart, which reuses the view. So

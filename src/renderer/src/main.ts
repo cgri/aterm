@@ -1332,7 +1332,12 @@ async function launchPane(pane: Pane): Promise<void> {
       (data) => api.pty.write(tab.id, data),
       (cols, rows) => api.pty.resize(tab.id, cols, rows),
       (title) => setPtyTitle(pane, title),
-      (text) => quoteIntoPrompt(pane, text)
+      (text) => quoteIntoPrompt(pane, text),
+      {
+        resolve: (candidates) =>
+          api.system.resolvePaths(tab.id, pane.tab.cwd, pane.tab.claudeSessionId, candidates),
+        open: (path) => void api.system.openPath(path)
+      }
     )
     pane.view = view
     view.open(pane.termHost)

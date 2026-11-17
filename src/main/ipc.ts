@@ -20,6 +20,8 @@ export const IPC = {
   updateInstall: 'update:install',
   imagesOpen: 'images:open',
   openTabFolder: 'tabs:open-folder',
+  resolvePaths: 'fs:resolve-paths',
+  openPath: 'fs:open-path',
   tasksList: 'tasks:list',
   tasksAct: 'tasks:act',
 

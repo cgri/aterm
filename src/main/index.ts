@@ -33,6 +33,7 @@ import { HistoryReader } from './claude/HistoryReader'
 import { findConversation, hasConversation } from './claude/transcripts'
 import { readJsonFile } from './util/json'
 import { isGitRepo } from './util/git'
+import { openInShell, resolveExisting } from './util/paths'
 import { SessionDetector } from './claude/SessionDetector'
 import { IMAGE_SCHEME, TranscriptImages } from './claude/TranscriptImages'
 import { ProcessTree } from './proc/ProcessTree'
@@ -193,7 +194,7 @@ function createWindow(state: PersistedState): void {
   Menu.setApplicationMenu(null)
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    if (/^(https?|mailto):/i.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
 
@@ -474,18 +475,29 @@ function registerIpc(): void {
   // there, whatever the tab's own cwd says; otherwise it is where the process was
   // spawned, or the tab's start folder when nothing runs. Main decides, because only
   // main knows the transcripts and the running processes.
+  const tabFolders = (tabId: string, cwd: string, claudeSessionId?: string): string[] =>
+    [
+      claudeSessionId ? findConversation(cwd, claudeSessionId)?.cwd : undefined,
+      ptys.cwdOf(tabId),
+      cwd
+    ].filter((c): c is string => c !== undefined && existsSync(c))
   ipcMain.handle(
     IPC.openTabFolder,
     async (_e, tabId: string, cwd: string, claudeSessionId?: string): Promise<boolean> => {
-      const candidates = [
-        claudeSessionId ? findConversation(cwd, claudeSessionId)?.cwd : undefined,
-        ptys.cwdOf(tabId),
-        cwd
-      ]
-      const dir = candidates.find((c): c is string => c !== undefined && existsSync(c))
+      const dir = tabFolders(tabId, cwd, claudeSessionId)[0]
       return dir !== undefined && (await shell.openPath(dir)) === ''
     }
   )
+
+  // Paths in a tab's output, relative ones against the same folders as above.
+  ipcMain.handle(
+    IPC.resolvePaths,
+    (_e, tabId: string, cwd: string, claudeSessionId: string | undefined, candidates: string[]) => {
+      const bases = tabFolders(tabId, cwd, claudeSessionId)
+      return candidates.map((c) => resolveExisting(c, bases))
+    }
+  )
+  ipcMain.handle(IPC.openPath, (_e, target: string) => openInShell(target))
 
   // Optional rebinding: {"newClaudeTab": ["Ctrl+N"], "search": []}
   ipcMain.handle(IPC.keymapLoad, () => {
