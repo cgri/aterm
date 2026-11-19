@@ -2780,6 +2780,77 @@ body {
   color: var(--fg-dim);
 }
 
+/* A task with steps: the next step and whose it is, with how far the chain has got. */
+.task-reason.step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.task-reason-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-reason.step:not(.needs) .task-reason-text {
+  color: var(--fg);
+  opacity: 0.85;
+}
+
+.task-reason-owner {
+  color: var(--fg-dim);
+}
+
+.task-reason.needs .task-reason-owner {
+  color: inherit;
+}
+
+.task-progress {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--fg-dim);
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The marks a step can carry. Only the user's turn is red, as everywhere in the panel. */
+.task-step-mark {
+  display: inline-block;
+  width: 1.1em;
+  text-align: center;
+  color: var(--fg-dim);
+}
+
+.task-step-mark.shown-done {
+  color: var(--ok);
+}
+
+.task-step-mark.shown-current,
+.task-step-mark.shown-running {
+  color: var(--accent);
+}
+
+.task-step-mark.shown-waiting {
+  color: var(--err);
+}
+
+.task-step-mark.shown-blocked {
+  color: var(--warn);
+}
+
+.task-step-mark.shown-running {
+  animation: task-breath 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-step-mark.shown-running {
+    animation: none;
+  }
+}
+
 @keyframes task-breath {
   0%,
   100% {
@@ -3101,6 +3172,131 @@ span.task-source {
 .task-session:hover .task-detach,
 .task-detach:focus-visible {
   opacity: 1;
+}
+
+/* The chain, one line per step: mark, number, title, owner, what else it says, and a tick
+   that only shows on hover - ticking off is something to do on purpose. */
+.task-steps-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.task-steps-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.task-steps-grid {
+  display: grid;
+  grid-template-columns: 1.1em 1.6em minmax(0, 1fr) auto auto 18px;
+  column-gap: 8px;
+}
+
+.task-step {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+  min-height: 24px;
+  padding: 2px 0;
+  font-size: 13px;
+}
+
+.task-step-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-dim);
+  text-align: right;
+}
+
+.task-step-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-step.shown-done .task-step-title,
+.task-step.shown-later .task-step-title {
+  color: var(--fg-dim);
+}
+
+.task-step.shown-waiting .task-step-title {
+  font-weight: 600;
+}
+
+.task-step-owner,
+.task-step-owner-text {
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.task-step-owner-text {
+  color: var(--fg-dim);
+}
+
+.task-step-extra {
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.task-step.shown-blocked .task-step-extra {
+  color: var(--warn);
+}
+
+.task-button.task-step-tick {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg-dim);
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0;
+}
+
+.task-step:hover .task-step-tick,
+.task-step-tick:focus-visible {
+  opacity: 1;
+}
+
+.task-button.task-step-tick:hover {
+  color: var(--ok);
+}
+
+/* The done steps, folded into one line until asked for. */
+.task-button.task-steps-fold {
+  width: 100%;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  text-align: left;
+}
+
+.task-button.task-steps-fold:hover {
+  background: var(--bg-tab);
+}
+
+.task-steps-fold .task-step-title {
+  grid-column: 3 / -1;
+  color: var(--fg-dim);
+}
+
+.task-link.task-steps-unfold {
+  align-self: flex-start;
+  margin-top: 2px;
 }
 
 .task-start-row {

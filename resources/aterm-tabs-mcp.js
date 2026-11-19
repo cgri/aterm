@@ -47,7 +47,8 @@ const TOOLS = [
       'will work on interactively in that tab - typically one per repository when a change ' +
       'spans several. The tab opens in the background, next to this one. The new session is ' +
       'told who opened it and messages this session with SendMessage once its task is done, ' +
-      'which may take many turns; do not wait or poll for it. Message it yourself with ' +
+      'which may take many turns; do not wait or poll for it. A long brief is better written to ' +
+      'a file, with the prompt naming its path. Message it yourself with ' +
       'SendMessage, always by the sessionName this returns - never by the uds: address its ' +
       'messages come from, which belongs to one process and is gone once the session is ' +
       'resumed, as all of them are when aterm restarts. aterm decides the isolation for ' +
@@ -104,7 +105,8 @@ const TOOLS = [
       'beside this terminal, and wait for their decision. Use it whenever you would otherwise ' +
       'present such a text for approval. It blocks until the user decides, which may take a ' +
       'while; do not post anything before it returns APPROVED. The answer is one of: APPROVED ' +
-      '(post exactly the text it returns between the markers - the user may have edited it), ' +
+      '(post exactly the text you passed), APPROVED WITH EDITS (post exactly the text between ' +
+      "the markers, the user's version), " +
       'CHANGES REQUESTED (revise as the comments say and call this again with the revised ' +
       'text), REJECTED (do not post it), or NO DECISION (ask the user in the terminal). Pass ' +
       'the complete text exactly as it would be posted, title lines included where the target ' +
@@ -164,7 +166,7 @@ const TOOLS = [
   },
   {
     name: 'task_get',
-    description: "One task's title, source, the user's notes, open asks and recent activity.",
+    description: "One task's title, source, notes, steps, open questions and recent activity.",
     inputSchema: {
       type: 'object',
       properties: { task: { type: 'string', description: 'Task id. Defaults to the task this session is on.' } }
@@ -213,38 +215,70 @@ const TOOLS = [
   {
     name: 'task_update',
     description:
-      "Report the state of this session's aterm task, which the user follows in aterm's task list. " +
-      'Call it only on a change aterm cannot see itself: before you stop to ask the user a question ' +
-      '(needs_user, ask "question"); when a PR/MR or other piece of work is ready for the user to ' +
-      'review and merge (needs_user, ask "review", with url); when the task waits for someone other ' +
-      'than the user (blocked); when you take it up again after one of those (working); when it is ' +
-      'finished (done). Whether you are working at the moment aterm sees for itself.',
+      "Keep this session's aterm task current: its chain of steps, which the user reads to see " +
+      'what is left and whose turn it is, and the state aterm cannot see itself. One call per ' +
+      'hand-over: finishing your step and adding the next one go together. The answer is the ' +
+      'chain in one line, with the step ids. task_join explains when to call it.',
     inputSchema: {
       type: 'object',
       properties: {
-        status: { type: 'string', enum: ['working', 'needs_user', 'blocked', 'done'] },
+        steps: {
+          type: 'array',
+          description:
+            'Steps to add or change, merged by id with what is there. Without an id, a new step (at the end, or before the step "before" names).',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'number', description: 'The step to change. Leave out to add one.' },
+              title: { type: 'string', description: 'Verb and object: "Merge lib !60".' },
+              owner: {
+                type: 'string',
+                description:
+                  '"me", "user", a session\'s name (or "session:<name>"), or who else - colleagues, CI, a customer. A new step defaults to "me".'
+              },
+              done: { type: 'boolean' },
+              blocked: { type: 'string', description: 'What it waits for, from someone outside aterm. "" clears it.' },
+              after: {
+                type: ['array', 'null'],
+                items: { type: 'number' },
+                description: 'The step ids it waits for. Default: the step before it. [] for none.'
+              },
+              url: { type: 'string', description: 'The PR/MR, build or release page.' },
+              note: { type: 'string', description: 'Half a sentence, e.g. "needs your go in the tab".' },
+              before: { type: 'number', description: 'Put the step before the step with this id.' },
+              remove: { type: 'boolean', description: 'Remove the step.' }
+            }
+          }
+        },
+        replace: {
+          type: 'boolean',
+          description: 'steps is the whole chain, in order: open steps left out are removed, done ones kept. For the first write and for reordering.'
+        },
+        status: {
+          type: 'string',
+          enum: ['working', 'needs_user', 'blocked', 'done'],
+          description:
+            'Only for what steps do not say: needs_user before you ask the user a question; blocked when the whole task waits for someone else; working when you take it up again after that; done when the task is finished.'
+        },
         note: {
           type: 'string',
-          description:
-            'One sentence for the task list: what the user is to decide or review, what the task is waiting for, or where it stands.'
+          description: 'One sentence: the question, what the task waits for, or where it stands.'
         },
         ask: {
           type: 'string',
           enum: ['question', 'review'],
-          description: 'With needs_user: a question to answer, or work to review and merge.'
+          description: 'With needs_user. "review" adds a step owned by the user, with url.'
         },
-        url: { type: 'string', description: 'The PR/MR or page a review is about.' },
+        url: { type: 'string', description: 'With ask "review" or resolve_reviews: the PR/MR.' },
         resolve_reviews: {
           type: 'boolean',
           description:
-            'The PR/MR asked to be reviewed has been merged or closed: its review is no longer open. ' +
-            'With url, only the review of that PR/MR; otherwise all of them. (A review handed to ' +
-            'colleagues is not resolved: report blocked, and it waits behind the block.)'
+            "The PR/MR is merged or closed: the user's steps with that url (all of them with a url, without one) are done. " +
+            "A review handed to colleagues is not resolved: make it a step owned by them."
         },
         title: { type: 'string', description: 'A better title for the task, e.g. when it was created from a bare link.' },
         task: { type: 'string', description: 'Task id. Defaults to the task this session is on.' }
-      },
-      required: ['status']
+      }
     }
   }
 ]

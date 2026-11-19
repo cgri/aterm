@@ -9,9 +9,12 @@ import type {
   TaskAsk,
   TaskEvent,
   TaskSession,
-  TaskSessionInfo
+  TaskSessionInfo,
+  TaskStep,
+  TaskStepOwner
 } from '@shared/types'
-import { asksForUser, taskBriefing, taskRef } from '@shared/taskBriefing'
+import { taskBriefing, taskRef } from '@shared/taskBriefing'
+import { currentSteps, heldByBlock, ownerText, stepProgress, stepsLine } from '@shared/taskSteps'
 import { readJsonFile } from '../util/json'
 
 const SCHEMA_VERSION = 1
@@ -79,6 +82,7 @@ export class TaskStore extends EventEmitter {
       .map((t) => ({
         ...t,
         asks: Array.isArray(t.asks) ? t.asks : [],
+        steps: Array.isArray(t.steps) ? t.steps.filter(validStep) : [],
         sessions: Array.isArray(t.sessions) ? t.sessions : [],
         activity: Array.isArray(t.activity) ? t.activity : []
       }))
@@ -90,7 +94,10 @@ export class TaskStore extends EventEmitter {
     for (const task of [...this.tasks].sort((a, b) => a.createdAt - b.createdAt)) {
       if (typeof task.number !== 'number') task.number = ++this.lastNumber
     }
-    for (const task of this.tasks) dropQuestionsBeforeBlocked(task)
+    for (const task of this.tasks) {
+      reviewsToSteps(task)
+      dropQuestionsBeforeBlocked(task)
+    }
   }
 
   list(): Task[] {
@@ -160,8 +167,8 @@ export class TaskStore extends EventEmitter {
         task.blockedAt = task.blocked ? Date.now() : undefined
         // The user saying "it is blocked" is their answer to what the sessions asked: the
         // task waits for something else now, and a question left open would keep it under
-        // "Needs you". A review stays, behind the block (`asksForUser`) - it is a piece of
-        // work, not a question, and is back once the block is lifted.
+        // "Needs you". The user's steps stay, behind the block (`heldByBlock`) - a review is
+        // a piece of work, not a question, and is back once the block is lifted.
         if (task.blocked) task.asks = task.asks.filter((a) => a.kind !== 'question')
         this.log(
           task,
@@ -170,6 +177,14 @@ export class TaskStore extends EventEmitter {
           'you'
         )
         break
+      case 'setStepDone': {
+        const step = task.steps.find((s) => s.id === action.stepId)
+        if (!step || Boolean(step.done) === action.done) return { ok: true }
+        step.done = action.done ? { at: Date.now(), by: 'you' } : undefined
+        this.log(task, 'step', `${action.done ? '✓' : 'Reopened'} ${step.id} ${step.title}`, 'you')
+        this.syncDone(task, !action.done, 'you')
+        break
+      }
       case 'resolveAsk': {
         const ask = task.asks.find((a) => a.id === action.askId)
         if (!ask) return { ok: true }
@@ -239,17 +254,23 @@ export class TaskStore extends EventEmitter {
     const mine = this.taskOfTab(call.tabId)
     const tasks = this.tasks
       .filter((t) => all || !t.doneAt)
-      .map((t) => ({
-        id: taskRef(t),
-        title: t.title,
-        source: t.source ?? null,
-        done: Boolean(t.doneAt),
-        blocked: t.blocked ?? null,
-        openAsks: t.asks.map((a) => `${a.kind}: ${a.text}`),
-        sessions: t.sessions.filter((s) => !s.closed).map((s) => s.name ?? s.tabId),
-        yours: t === mine
-      }))
-    return { ok: true, text: JSON.stringify(tasks, null, 2) }
+      .map((t) => {
+        const next = currentSteps(t)[0]
+        const { done, total } = stepProgress(t)
+        return compact({
+          id: taskRef(t),
+          title: t.title,
+          source: t.source,
+          done: t.doneAt ? true : undefined,
+          blocked: t.blocked,
+          questions: t.asks.length ? t.asks.map((a) => a.text) : undefined,
+          next: next ? `${next.id} ${next.title} (${ownerText(next.owner, call.by)})` : undefined,
+          steps: total ? `${done}/${total}` : undefined,
+          sessions: t.sessions.filter((s) => !s.closed).map((s) => s.name ?? s.tabId),
+          yours: t === mine ? true : undefined
+        })
+      })
+    return { ok: true, text: JSON.stringify(tasks) }
   }
 
   private toolGet(call: TaskCall): TaskReply {
@@ -258,21 +279,20 @@ export class TaskStore extends EventEmitter {
     return {
       ok: true,
       text: JSON.stringify(
-        {
+        compact({
           id: taskRef(task),
           title: task.title,
-          source: task.source ?? null,
-          notes: task.notes ?? null,
-          cwd: task.cwd ?? null,
-          done: Boolean(task.doneAt),
-          blocked: task.blocked ?? null,
-          openAsks: task.asks.map((a) => ({ kind: a.kind, text: a.text, url: a.url ?? null, by: a.by ?? null })),
-          sessions: task.sessions.map((s) => ({ name: s.name ?? null, closed: Boolean(s.closed) })),
-          lastNote: task.note?.text ?? null,
-          recentActivity: task.activity.slice(-10).map((e) => `${e.kind}: ${e.text}${e.by ? ` (${e.by})` : ''}`)
-        },
-        null,
-        2
+          source: task.source,
+          notes: task.notes,
+          cwd: task.cwd,
+          done: task.doneAt ? true : undefined,
+          blocked: task.blocked,
+          steps: stepsLine(task, call.by),
+          questions: task.asks.length ? task.asks.map((a) => compact({ text: a.text, by: a.by })) : undefined,
+          sessions: task.sessions.map((s) => (s.closed ? `${s.name ?? 'a session'} (closed)` : (s.name ?? 'a session'))),
+          lastNote: task.note?.text,
+          recentActivity: task.activity.slice(-5).map((e) => `${e.kind}: ${e.text}${e.by ? ` (${e.by})` : ''}`)
+        })
       )
     }
   }
@@ -298,7 +318,7 @@ export class TaskStore extends EventEmitter {
       ok: true,
       text:
         args.join === true && info
-          ? `Created task ${taskRef(task)}: "${task.title}", and this session is on it now.\n\n${taskBriefing(task)}`
+          ? `Created task ${taskRef(task)}: "${task.title}", and this session is on it now.\n\n${taskBriefing(task, call.by)}`
           : `Created task ${taskRef(task)}: "${task.title}", in the backlog.`
     }
   }
@@ -313,7 +333,7 @@ export class TaskStore extends EventEmitter {
     this.touch(task)
     return {
       ok: true,
-      text: `This session is on task ${taskRef(task)} now: "${task.title}".\n\n${taskBriefing(task)}`
+      text: `This session is on task ${taskRef(task)} now: "${task.title}".\n\n${taskBriefing(task, call.by)}`
     }
   }
 
@@ -330,28 +350,52 @@ export class TaskStore extends EventEmitter {
     const task = this.target(call)
     if (typeof task === 'string') return { ok: false, error: task }
 
-    const status = args.status as DeclaredStatus
-    if (!STATUSES.includes(status)) {
+    const status = args.status as DeclaredStatus | undefined
+    if (status !== undefined && !STATUSES.includes(status)) {
       return { ok: false, error: `status must be one of ${STATUSES.join(', ')}.` }
     }
+    const note = str(args.note)
+    const url = str(args.url)
+    const title = str(args.title)
+    const stepItems = args.steps
+    if (stepItems !== undefined && !Array.isArray(stepItems)) {
+      return { ok: false, error: 'steps must be a list of steps.' }
+    }
+    if (!status && !stepItems && !title && args.resolve_reviews !== true) {
+      return { ok: false, error: 'Nothing to update: pass steps, a status, or both.' }
+    }
+    if (status === 'needs_user') {
+      if (args.ask !== 'review' && args.ask !== 'question') {
+        return { ok: false, error: 'needs_user takes ask: "question" or "review".' }
+      }
+      if (!note) return { ok: false, error: 'note must say what the user is to do.' }
+    }
+    if (status === 'blocked' && !note) return { ok: false, error: 'note must say what the task is waiting for.' }
+
+    // Steps first, all or nothing: a call naming a step that does not exist changes
+    // nothing at all, so the session can send it again corrected.
+    let stepsChange: StepsChange | undefined
+    if (stepItems) {
+      const result = applySteps(task, stepItems, args.replace === true, call.by, this.ownerOf(task, call))
+      if (typeof result === 'string') return { ok: false, error: result }
+      stepsChange = result
+    }
+
     // A session reporting on a task while on none is working on it: it joins, or the list
     // would show the state and nobody behind it.
     if (!this.taskOfTab(call.tabId) && status !== 'done') {
       const info = this.tabInfo(call.tabId)
       if (info) this.join(task, { ...info, name: call.by ?? info.name }, call.by)
     }
-    const note = str(args.note)
-    const url = str(args.url)
-    const title = str(args.title)
     if (title) task.title = title
-    // A review leaves the user's hands when its PR/MR is merged or closed, or goes to others
-    // for review. With a url (and a status other than needs_user, where the url names the
-    // new ask) only that one; otherwise all of them.
+    if (stepsChange) {
+      task.steps = stepsChange.steps
+      task.lastStepId = stepsChange.lastStepId
+      if (stepsChange.log.length) this.log(task, 'step', stepsChange.log.join(' · '), call.by)
+    }
+    // With needs_user, the url names the review being asked for, not one to resolve.
     if (args.resolve_reviews === true) {
-      const only = status !== 'needs_user' ? url : undefined
-      const reviews = task.asks.filter((a) => a.kind === 'review' && (!only || a.url === only))
-      task.asks = task.asks.filter((a) => !reviews.includes(a))
-      for (const r of reviews) this.log(task, 'resolved', `Done: ${r.text}`, call.by)
+      this.resolveReviews(task, status !== 'needs_user' ? url : undefined, call.by)
     }
 
     switch (status) {
@@ -359,49 +403,121 @@ export class TaskStore extends EventEmitter {
         task.blocked = undefined
         task.blockedAt = undefined
         task.doneAt = undefined
-        task.asks = task.asks.filter((a) => !(a.kind === 'question' && a.tabId === call.tabId))
+        task.asks = task.asks.filter((a) => a.tabId !== call.tabId)
         this.log(task, 'working', note ?? 'Working', call.by)
         break
-      case 'needs_user': {
-        const kind = args.ask === 'review' ? 'review' : args.ask === 'question' ? 'question' : undefined
-        if (!kind) return { ok: false, error: 'needs_user takes ask: "question" or "review".' }
-        if (!note) return { ok: false, error: 'note must say what the user is to do.' }
+      case 'needs_user':
         task.doneAt = undefined
-        // One open question per session; a review is one per link.
-        task.asks = task.asks.filter((a) =>
-          kind === 'question'
-            ? !(a.kind === 'question' && a.tabId === call.tabId)
-            : !(a.kind === 'review' && (url ? a.url === url : a.text === note))
-        )
-        const ask: TaskAsk = { id: randomUUID(), kind, text: note, url, tabId: call.tabId, by: call.by, at: Date.now() }
-        task.asks.push(ask)
-        this.log(task, 'needs_user', kind === 'review' ? `Review: ${note}` : note, call.by)
+        if (args.ask === 'review') this.reviewStep(task, note!, url, call.by)
+        else {
+          // One open question per session.
+          task.asks = task.asks.filter((a) => a.tabId !== call.tabId)
+          const ask: TaskAsk = {
+            id: randomUUID(),
+            kind: 'question',
+            text: note!,
+            url,
+            tabId: call.tabId,
+            by: call.by,
+            at: Date.now()
+          }
+          task.asks.push(ask)
+          this.log(task, 'needs_user', note!, call.by)
+        }
         break
-      }
       case 'blocked':
-        if (!note) return { ok: false, error: 'note must say what the task is waiting for.' }
         task.blocked = note
         task.blockedAt = Date.now()
-        // As when the user blocks it: the open questions are settled, and the reviews wait
-        // behind the block.
-        task.asks = task.asks.filter((a) => a.kind !== 'question')
-        this.log(task, 'blocked', note, call.by)
+        // As when the user blocks it: the open questions are settled, and the user's steps
+        // from before the block wait behind it (`heldByBlock`).
+        task.asks = []
+        this.log(task, 'blocked', note!, call.by)
         break
       case 'done':
         this.markDone(task, note, call.by)
         break
     }
+    if (status !== 'done' && (stepsChange || args.resolve_reviews === true)) {
+      this.syncDone(task, stepsChange?.reopened ?? false, call.by)
+    }
     if (note) task.note = { text: note, by: call.by, at: Date.now() }
     this.touch(task)
 
-    const shown = task.doneAt
-      ? 'Done'
-      : asksForUser(task).length > 0
-        ? 'Needs you'
-        : task.blocked
-          ? 'Blocked'
-          : 'Working'
-    return { ok: true, text: `Task ${taskRef(task)} "${task.title}" is shown as ${shown} now.` }
+    return {
+      ok: true,
+      text: `Task ${taskRef(task)} "${task.title}" is shown as ${shownAs(task)} now.\nSteps: ${stepsLine(task, call.by)}`
+    }
+  }
+
+  /**
+   * How an owner a session wrote is read: "me" is the calling session, by the name Claude
+   * Code knows it by; "user" the user; "session:<name>", or the name of a session on the
+   * task, a session; anything else someone outside aterm.
+   */
+  private ownerOf(task: Task, call: TaskCall): (text: string) => TaskStepOwner | string {
+    return (text) => {
+      const value = text.trim()
+      const lower = value.toLowerCase()
+      if (lower === 'me') {
+        const name = call.by ?? this.tabInfo(call.tabId)?.name
+        return name ? { kind: 'session', name } : "aterm does not know this session's name; give the owner by name."
+      }
+      if (lower === 'user' || lower === 'you') return { kind: 'user' }
+      if (lower.startsWith('session:')) {
+        const name = value.slice('session:'.length).trim()
+        return name ? { kind: 'session', name } : 'session: needs a name after it.'
+      }
+      const session = task.sessions.find((s) => s.name?.toLowerCase() === lower)
+      if (session?.name) return { kind: 'session', name: session.name }
+      return value ? { kind: 'other', who: value } : 'owner must not be empty.'
+    }
+  }
+
+  /**
+   * A review asked for the old way (`needs_user`, ask "review") is a step owned by the
+   * user and due now: it does not wait for the rest of the chain. One per link.
+   */
+  private reviewStep(task: Task, text: string, url: string | undefined, by?: string): void {
+    const existing = task.steps.find(
+      (s) => !s.done && s.owner.kind === 'user' && (url ? s.url === url : s.title === text)
+    )
+    if (existing) {
+      existing.title = text
+      existing.url = url ?? existing.url
+      existing.at = Date.now()
+      existing.by = by
+    } else {
+      task.lastStepId = nextStepId(task)
+      task.steps.push({ id: task.lastStepId, title: text, owner: { kind: 'user' }, url, after: [], at: Date.now(), by })
+    }
+    this.log(task, 'needs_user', `Review: ${text}`, by)
+  }
+
+  /** `resolve_reviews`: the user's open steps with a link - or the one with this link - are done. */
+  private resolveReviews(task: Task, url: string | undefined, by?: string): void {
+    for (const step of task.steps) {
+      if (step.done || step.owner.kind !== 'user' || !step.url) continue
+      if (url && step.url !== url) continue
+      step.done = { at: Date.now(), by }
+      this.log(task, 'resolved', `Done: ${step.title}`, by)
+    }
+  }
+
+  /**
+   * A chain whose every step is done is a task that is done. One that gets an open step
+   * again - added, or one taken back - is open again; one the user marked done with steps
+   * still open stays done, because that was their decision.
+   */
+  private syncDone(task: Task, reopened: boolean, by?: string): void {
+    const open = task.steps.some((s) => !s.done)
+    // Only a chain: a task whose steps are nothing but reviews (asked with needs_user, or
+    // migrated from asks) is not finished by merging them, as it was not before steps.
+    const chain = task.steps.some((s) => !(s.owner.kind === 'user' && s.url))
+    if (chain && !open && !task.doneAt) this.markDone(task, undefined, by)
+    else if (open && reopened && task.doneAt) {
+      task.doneAt = undefined
+      this.log(task, 'reopened', 'Reopened', by)
+    }
   }
 
   /** The task a call is about: the one it names, or the caller's own. */
@@ -426,6 +542,7 @@ export class TaskStore extends EventEmitter {
       notes: notes?.trim() ? notes : undefined,
       cwd: cwd || undefined,
       asks: [],
+      steps: [],
       sessions: [],
       createdAt: now,
       updatedAt: now,
@@ -554,4 +671,207 @@ function dropQuestionsBeforeBlocked(task: Task): void {
 
 function str(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+/** What a `task_update` with steps leaves behind, before it is committed. */
+interface StepsChange {
+  steps: TaskStep[]
+  lastStepId: number
+  /** One short entry per change, for the activity. */
+  log: string[]
+  /** A step was added or taken back, so a done task is open again. */
+  reopened: boolean
+}
+
+/**
+ * Applies the `steps` of a `task_update` to a copy of the task's chain: upsert by id, so
+ * several sessions can edit one chain without overwriting each other, or with `replace`
+ * the whole chain in the order given. An error message, and nothing changed, when an item
+ * does not add up.
+ */
+function applySteps(
+  task: Task,
+  items: unknown[],
+  replace: boolean,
+  by: string | undefined,
+  owner: (text: string) => TaskStepOwner | string
+): StepsChange | string {
+  const now = Date.now()
+  const existing = task.steps.map((s) => ({ ...s }))
+  let steps = replace ? [] : [...existing]
+  let lastStepId = nextStepId(task) - 1
+  const log: string[] = []
+  let reopened = false
+  const mentioned = new Set<number>()
+
+  for (const raw of items) {
+    if (!raw || typeof raw !== 'object') return 'Each step must be an object.'
+    const item = raw as Record<string, unknown>
+    const id = typeof item.id === 'number' ? item.id : undefined
+    if (item.id !== undefined && id === undefined) return 'A step id is a number.'
+    if (id !== undefined && mentioned.has(id)) return `Step ${id} is named twice.`
+
+    if (item.remove === true) {
+      if (id === undefined) return 'remove needs the id of the step.'
+      if (!existing.some((s) => s.id === id)) return `There is no step ${id}.`
+      mentioned.add(id)
+      steps = steps.filter((s) => s.id !== id)
+      log.push(`−${id}`)
+      continue
+    }
+
+    let step: TaskStep
+    if (id !== undefined) {
+      const found = existing.find((s) => s.id === id)
+      if (!found) return `There is no step ${id}. Leave the id out to add a step.`
+      step = found
+      if (replace) steps.push(step)
+    } else {
+      const title = str(item.title)
+      if (!title) return 'A new step needs a title (and no id).'
+      // A step nobody is named for belongs to the session adding it.
+      const who = owner(typeof item.owner === 'string' ? item.owner : 'me')
+      if (typeof who === 'string') return who
+      step = { id: ++lastStepId, title, owner: who, at: now, by }
+      steps.push(step)
+      log.push(`+${step.id} ${title}`)
+      if (item.done !== true) reopened = true
+    }
+    mentioned.add(step.id)
+
+    let edited = false
+    const title = str(item.title)
+    if (id !== undefined && title && title !== step.title) {
+      step.title = title
+      edited = true
+    }
+    if (id !== undefined && typeof item.owner === 'string') {
+      const who = owner(item.owner)
+      if (typeof who === 'string') return who
+      if (JSON.stringify(who) !== JSON.stringify(step.owner)) {
+        step.owner = who
+        edited = true
+      }
+    }
+    let touched = edited
+    if (typeof item.done === 'boolean' && item.done !== Boolean(step.done)) {
+      step.done = item.done ? { at: now, by } : undefined
+      if (id !== undefined) log.push(item.done ? `✓${step.id}` : `reopened ${step.id}`)
+      if (!item.done) reopened = true
+      touched = true
+    }
+    if (item.blocked !== undefined) {
+      if (typeof item.blocked !== 'string') return 'blocked is the reason, or "" to clear it.'
+      const reason = item.blocked.trim() || undefined
+      if (reason !== step.blocked) {
+        step.blocked = reason
+        if (id !== undefined) log.push(reason ? `${step.id} blocked: ${reason}` : `${step.id} unblocked`)
+        touched = true
+      }
+    }
+    if (item.after !== undefined) {
+      if (item.after === null) step.after = undefined
+      else if (!Array.isArray(item.after) || !item.after.every((a) => typeof a === 'number')) {
+        return 'after is a list of step ids, or null for "the step before it".'
+      } else step.after = item.after as number[]
+      edited = true
+    }
+    for (const key of ['url', 'note'] as const) {
+      const value = item[key]
+      if (value === undefined) continue
+      if (typeof value !== 'string') return `${key} is text, or "" to clear it.`
+      step[key] = value.trim() || undefined
+      edited = true
+    }
+    if (edited && id !== undefined) log.push(`edited ${step.id}`)
+    if (edited || touched) {
+      step.at = now
+      step.by = by
+    }
+
+    // Where it goes: before the step it names, else where it is (or at the end, if new).
+    if (item.before !== undefined) {
+      if (typeof item.before !== 'number') return 'before is the id of a step.'
+      steps = steps.filter((s) => s !== step)
+      const at = steps.findIndex((s) => s.id === item.before)
+      if (at < 0) return `There is no step ${item.before} to put it before.`
+      steps.splice(at, 0, step)
+    }
+  }
+
+  if (replace) {
+    // Done steps left out are history rather than part of the chain being replaced: they
+    // stay, in front. Open ones left out are gone.
+    const keptDone = existing.filter((s) => !mentioned.has(s.id) && s.done)
+    const dropped = existing.filter((s) => !mentioned.has(s.id) && !s.done)
+    steps = [...keptDone, ...steps]
+    if (dropped.length) log.push(`−${dropped.map((s) => s.id).join(',')}`)
+  }
+
+  const ids = new Set(steps.map((s) => s.id))
+  for (const step of steps) {
+    for (const dep of step.after ?? []) {
+      if (dep === step.id) return `Step ${step.id} cannot come after itself.`
+      if (!ids.has(dep)) return `Step ${step.id} comes after step ${dep}, which does not exist.`
+    }
+  }
+  if (hasCycle(steps)) return "The steps' after lists go round in a circle; none of them could ever start."
+  return { steps, lastStepId, log: [...new Set(log)], reopened }
+}
+
+/** A circle in the dependencies leaves every step in it waiting for the others for good. */
+function hasCycle(steps: TaskStep[]): boolean {
+  const deps = new Map<number, number[]>()
+  steps.forEach((s, i) => deps.set(s.id, s.after ?? (i > 0 ? [steps[i - 1].id] : [])))
+  const state = new Map<number, 'visiting' | 'clear'>()
+  const visit = (id: number): boolean => {
+    if (state.get(id) === 'clear') return false
+    if (state.get(id) === 'visiting') return true
+    state.set(id, 'visiting')
+    for (const dep of deps.get(id) ?? []) if (deps.has(dep) && visit(dep)) return true
+    state.set(id, 'clear')
+    return false
+  }
+  return steps.some((s) => visit(s.id))
+}
+
+/** The next step id: one past every id handed out so far. */
+function nextStepId(task: Task): number {
+  return Math.max(task.lastStepId ?? 0, ...task.steps.map((s) => s.id)) + 1
+}
+
+/**
+ * A review the user was asked for, stored the old way as an ask, becomes a step owned by
+ * the user at the end of the chain, due at once. Questions stay asks.
+ */
+function reviewsToSteps(task: Task): void {
+  const asks = task.asks as Array<Omit<TaskAsk, 'kind'> & { kind: string }>
+  const reviews = asks.filter((a) => a.kind === 'review')
+  if (reviews.length === 0) return
+  for (const r of reviews) {
+    task.lastStepId = nextStepId(task)
+    task.steps.push({ id: task.lastStepId, title: r.text, owner: { kind: 'user' }, url: r.url, after: [], at: r.at, by: r.by })
+  }
+  task.asks = asks.filter((a): a is TaskAsk => a.kind === 'question')
+}
+
+function validStep(step: unknown): step is TaskStep {
+  const s = step as TaskStep | undefined
+  return Boolean(s && typeof s.id === 'number' && typeof s.title === 'string' && s.owner && typeof s.owner.kind === 'string')
+}
+
+/** What the list shows the task as, so far as main can tell without the tabs. */
+function shownAs(task: Task): string {
+  if (task.doneAt) return 'Done'
+  if (task.asks.length > 0) return 'Needs you'
+  const current = currentSteps(task)
+  if (current.some((s) => s.owner.kind === 'user' && !s.blocked && !heldByBlock(task, s))) return 'Needs you'
+  if (task.blocked) return 'Blocked'
+  if (current.length > 0 && current.every((s) => s.blocked || s.owner.kind === 'other')) return 'Blocked'
+  return 'Working'
+}
+
+/** Leaves out what is not there, so an answer carries no `null`s. */
+function compact<T extends Record<string, unknown>>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined && v !== null)) as Partial<T>
 }
