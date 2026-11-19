@@ -597,11 +597,13 @@ export class TaskPanel {
       const fold = button('', 'task-step task-steps-fold')
       fold.setAttribute('aria-expanded', 'false')
       fold.title = 'Show the done steps'
-      fold.append(
-        span('task-step-mark shown-done', '✓'),
+      // The ids share one span with the titles: "1–2, 4" does not fit the id column.
+      const summary = span('task-step-title', '')
+      summary.append(
         span('task-step-id', idRanges(done.map((s) => s.step.id))),
-        span('task-step-title', done.map((s) => s.step.title).join(', '))
+        text(`  ${done.map((s) => s.step.title).join(', ')}`)
       )
+      fold.append(span('task-step-mark shown-done', '✓'), summary)
       fold.addEventListener('click', () => {
         this.showDoneSteps = true
         this.rebuild()

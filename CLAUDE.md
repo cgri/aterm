@@ -773,7 +773,9 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   **A task's chain is its steps, and the sessions keep it.** Free-text notes holding "lib
   !58 → service !11 → app !30" went stale, because nothing maintained them; a step
   (`TaskStep`) has an owner — the user, a session by its registry name, or someone outside
-  aterm — and an order, `after` defaulting to the step before it. `task_update steps`
+  aterm — and an order, `after` defaulting to every step before it (only the one before
+  it, at first, let a step done out of order make the next one current while an earlier
+  one was still open). `task_update steps`
   upserts by id, so several sessions edit one chain without overwriting each other, and
   every `task_*` answer carries the chain as one line (`stepsLine`), so a session sees the
   ids and what is open after each call. Whether a step is current is derived

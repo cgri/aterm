@@ -3290,8 +3290,12 @@ span.task-source {
 }
 
 .task-steps-fold .task-step-title {
-  grid-column: 3 / -1;
+  grid-column: 2 / -1;
   color: var(--fg-dim);
+}
+
+.task-steps-fold .task-step-id {
+  margin-right: 4px;
 }
 
 .task-link.task-steps-unfold {

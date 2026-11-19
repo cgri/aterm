@@ -241,7 +241,7 @@ const TOOLS = [
               after: {
                 type: ['array', 'null'],
                 items: { type: 'number' },
-                description: 'The step ids it waits for. Default: the step before it. [] for none.'
+                description: 'The step ids it waits for. Default: every step before it. [] for none - a step that can run in parallel.'
               },
               url: { type: 'string', description: 'The PR/MR, build or release page.' },
               note: { type: 'string', description: 'Half a sentence, e.g. "needs your go in the tab".' },
