@@ -13,13 +13,15 @@ import type { Task, TaskStep, TaskStepOwner } from './types'
 export type StepBase = 'done' | 'current' | 'blocked' | 'later'
 
 /**
- * What each step comes after: its `after`, or the step before it in the array. An id that
- * names no step (it was removed) is no obstacle.
+ * What each step comes after: its `after`, or every step before it in the array. Only the
+ * one before it was the first rule, and a step done out of order made the next one current
+ * while an earlier one was still open - "Merge" asked for the user's go with a release
+ * before it undone. An id that names no step (it was removed) is no obstacle.
  */
 export function stepDependencies(steps: TaskStep[], index: number): number[] {
   const step = steps[index]
   if (step.after) return step.after
-  return index > 0 ? [steps[index - 1].id] : []
+  return steps.slice(0, index).map((s) => s.id)
 }
 
 export function stepBases(steps: TaskStep[]): Map<number, StepBase> {

@@ -14,7 +14,7 @@ import type {
   TaskStepOwner
 } from '@shared/types'
 import { taskBriefing, taskRef } from '@shared/taskBriefing'
-import { currentSteps, heldByBlock, ownerText, stepProgress, stepsLine } from '@shared/taskSteps'
+import { currentSteps, heldByBlock, ownerText, stepDependencies, stepProgress, stepsLine } from '@shared/taskSteps'
 import { readJsonFile } from '../util/json'
 
 const SCHEMA_VERSION = 1
@@ -772,7 +772,7 @@ function applySteps(
     if (item.after !== undefined) {
       if (item.after === null) step.after = undefined
       else if (!Array.isArray(item.after) || !item.after.every((a) => typeof a === 'number')) {
-        return 'after is a list of step ids, or null for "the step before it".'
+        return 'after is a list of step ids, or null for "every step before it".'
       } else step.after = item.after as number[]
       edited = true
     }
@@ -822,7 +822,7 @@ function applySteps(
 /** A circle in the dependencies leaves every step in it waiting for the others for good. */
 function hasCycle(steps: TaskStep[]): boolean {
   const deps = new Map<number, number[]>()
-  steps.forEach((s, i) => deps.set(s.id, s.after ?? (i > 0 ? [steps[i - 1].id] : [])))
+  steps.forEach((s, i) => deps.set(s.id, stepDependencies(steps, i)))
   const state = new Map<number, 'visiting' | 'clear'>()
   const visit = (id: number): boolean => {
     if (state.get(id) === 'clear') return false

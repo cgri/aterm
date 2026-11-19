@@ -405,7 +405,7 @@ export interface TaskStep {
   done?: { at: number; by?: string }
   /** Waiting for a third party, and what for. */
   blocked?: string
-  /** The steps that have to be done first. Missing means the step before it in the array. */
+  /** The steps that have to be done first. Missing means every step before it in the array. */
   after?: number[]
   /** A PR/MR, build or release page. */
   url?: string
