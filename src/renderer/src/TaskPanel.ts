@@ -1,4 +1,4 @@
-import type { Task, TaskAction, TaskAsk, TaskEvent, TaskSession } from '@shared/types'
+import type { Task, TaskAction, TaskAsk, TaskEvent, TaskSession, TaskStep } from '@shared/types'
 import { describeSource, isLink } from './taskSource'
 import { taskRef } from '@shared/taskBriefing'
 
@@ -26,10 +26,30 @@ export interface TaskSessionView {
   folder: string
 }
 
+/**
+ * How a step is shown. `done`, `later` and `blocked` follow from what is stored; a current
+ * step is `waiting` when it is the user's turn - the step is theirs, or the session that
+ * owns it waits at its prompt - `running` while that session works, `current` otherwise.
+ */
+export type StepShown = 'done' | 'current' | 'running' | 'waiting' | 'blocked' | 'later'
+
+export interface TaskStepView {
+  step: TaskStep
+  shown: StepShown
+  /** Who does it, as the panel names them: "You", a session, someone else. */
+  owner: string
+  /** The owning session's tab, while it is open. */
+  tabId?: string
+  /** The owning session, once its tab is closed - to resume it from here. */
+  closed?: TaskSession
+}
+
 export interface TaskView {
   task: Task
   state: TaskShownState
   sessions: TaskSessionView[]
+  /** The task's chain, in display order; empty for a task without steps. */
+  steps: TaskStepView[]
   /** Some session on it carries the tab bar's red dot. */
   alarm: boolean
 }
@@ -90,6 +110,7 @@ export class TaskPanel {
   private openId?: string
   private showDone = false
   private showActivity = false
+  private showDoneSteps = false
   private signature = ''
   /** The opened task's fields, kept across rebuilds. */
   private detail?: {
@@ -244,11 +265,17 @@ export class TaskPanel {
 
   private rebuild(force = true): void {
     const signature = JSON.stringify([
-      this.views.map((v) => [v.task, v.state, v.sessions.map((s) => [s.name, s.open, s.agent, s.running, s.working, s.waiting, s.alarm])]),
+      this.views.map((v) => [
+        v.task,
+        v.state,
+        v.sessions.map((s) => [s.name, s.open, s.agent, s.running, s.working, s.waiting, s.alarm]),
+        v.steps.map((s) => [s.shown, s.tabId, s.closed?.tabId])
+      ]),
       this.ctx.current,
       this.openId,
       this.showDone,
-    this.showActivity
+      this.showActivity,
+      this.showDoneSteps
     ])
     if (!force && signature === this.signature) return
     this.signature = signature
@@ -426,14 +453,20 @@ export class TaskPanel {
     if (last) meta.append(span('task-meta-by', `${last.by ? `${last.by} · ` : ''}${ago(last.at)}`))
     nodes.push(meta)
 
-    // What the user is asked for: the one place with a frame around it.
+    // What the user is asked for: the one place with a frame around it. Questions, the
+    // steps that are the user's turn, and - for a task without steps, which has nothing
+    // else to go by - any session on it that waits without having said why. With steps, a
+    // session waiting at its prompt is news only when the current step is its own.
     const asked = new Set(task.asks.map((a) => a.tabId).filter(Boolean))
-    const silent = task.blocked
-      ? []
-      : view.sessions.filter((s) => s.open && s.waiting && !asked.has(s.session.tabId))
-    if (task.asks.length > 0 || silent.length > 0) {
+    const yourTurn = task.doneAt ? [] : view.steps.filter((s) => s.shown === 'waiting')
+    const silent =
+      task.blocked || view.steps.length > 0
+        ? []
+        : view.sessions.filter((s) => s.open && s.waiting && !asked.has(s.session.tabId))
+    if (task.asks.length > 0 || yourTurn.length > 0 || silent.length > 0) {
       const box = div('task-asks')
       for (const ask of task.asks) box.append(this.askItem(task, ask, view))
+      for (const step of yourTurn) box.append(this.turnItem(task, step))
       for (const s of silent) {
         const item = div('task-ask')
         item.append(span('task-ask-kind', 'Waiting'), span('task-ask-text', `${s.name} is waiting for you.`))
@@ -449,6 +482,8 @@ export class TaskPanel {
       line.append(this.link('Unblock', () => this.handlers.act({ kind: 'setBlocked', taskId: task.id })))
       nodes.push(line)
     }
+
+    if (view.steps.length > 0) nodes.push(this.stepsSection(task, view))
 
     // Who works on it, and the ways to put a session on it.
     const sessions = div('task-section')
@@ -505,31 +540,127 @@ export class TaskPanel {
   }
 
   private askItem(task: Task, ask: TaskAsk, view: TaskView): HTMLElement {
-    const item = div(`task-ask kind-${ask.kind}`)
-    item.append(
-      span('task-ask-kind', `${ask.kind === 'review' ? 'Review & merge' : 'Question'} · ${ask.by ?? 'a session'} · ${ago(ask.at)}`),
-      span('task-ask-text', ask.text)
-    )
+    const item = div('task-ask kind-question')
+    item.append(span('task-ask-kind', `Question · ${ask.by ?? 'a session'} · ${ago(ask.at)}`), span('task-ask-text', ask.text))
     const actions: HTMLElement[] = []
-    if (ask.url) {
-      const a = document.createElement('a')
-      a.className = 'task-link'
-      a.href = ask.url
-      a.target = '_blank'
-      a.rel = 'noreferrer'
-      a.textContent = 'Open'
-      a.title = ask.url
-      actions.push(a)
-    }
+    if (ask.url) actions.push(anchor('Open', ask.url))
     const tab = ask.tabId ? view.sessions.find((s) => s.session.tabId === ask.tabId && s.open) : undefined
     if (tab) actions.push(this.link('Go to tab', () => this.handlers.goToTab(tab.session.tabId)))
-    actions.push(
-      this.link(ask.kind === 'review' ? 'Mark merged' : 'Mark answered', () =>
-        this.handlers.act({ kind: 'resolveAsk', taskId: task.id, askId: ask.id })
-      )
-    )
+    actions.push(this.link('Mark answered', () => this.handlers.act({ kind: 'resolveAsk', taskId: task.id, askId: ask.id })))
     item.append(links(...actions))
     return item
+  }
+
+  /**
+   * A step that is the user's turn, in the frame: one of their own (open the link, tick it
+   * off), or a session's that waits at its prompt for a go (to its tab).
+   */
+  private turnItem(task: Task, view: TaskStepView): HTMLElement {
+    const { step } = view
+    const item = div('task-ask kind-step')
+    const actions: HTMLElement[] = []
+    if (step.owner.kind === 'user') {
+      item.append(
+        span('task-ask-kind', `Your step ${step.id}${step.by ? ` · ${step.by}` : ''} · ${ago(step.at)}`),
+        span('task-ask-text', step.note ? `${step.title} — ${step.note}` : step.title)
+      )
+      if (step.url) actions.push(anchor(urlLabel(step.url), step.url))
+      actions.push(this.link('Mark done', () => this.setStepDone(task, step, true)))
+    } else {
+      item.append(
+        span('task-ask-kind', `Step ${step.id} · ${view.owner} is waiting for your go`),
+        span('task-ask-text', step.note ? `${step.title} — ${step.note}` : step.title)
+      )
+      if (view.tabId) actions.push(this.link('Go to tab', () => this.handlers.goToTab(view.tabId!)))
+    }
+    item.append(links(...actions))
+    return item
+  }
+
+  /**
+   * The chain: what is left, whose it is, in order. Done steps fold into one line - they
+   * are history, and the open ones are what the user reads this for.
+   */
+  private stepsSection(task: Task, view: TaskView): HTMLElement {
+    const box = div('task-section task-steps')
+    const done = view.steps.filter((s) => s.shown === 'done')
+    const head = div('task-steps-head')
+    head.append(span('task-steps-label', 'Steps'), span('task-progress', `${done.length} of ${view.steps.length}`))
+    // One grid for all rows, so owners and links line up in columns across steps.
+    const rows = div('task-steps-grid')
+    box.append(head, rows)
+    if (done.length > 0 && !this.showDoneSteps) {
+      const fold = button('', 'task-step task-steps-fold')
+      fold.setAttribute('aria-expanded', 'false')
+      fold.title = 'Show the done steps'
+      fold.append(
+        span('task-step-mark shown-done', '✓'),
+        span('task-step-id', idRanges(done.map((s) => s.step.id))),
+        span('task-step-title', done.map((s) => s.step.title).join(', '))
+      )
+      fold.addEventListener('click', () => {
+        this.showDoneSteps = true
+        this.rebuild()
+      })
+      rows.append(fold)
+    }
+    for (const s of view.steps) {
+      if (s.shown === 'done' && !this.showDoneSteps) continue
+      rows.append(this.stepRow(task, s))
+    }
+    if (done.length > 0 && this.showDoneSteps) {
+      const fold = this.link('Fold the done steps', () => {
+        this.showDoneSteps = false
+        this.rebuild()
+      })
+      fold.classList.add('task-steps-unfold')
+      box.append(fold)
+    }
+    return box
+  }
+
+  /** One step: mark, number, title, owner (to their tab, or resumed), and what else it says. */
+  private stepRow(task: Task, s: TaskStepView): HTMLElement {
+    const { step } = s
+    const row = div(`task-step shown-${s.shown}`)
+    row.title = [`${step.id}  ${step.title}`, STEP_TITLES[s.shown], ...(step.note ? [step.note] : [])].join('\n')
+    row.append(
+      span(`task-step-mark shown-${s.shown}`, STEP_MARKS[s.shown]),
+      span('task-step-id', String(step.id)),
+      span('task-step-title', step.title)
+    )
+
+    const owner =
+      s.tabId !== undefined
+        ? this.link(s.owner, () => this.handlers.goToTab(s.tabId!))
+        : s.closed?.claudeSessionId
+          ? this.link(`${s.owner} (closed)`, () => this.handlers.resume(task, s.closed!))
+          : span('task-step-owner-text', s.owner)
+    owner.classList.add('task-step-owner')
+    if (s.tabId) owner.title = `Go to ${s.owner}`
+    else if (s.closed) owner.title = `Resume ${s.owner}`
+    row.append(owner)
+
+    // One thing more, the most useful: the link, what it is blocked on, what it waits for,
+    // or its note.
+    const extra = div('task-step-extra')
+    const deps = step.after ?? []
+    if (step.url) extra.append(anchor(`${urlLabel(step.url)} ↗`, step.url))
+    else if (step.blocked) extra.append(text(step.blocked))
+    else if (s.shown === 'later' && deps.length > 0) extra.append(text(`after ${deps.join(', ')}`))
+    else if (step.note) extra.append(text(step.note))
+    row.append(extra)
+
+    const tick = button(s.shown === 'done' ? '↶' : '✓', 'task-step-tick')
+    tick.title = s.shown === 'done' ? 'Not done after all' : 'Mark done'
+    tick.setAttribute('aria-label', `${tick.title}: ${step.title}`)
+    tick.addEventListener('click', () => this.setStepDone(task, step, s.shown !== 'done'))
+    row.append(tick)
+    return row
+  }
+
+  private setStepDone(task: Task, step: TaskStep, done: boolean): void {
+    this.handlers.act({ kind: 'setStepDone', taskId: task.id, stepId: step.id, done })
   }
 
   /**
@@ -648,6 +779,50 @@ function fitHeight(el: HTMLTextAreaElement): void {
   el.style.height = `${el.scrollHeight}px`
 }
 
+/** A link that opens in the browser, looking like the quiet actions beside it. */
+function anchor(label: string, href: string): HTMLAnchorElement {
+  const a = document.createElement('a')
+  a.className = 'task-link'
+  a.href = href
+  a.target = '_blank'
+  a.rel = 'noreferrer'
+  a.textContent = label
+  a.title = href
+  return a
+}
+
+/** What a step's link is called: "!60" or "#61" where the URL says, "Open" otherwise. */
+function urlLabel(url: string): string {
+  const { label } = describeSource(url)
+  return /^[#!]\d+$/.test(label) ? label : 'Open'
+}
+
+/** 1,2,3,5 → "1–3, 5". */
+function idRanges(ids: number[]): string {
+  const out: string[] = []
+  let start = ids[0]
+  let prev = start
+  for (const id of [...ids.slice(1), Number.NaN]) {
+    if (id === prev + 1) {
+      prev = id
+      continue
+    }
+    out.push(start === prev ? String(start) : `${start}–${prev}`)
+    start = id
+    prev = id
+  }
+  return out.join(', ')
+}
+
+const STEP_TITLES: Record<StepShown, string> = {
+  done: 'Done',
+  current: 'Next',
+  running: 'Being worked on',
+  waiting: 'Your turn',
+  blocked: 'Blocked',
+  later: 'Later'
+}
+
 /** Quiet actions in a row, separated by a middle dot. */
 function links(...items: HTMLElement[]): HTMLElement {
   const row = div('task-links')
@@ -671,17 +846,35 @@ function byUrgency(a: TaskView, b: TaskView): number {
   return Number(b.alarm) - Number(a.alarm) || b.task.updatedAt - a.task.updatedAt
 }
 
-/** The one line under a task's title that says why it is where it is. */
+/**
+ * The one line under a task's title that says why it is where it is. A question the user
+ * is asked comes first; then, for a task with steps, the step that is next and whose it
+ * is, with how far the chain has got; without steps, what it waits for.
+ */
 function reasonLine(view: TaskView): HTMLElement | undefined {
   const { task, state } = view
+  if (state === 'done') return undefined
+  const question = task.asks[task.asks.length - 1]
+  if (state === 'needs_user' && question) {
+    const line = div('task-reason needs')
+    line.append(text(question.text))
+    if (task.asks.length > 1) line.append(span('task-more', ` +${task.asks.length - 1}`))
+    return line
+  }
+  const next = nextStep(view)
+  if (next) {
+    const line = div(`task-reason step shown-${next.shown}${state === 'needs_user' ? ' needs' : ''}`)
+    const label = div('task-reason-text')
+    label.append(span(`task-step-mark shown-${next.shown}`, STEP_MARKS[next.shown]), text(` ${next.step.title}`))
+    label.append(span('task-reason-owner', ` · ${next.owner}`))
+    const done = view.steps.filter((s) => s.shown === 'done').length
+    line.append(label, span('task-progress', `${done}/${view.steps.length}`))
+    return line
+  }
   if (state === 'needs_user') {
-    const ask = task.asks[task.asks.length - 1]
     const waiting = view.sessions.find((s) => s.open && s.waiting)
     const line = div('task-reason needs')
-    if (ask) {
-      line.append(text(ask.kind === 'review' ? `Review: ${ask.text}` : ask.text))
-      if (task.asks.length > 1) line.append(span('task-more', ` +${task.asks.length - 1}`))
-    } else if (waiting) line.append(text(`${waiting.name} is waiting for you`))
+    if (waiting) line.append(text(`${waiting.name} is waiting for you`))
     return line
   }
   if (state === 'blocked') {
@@ -690,6 +883,28 @@ function reasonLine(view: TaskView): HTMLElement | undefined {
     return line
   }
   return undefined
+}
+
+/**
+ * The step the list names for a task: the user's turn first, then what runs, then any
+ * current step, then a blocked one - the most telling thing that can happen next.
+ */
+function nextStep(view: TaskView): TaskStepView | undefined {
+  for (const shown of ['waiting', 'running', 'current', 'blocked'] as const) {
+    const step = view.steps.find((s) => s.shown === shown)
+    if (step) return step
+  }
+  return undefined
+}
+
+const STEP_MARKS: Record<StepShown, string> = {
+  done: '✓',
+  current: '●',
+  running: '↻',
+  waiting: '⏸',
+  // U+FE0E asks for the text glyph: the emoji is red and ignores the mark's colour.
+  blocked: '⛔︎',
+  later: '○'
 }
 
 /** The last state a session or the user declared, for "set by … ago". */

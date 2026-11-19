@@ -351,18 +351,16 @@ export interface TabStatusReport {
 /* ------------------------------------------------------------------ Tasks */
 
 /**
- * Something the user has to do for a task: answer a question a session asked, or review
- * and merge a PR/MR (or approve some other piece of work). Declared by a session through
- * `task_update`. A question is settled by the answer — the tab that asked goes back to
- * work — while a review outlives every session: it waits, often for days, until the user
- * or a session marks it done.
+ * A question a session asked the user about a task, declared through `task_update`. It is
+ * short-lived and settled by the answer: the tab that asked goes back to work. A review
+ * used to be an ask too; it is a step owned by the user now (`TaskStep`), and `load`
+ * turns any stored one into that.
  */
 export interface TaskAsk {
   id: string
-  kind: 'question' | 'review'
-  /** One sentence: what is asked, or what is to be reviewed. */
+  kind: 'question'
+  /** One sentence: what is asked. */
   text: string
-  /** The PR/MR, ticket or page the ask is about. */
   url?: string
   /** The tab whose session asked. */
   tabId?: string
@@ -386,9 +384,50 @@ export interface TaskSession {
   joinedAt: number
 }
 
+/**
+ * Who does a step: the user, a Claude session (by the name it goes by in Claude Code's
+ * registry, which is what `SendMessage` and the tab bar use), or someone outside aterm -
+ * colleagues, CI, a customer.
+ */
+export type TaskStepOwner = { kind: 'user' } | { kind: 'session'; name: string } | { kind: 'other'; who: string }
+
+/**
+ * One step of a task's chain. Only what is declared is stored; whether a step is current,
+ * running or waiting is derived (`stepStates` in `taskSteps.ts`, and the tabs in the
+ * renderer).
+ */
+export interface TaskStep {
+  /** 1, 2, 3 … per task, never reused (`Task.lastStepId`). */
+  id: number
+  /** Verb and object: "Merge lib !60". */
+  title: string
+  owner: TaskStepOwner
+  done?: { at: number; by?: string }
+  /** Waiting for a third party, and what for. */
+  blocked?: string
+  /** The steps that have to be done first. Missing means the step before it in the array. */
+  after?: number[]
+  /** A PR/MR, build or release page. */
+  url?: string
+  /** Half a sentence, e.g. "needs your go in the tab". */
+  note?: string
+  at: number
+  by?: string
+}
+
 export interface TaskEvent {
   at: number
-  kind: 'created' | 'working' | 'needs_user' | 'blocked' | 'done' | 'reopened' | 'joined' | 'left' | 'resolved'
+  kind:
+    | 'created'
+    | 'working'
+    | 'needs_user'
+    | 'blocked'
+    | 'done'
+    | 'reopened'
+    | 'joined'
+    | 'left'
+    | 'resolved'
+    | 'step'
   text: string
   by?: string
 }
@@ -398,9 +437,9 @@ export interface TaskEvent {
  * work on a ticket or issue. Owned by the main process and kept in `userData/tasks.json`,
  * apart from `state.json`, because a task outlives every tab that worked on it.
  *
- * Only what aterm cannot see for itself is stored: blocked, the asks, done, the last note.
- * Whether a task is being worked on, or a session on it waits for an answer, the renderer
- * reads off the tabs — see `taskState` in `TaskPanel.ts`.
+ * Only what aterm cannot see for itself is stored: the steps, blocked, the questions, done,
+ * the last note. Whether a task is being worked on, or a session on it waits for an answer,
+ * the renderer reads off the tabs — see `taskViews` in `main.ts`.
  */
 export interface Task {
   /** Internal and stable; what the renderer and main refer to a task by. */
@@ -420,6 +459,14 @@ export interface Task {
   /** Why the task is blocked, while it is. Always declared, never derived. */
   blocked?: string
   asks: TaskAsk[]
+  /**
+   * What is left to do, who does it and in which order - kept up to date by the sessions
+   * through `task_update`. Array order is display order. Empty for a task nobody has
+   * written a chain for, which then goes by `blocked` and the asks alone.
+   */
+  steps: TaskStep[]
+  /** The last step id handed out, so that no id is ever given twice within the task. */
+  lastStepId?: number
   sessions: TaskSession[]
   /** The last sentence a session reported, shown under the title. */
   note?: { text: string; by?: string; at: number }
@@ -437,6 +484,7 @@ export type TaskAction =
   | { kind: 'setDone'; taskId: string; done: boolean }
   | { kind: 'setBlocked'; taskId: string; reason?: string }
   | { kind: 'resolveAsk'; taskId: string; askId: string }
+  | { kind: 'setStepDone'; taskId: string; stepId: number; done: boolean }
   | { kind: 'join'; taskId: string; session: TaskSessionInfo }
   | { kind: 'leave'; taskId: string; tabId: string }
   /** The tab is gone; its session stays on the task, to be resumed. */

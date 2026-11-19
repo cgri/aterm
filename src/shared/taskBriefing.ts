@@ -1,21 +1,32 @@
+import type { TaskStep } from './types'
+import { stepsLine } from './taskSteps'
+
 /**
- * What a session is told about the aterm task it works on: which one, and when to report
- * on it. Shared by the tabs `open_tab` makes for a session on a task and the ones the user
- * starts from the task list, so both learn the same rules.
+ * What a session is told about the aterm task it works on: which one, its chain of steps,
+ * and how to keep that chain current. Shared by `task_join`, the tabs `open_tab` makes for
+ * a session on a task and the ones the user starts from the task list, so all of them
+ * learn the same rules.
  *
  * Working and waiting for an answer are deliberately not asked for: aterm reads both off
- * the tab. A session only reports what aterm cannot see.
+ * the tab. A session only reports what aterm cannot see - and the steps are the part the
+ * user reads to see what is left and whose turn it is.
  */
-export function taskBriefing(task: { id: string; number?: number; title: string }): string {
+export function taskBriefing(
+  task: { id: string; number?: number; title: string; steps?: TaskStep[] },
+  self?: string
+): string {
   return [
     `This session works on the aterm task ${taskRef(task)} ("${task.title}") and is attached to it in aterm's task list.`,
-    'Report on it with the task_update tool of the aterm MCP server, each time with a one-sentence note:',
-    '- status "needs_user", ask "question" - before you stop to ask the user to decide something;',
-    '- status "needs_user", ask "review", url - when a PR/MR (or other piece of work) is ready for the user to review and merge;',
-    '- status "blocked" - when the task waits for someone or something other than the user (CI, another team, another task);',
-    '- status "working" - when you take up the task again after one of those;',
-    '- status "done" - when the task is finished. Pass resolve_reviews once a PR/MR you asked to be reviewed has been merged.',
-    'There is no need to report anything else: aterm sees for itself whether you are working.',
+    "Keep the task's steps current with task_update steps - the user reads them to see what is left and whose turn it is:",
+    `- Steps: ${stepsLine({ steps: task.steps ?? [] }, self)}`,
+    `- If there are none and the work takes more than one step, write the remaining chain now (replace: true), every step with its owner: "me", "user", a session's name, or who else.`,
+    '- In the same call: mark your step done when you finish it, and take or add the next one.',
+    '- Anything the user has to do (review, merge, decide, give a go) is a step owned by "user", with the url of the PR/MR where there is one.',
+    '- Waiting for colleagues, CI or another team: a step owned by them, or blocked with a reason.',
+    `- When you see that someone else's step is done (MR merged, release out), mark it done.`,
+    '- A question you are about to ask the user: status "needs_user", ask "question", with a one-sentence note.',
+    '- When the whole task is finished: status "done".',
+    'aterm sees for itself whether you are working; report nothing else.',
     'If the work takes you into another repository, it stays this task: do not create a task per repository.'
   ].join('\n')
 }
@@ -27,6 +38,7 @@ export function taskStartPrompt(task: {
   title: string
   source?: string
   notes?: string
+  steps?: TaskStep[]
 }): string {
   return [
     `Task: ${task.title}`,

@@ -38,9 +38,10 @@ import { folderName, projectDir } from '@shared/paths'
 import { PlanReview, type PlanRound } from './PlanReview'
 import { ImagePanel } from './ImagePanel'
 import { ImageViewer } from './ImageViewer'
-import { TaskPanel, type TaskSessionView, type TaskView } from './TaskPanel'
+import { TaskPanel, type TaskSessionView, type TaskStepView, type TaskView } from './TaskPanel'
 import { TaskDialog, TextPrompt } from './TaskDialog'
 import { taskRef, taskStartPrompt } from '@shared/taskBriefing'
+import { stepBases } from '@shared/taskSteps'
 import { icon } from './icons'
 
 /** Font size the zoom percentage is relative to, and the target of a reset. */
@@ -2323,28 +2324,62 @@ function installFocusGuard(): void {
 /* ------------------------------------------------------------ Tasks */
 
 /**
- * What the task list shows. Main stores only what sessions and the user declared — asks,
- * blocked, done; whether a task is worked on, or one of its tabs waits, is read off the tabs
- * here, with the same `isWorking`, `isWaiting` and `wantsUser` the tab bar draws with.
+ * What the task list shows. Main stores only what sessions and the user declared — the
+ * steps, questions, blocked, done; whether a task is worked on, or one of its tabs waits,
+ * is read off the tabs here, with the same `isWorking`, `isWaiting` and `wantsUser` the tab
+ * bar draws with.
  */
 function taskViews(): TaskView[] {
   return tasks.map((task) => {
     const sessions = task.sessions.map(taskSessionView)
     const open = sessions.filter((s) => s.open)
-    // What is asked outright wins; then blocked, because a session idling at its prompt is
-    // exactly what a blocked task looks like; then a tab that waits without having said why.
+    const steps = taskStepViews(task, sessions)
+    const current = steps.filter((s) => s.shown !== 'done' && s.shown !== 'later')
+    // A question asked outright wins; then a declared block, because a session idling at
+    // its prompt is exactly what a blocked task looks like. With steps, the chain says the
+    // rest: the user's turn, everything current waiting on others, or work under way. A
+    // task without steps falls back on the tabs: one that waits without having said why.
     const state: TaskView['state'] = task.doneAt
       ? 'done'
       : task.asks.length > 0
         ? 'needs_user'
         : task.blocked
           ? 'blocked'
-          : open.some((s) => s.waiting)
+          : steps.length > 0 && current.some((s) => s.shown === 'waiting')
             ? 'needs_user'
-            : open.some((s) => s.working)
-              ? 'working'
-              : 'backlog'
-    return { task, state, sessions, alarm: !task.doneAt && open.some((s) => s.alarm) }
+            : steps.length > 0 && current.length > 0 && current.every((s) => s.shown === 'blocked')
+              ? 'blocked'
+              : steps.length === 0 && open.some((s) => s.waiting)
+                ? 'needs_user'
+                : open.some((s) => s.working)
+                  ? 'working'
+                  : 'backlog'
+    return { task, state, sessions, steps, alarm: !task.doneAt && open.some((s) => s.alarm) }
+  })
+}
+
+/**
+ * The task's steps as they stand: what is stored, and for a current step owned by a
+ * session, whether that session's tab works or waits. The owner is found among the
+ * sessions on the task by name - the name Claude Code knows it by, which is what a session
+ * writes - an open tab before a closed one.
+ */
+function taskStepViews(task: Task, sessions: TaskSessionView[]): TaskStepView[] {
+  const bases = stepBases(task.steps)
+  return task.steps.map((step) => {
+    const base = bases.get(step.id) ?? 'later'
+    if (step.owner.kind !== 'session') {
+      const shown = base === 'current' && step.owner.kind === 'user' ? 'waiting' : base
+      return { step, shown, owner: step.owner.kind === 'user' ? 'You' : step.owner.who }
+    }
+    const name = step.owner.name.toLowerCase()
+    const named = (s: TaskSessionView): boolean =>
+      s.session.name?.toLowerCase() === name || s.name.toLowerCase() === name
+    const live = sessions.find((s) => s.open && named(s))
+    const closed = live ? undefined : sessions.find((s) => !s.open && named(s))
+    const shown =
+      base !== 'current' || !live ? base : live.waiting ? 'waiting' : live.working ? 'running' : 'current'
+    return { step, shown, owner: step.owner.name, tabId: live?.session.tabId, closed: closed?.session }
   })
 }
 

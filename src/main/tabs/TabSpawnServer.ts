@@ -400,7 +400,7 @@ export class TabSpawnServer extends EventEmitter {
       requestId: randomUUID(),
       parentTabId: call.tabId,
       cwd,
-      prompt: handOver(args.prompt, parent?.name, task),
+      prompt: handOver(args.prompt, parent?.name, task, title),
       worktree,
       title
     })
@@ -516,10 +516,11 @@ export class TabSpawnServer extends EventEmitter {
 }
 
 /**
- * What Claude is told of the user's decision. An approval repeats the text whole, between
- * markers, even when it is unchanged: "post exactly this" leaves no room for a draft Claude
- * still has in mind. No answer at all — the renderer never took the review — is an error,
- * so Claude falls back on asking in the terminal.
+ * What Claude is told of the user's decision. An edited approval repeats the text whole,
+ * between markers, because the user's version is what is to be posted. An unedited one only
+ * says to post what was passed: repeating it cost a whole text's tokens per review, for
+ * nothing Claude did not have already. No answer at all — the renderer never took the
+ * review — is an error, so Claude falls back on asking in the terminal.
  */
 function reviewReply(answer: TextReviewAnswer | undefined): Reply {
   if (!answer) {
@@ -527,12 +528,16 @@ function reviewReply(answer: TextReviewAnswer | undefined): Reply {
   }
   switch (answer.kind) {
     case 'approve':
+      if (!answer.edited) {
+        return {
+          ok: true,
+          text: 'APPROVED. Post exactly the text you passed to review_text, unchanged - not a draft revised since.'
+        }
+      }
       return {
         ok: true,
         text: [
-          answer.edited
-            ? 'APPROVED WITH EDITS. The user edited the text and approved their version. Post exactly the text between the markers, unchanged - not your own draft.'
-            : 'APPROVED. Post exactly the text between the markers, unchanged.',
+          'APPROVED WITH EDITS. The user edited the text and approved their version. Post exactly the text between the markers, unchanged - not your own draft.',
           '<<<TEXT',
           answer.text,
           'TEXT>>>'
@@ -587,7 +592,8 @@ function isDirectory(path: string): boolean {
 function handOver(
   task: string,
   parentName: string | undefined,
-  atermTask?: { id: string; number?: number; title: string }
+  atermTask?: Parameters<typeof taskBriefing>[0],
+  self?: string
 ): string {
   const parent = parentName ? `the Claude Code session "${parentName}"` : 'another Claude Code session'
   const body = task.trim()
@@ -595,7 +601,7 @@ function handOver(
     body.startsWith('-') ? `Task:\n${body}` : body,
     '',
     '---',
-    ...(atermTask ? [taskBriefing(atermTask), ''] : []),
+    ...(atermTask ? [taskBriefing(atermTask, self), ''] : []),
     `You were opened from aterm by ${parent}. Work on this together with the user in this terminal; it may take many turns. Do not report back after your first reply unless the task is really finished. When it is done, or the user asks you to, send a concise result to ${parentName ? `"${parentName}"` : 'that session'} with SendMessage, by that name and never by the uds: address its messages come from, which is gone once that session is resumed (ListAgents finds it if the name is gone). You may message it earlier when you need something only it knows.`
   ].join('\n')
 }

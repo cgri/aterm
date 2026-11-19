@@ -697,8 +697,9 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
 - **A text Claude is about to post is reviewed like a plan, through `review_text`.** A PR
   description, a ticket, a comment: the session passes the text, what it is and where it is
   going, and the call blocks until the user decides in the tab's review panel — the plan's
-  `PlanReview` in its text mode. Four answers: approve (the text comes back whole, between
-  markers, so Claude posts that and not its own draft), comments (Claude revises and calls
+  `PlanReview` in its text mode. Four answers: approve (an edited text comes back whole,
+  between markers, so Claude posts that and not its own draft; an unedited one is only
+  confirmed, because echoing it cost a whole text's tokens for nothing), comments (Claude revises and calls
   again; the next round is compared like a plan's), reject (with the general comment as the
   reason), and Esc, no decision. Nothing is posted by aterm; it only holds the call.
   **The user may edit the text and approve their own version**, but editing and commenting
@@ -747,8 +748,9 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   GitHub `#61`. The tools speak it and accept it in any case; the internal id stays
   internal. The list is one line per task — number, title, source, age — and the section
   heading is the only thing that says the state: no mark in the rows, colour only for
-  "Needs you", and a second line only for what the user is to do or what a blocked task
-  waits for. Chosen over a calmer two-line variant with sessions and notes in every row.
+  "Needs you", and a second line only for what the user is to do, what a blocked task
+  waits for, or - on a task with steps - the next step, whose it is, and "3/8". Chosen
+  over a calmer two-line variant with sessions and notes in every row.
   The opened task follows the same rule: no primary button, every action a quiet link, a frame only around what the user is asked for, the title wrapping
   in a textarea grown to fit, and the activity folded away.
   **The panel is as wide as it was dragged, and no wider.** Rows that no longer wrap made
@@ -756,20 +758,34 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   window - so `.task-panel` has `min-width: 0` and clips. The width is a custom property
   set from the grip on its right edge (`makeResizer`), kept in localStorage; a double
   click on the grip goes back to the default.
-  **Only declared things are stored**: blocked (with its reason), done, the last note, and
-  the *asks* — a question, or a PR/MR to review and merge. Working and waiting are derived
-  in the renderer (`taskViews` in `main.ts`) from the same `isWorking`, `isWaiting` and
-  `wantsUser` the tab bar uses. The order: an open ask, then blocked, then a tab that only
-  waits, then working, then backlog. Blocked ranks above the bare wait because a session
+  **Only declared things are stored**: the steps, blocked (with its reason), done, the last
+  note, and the open questions. Working and waiting are derived in the renderer
+  (`taskViews` in `main.ts`) from the same `isWorking`, `isWaiting` and `wantsUser` the tab
+  bar uses. The order: an open question, then blocked, then the steps (see below) or, on a
+  task without any, a tab that only waits, then working, then backlog. Blocked ranks above the bare wait because a session
   idling at its prompt is exactly what a blocked task looks like, and the user marking a
   task blocked is their answer to its questions (`setBlocked` drops them; reviews stay) —
   before that, the open question kept a task the user had just blocked under "Needs you". `load` applies the same rule to what is stored
   (`dropQuestionsBeforeBlocked`): a question older than the block counts as answered, so a
   task blocked before the rule existed does not stay under "Needs you" for good. Asking the model to report "working" would be late and forgotten; aterm already
   knows. A question ask is settled by the tab itself: when a tab that waited goes back to
-  work (`settleWaiting`), its open question counts as answered. A review is not — it waits,
-  often for days after every tab is closed, until the user marks it merged or a session
-  passes `resolve_reviews`.
+  work (`settleWaiting`), its open question counts as answered.
+  **A task's chain is its steps, and the sessions keep it.** Free-text notes holding "lib
+  !58 → service !11 → app !30" went stale, because nothing maintained them; a step
+  (`TaskStep`) has an owner — the user, a session by its registry name, or someone outside
+  aterm — and an order, `after` defaulting to the step before it. `task_update steps`
+  upserts by id, so several sessions edit one chain without overwriting each other, and
+  every `task_*` answer carries the chain as one line (`stepsLine`), so a session sees the
+  ids and what is open after each call. Whether a step is current is derived
+  (`stepBases` in `shared/taskSteps.ts`); whether its session works or waits, from the tabs
+  (`taskStepViews`). A current step that is the user's, or whose session waits at its
+  prompt, is "Needs you"; every current step waiting on others is Blocked; a declared
+  `blocked` stays an override. A task whose steps are all done is done, and gets reopened
+  only by a step added or taken back — not over the user's own "Mark done".
+  A review is a step owned by the user with the PR/MR as its url — `needs_user` with ask
+  "review" still makes one, due at once, and `load` turns a review stored as an ask into
+  that. It waits, often for days after every tab is closed, until the user ticks it off or
+  a session passes `resolve_reviews` or marks it done.
   **Sessions are bound to tabs**, not conversation ids, so `/clear` and `/resume` keep them
   on the task; closing a tab keeps the conversation on the task (`closed`) to be resumed
   from there. A session started from the list, or opened by `open_tab` from a session on a
