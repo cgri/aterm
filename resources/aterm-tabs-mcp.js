@@ -272,7 +272,9 @@ const TOOLS = [
         url: { type: 'string', description: 'With ask "review" or resolve_reviews: the PR/MR.' },
         resolve_reviews: {
           type: 'boolean',
-          description: "The PR/MR is merged or closed: the user's steps with that url (all of them with a url, without one) are done."
+          description:
+            "The PR/MR is merged or closed: the user's steps with that url (all of them with a url, without one) are done. " +
+            "A review handed to colleagues is not resolved: make it a step owned by them."
         },
         title: { type: 'string', description: 'A better title for the task, e.g. when it was created from a bare link.' },
         task: { type: 'string', description: 'Task id. Defaults to the task this session is on.' }

@@ -80,6 +80,16 @@ const api = {
      */
     openTabFolder: (tabId: string, cwd: string, claudeSessionId?: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC.openTabFolder, tabId, cwd, claudeSessionId),
+    /** The absolute path each candidate names in a tab's folder, where one exists. */
+    resolvePaths: (
+      tabId: string,
+      cwd: string,
+      claudeSessionId: string | undefined,
+      candidates: string[]
+    ): Promise<(string | undefined)[]> =>
+      ipcRenderer.invoke(IPC.resolvePaths, tabId, cwd, claudeSessionId, candidates),
+    /** Opens a file or folder (a path or a file: URL) with its default application. */
+    openPath: (target: string): Promise<boolean> => ipcRenderer.invoke(IPC.openPath, target),
     /** Directories this launch named — asked once while booting, then empty. */
     takePendingDirs: (): Promise<string[]> => ipcRenderer.invoke(IPC.takePendingDirs),
     /** A later launch — the Explorer entry — named a directory to open a tab in. */

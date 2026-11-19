@@ -41,7 +41,7 @@ import { ImageViewer } from './ImageViewer'
 import { TaskPanel, type TaskSessionView, type TaskStepView, type TaskView } from './TaskPanel'
 import { TaskDialog, TextPrompt } from './TaskDialog'
 import { taskRef, taskStartPrompt } from '@shared/taskBriefing'
-import { stepBases } from '@shared/taskSteps'
+import { heldByBlock, stepBases } from '@shared/taskSteps'
 import { icon } from './icons'
 
 /** Font size the zoom percentage is relative to, and the target of a reset. */
@@ -1333,7 +1333,12 @@ async function launchPane(pane: Pane): Promise<void> {
       (data) => api.pty.write(tab.id, data),
       (cols, rows) => api.pty.resize(tab.id, cols, rows),
       (title) => setPtyTitle(pane, title),
-      (text) => quoteIntoPrompt(pane, text)
+      (text) => quoteIntoPrompt(pane, text),
+      {
+        resolve: (candidates) =>
+          api.system.resolvePaths(tab.id, pane.tab.cwd, pane.tab.claudeSessionId, candidates),
+        open: (path) => void api.system.openPath(path)
+      }
     )
     pane.view = view
     view.open(pane.termHost)
@@ -2335,19 +2340,18 @@ function taskViews(): TaskView[] {
     const open = sessions.filter((s) => s.open)
     const steps = taskStepViews(task, sessions)
     const current = steps.filter((s) => s.shown !== 'done' && s.shown !== 'later')
-    // A question asked outright wins; then a declared block, because a session idling at
-    // its prompt is exactly what a blocked task looks like. With steps, the chain says the
-    // rest: the user's turn, everything current waiting on others, or work under way. A
-    // task without steps falls back on the tabs: one that waits without having said why.
+    // A question asked outright wins, and so does the user's turn in the chain - unless a
+    // block came after it (`heldByBlock`); then a declared block, because a session idling
+    // at its prompt is exactly what a blocked task looks like. With steps, the chain says
+    // the rest: everything current waiting on others, or work under way. A task without
+    // steps falls back on the tabs: one that waits without having said why.
     const state: TaskView['state'] = task.doneAt
       ? 'done'
-      : task.asks.length > 0
+      : task.asks.length > 0 || current.some((s) => s.shown === 'waiting' && !heldByBlock(task, s.step))
         ? 'needs_user'
         : task.blocked
           ? 'blocked'
-          : steps.length > 0 && current.some((s) => s.shown === 'waiting')
-            ? 'needs_user'
-            : steps.length > 0 && current.length > 0 && current.every((s) => s.shown === 'blocked')
+          : steps.length > 0 && current.length > 0 && current.every((s) => s.shown === 'blocked')
               ? 'blocked'
               : steps.length === 0 && open.some((s) => s.waiting)
                 ? 'needs_user'

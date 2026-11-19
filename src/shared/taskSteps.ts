@@ -49,6 +49,15 @@ export function currentSteps(task: Pick<Task, 'steps'>): TaskStep[] {
   })
 }
 
+/**
+ * A block holds back what the user was to do before it: a PR/MR handed to colleagues is
+ * still open, but not the user's to do, and blocking is how both the user and a session
+ * say so. A step added or changed after the block is due all the same.
+ */
+export function heldByBlock(task: Pick<Task, 'blocked' | 'blockedAt'>, step: TaskStep): boolean {
+  return Boolean(task.blocked) && step.at <= (task.blockedAt ?? Number.POSITIVE_INFINITY)
+}
+
 /** "3/8": how many steps are done, of how many. */
 export function stepProgress(task: Pick<Task, 'steps'>): { done: number; total: number } {
   return { done: task.steps.filter((s) => s.done).length, total: task.steps.length }

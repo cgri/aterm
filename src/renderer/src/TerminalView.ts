@@ -5,6 +5,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebglAddon } from '@xterm/addon-webgl'
 import type { Appearance } from '@shared/types'
 import { icon } from './icons'
+import { pathLinkProvider, type PathLinkHost } from './pathLinks'
 
 /**
  * The dark theme leaves the ANSI palette to xterm.js, whose default is built for
@@ -74,7 +75,8 @@ export class TerminalView {
     private readonly onInput: (data: string) => void,
     private readonly onResize: (cols: number, rows: number) => void,
     private readonly onTitle: (title: string) => void,
-    private readonly onQuote: (text: string) => void
+    private readonly onQuote: (text: string) => void,
+    paths: PathLinkHost
   ) {
     this.appearance = appearance
     this.element = document.createElement('div')
@@ -86,10 +88,24 @@ export class TerminalView {
       scrollback: 10000,
       cursorBlink: true,
       allowProposedApi: true,
-      theme: THEMES[appearance]
+      theme: THEMES[appearance],
+      // OSC 8 hyperlinks, which Claude Code writes for URLs. xterm.js's default asks
+      // with a native confirm() and then opens about:blank first, so the window-open
+      // handler hands "about:blank" to the shell instead of the URL.
+      linkHandler: {
+        activate: (ev, uri) => {
+          // Claude Code's fullscreen mode tracks the mouse and opens a Ctrl+clicked
+          // link itself; opening it here too would open it twice.
+          if (ev.ctrlKey && this.term.modes.mouseTrackingMode !== 'none') return
+          if (/^(https?|mailto):/i.test(uri)) window.open(uri)
+          else if (/^file:/i.test(uri)) paths.open(uri)
+        },
+        allowNonHttpProtocols: true
+      }
     })
     this.term.loadAddon(this.fit)
     this.term.loadAddon(this.search)
+    this.term.registerLinkProvider(pathLinkProvider(this.term, paths))
 
     // Without this, xterm.js uses Unicode 6 widths, where emoji such as ✅, ❌ or
     // 📁 count as one column wide although they are drawn two columns wide. The

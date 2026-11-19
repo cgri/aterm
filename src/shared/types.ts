@@ -458,6 +458,8 @@ export interface Task {
   cwd?: string
   /** Why the task is blocked, while it is. Always declared, never derived. */
   blocked?: string
+  /** When it was blocked. The user's steps from before that wait behind the block (`heldByBlock`). */
+  blockedAt?: number
   asks: TaskAsk[]
   /**
    * What is left to do, who does it and in which order - kept up to date by the sessions

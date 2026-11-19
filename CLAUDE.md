@@ -785,7 +785,15 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   A review is a step owned by the user with the PR/MR as its url — `needs_user` with ask
   "review" still makes one, due at once, and `load` turns a review stored as an ask into
   that. It waits, often for days after every tab is closed, until the user ticks it off or
-  a session passes `resolve_reviews` or marks it done.
+  a session passes `resolve_reviews` (with a `url` for one of several) or marks it done.
+  **A step of the user's from before a block waits behind it** (`heldByBlock`, against
+  `Task.blockedAt`): a PR/MR handed to colleagues is still open, but not the user's to do,
+  and blocking is how both the user and a session say so — reviews outranking blocked had
+  made "Mark blocked…" do nothing visible, and sessions resolved reviews of open MRs to get
+  round it. Unblocking brings them back under "Needs you"; a step added or changed after
+  the block counts at once, and the box says "on hold while blocked" of the rest. A
+  session's `blocked` settles questions, as the user's does. In a chain, handing a review to
+  colleagues is better said as a step they own.
   **Sessions are bound to tabs**, not conversation ids, so `/clear` and `/resume` keep them
   on the task; closing a tab keeps the conversation on the task (`closed`) to be resumed
   from there. A session started from the list, or opened by `open_tab` from a session on a
@@ -854,6 +862,15 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   but both orders are handled. A Shift+drag still makes an xterm.js selection there.
   Measured with synthetic CDP mouse events, which need a hover move and many small steps
   before Claude Code reports the selection at all.
+- **Links are opened by aterm, never by xterm.js's default.** Claude Code writes URLs as
+  OSC 8 hyperlinks; xterm.js's own handler asks with a native `confirm()` and opens
+  `about:blank` before setting the URL, so `setWindowOpenHandler` handed `about:blank` to
+  Windows. `linkHandler` in `TerminalView` opens http(s)/mailto with `window.open(uri)` and
+  `file:` through main. A Ctrl+click while the program tracks the mouse is left to it:
+  Claude Code's fullscreen mode opens such a link itself. File paths in plain text are
+  links too (`pathLinks.ts`), Ctrl+click only, and only those main finds on disk, relative
+  ones against the tab's folders as "Open folder" sees them. `openInShell` shows anything
+  Windows would execute in Explorer instead of opening it — the text came from a program.
 - **Only the tab in front holds a WebGL context.** Chromium drops the oldest context once
   a page holds about sixteen, and a GPU reset drops them all; a terminal whose context is
   gone draws nothing — not after a resize, not after a restart, which reuses the view. So

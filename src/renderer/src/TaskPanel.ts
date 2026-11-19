@@ -1,6 +1,7 @@
 import type { Task, TaskAction, TaskAsk, TaskEvent, TaskSession, TaskStep } from '@shared/types'
 import { describeSource, isLink } from './taskSource'
 import { taskRef } from '@shared/taskBriefing'
+import { heldByBlock } from '@shared/taskSteps'
 
 /**
  * What the task list shows for a task. Only `blocked`, the asks and done are stored; the
@@ -561,7 +562,10 @@ export class TaskPanel {
     const actions: HTMLElement[] = []
     if (step.owner.kind === 'user') {
       item.append(
-        span('task-ask-kind', `Your step ${step.id}${step.by ? ` · ${step.by}` : ''} · ${ago(step.at)}`),
+        span(
+          'task-ask-kind',
+          `Your step ${step.id}${heldByBlock(task, step) ? ' · on hold while blocked' : ''}${step.by ? ` · ${step.by}` : ''} · ${ago(step.at)}`
+        ),
         span('task-ask-text', step.note ? `${step.title} — ${step.note}` : step.title)
       )
       if (step.url) actions.push(anchor(urlLabel(step.url), step.url))
