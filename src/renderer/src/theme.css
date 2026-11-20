@@ -2845,8 +2845,45 @@ body {
   animation: task-breath 1.6s ease-in-out infinite;
 }
 
+/* A task's chain in the list: a segment per step, in the colours of the marks. */
+.task-step-rail {
+  display: flex;
+  gap: 3px;
+  height: 4px;
+  margin: 3px 0 2px 38px;
+}
+
+.task-rail-seg {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: 2px;
+  background: var(--edge);
+}
+
+.task-rail-seg.shown-done {
+  background: color-mix(in srgb, var(--ok) 70%, var(--bg-review));
+}
+
+.task-rail-seg.shown-current,
+.task-rail-seg.shown-running {
+  background: var(--accent);
+}
+
+.task-rail-seg.shown-waiting {
+  background: var(--err);
+}
+
+.task-rail-seg.shown-blocked {
+  background: var(--warn);
+}
+
+.task-rail-seg.shown-running {
+  animation: task-breath 1.6s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .task-step-mark.shown-running {
+  .task-step-mark.shown-running,
+  .task-rail-seg.shown-running {
     animation: none;
   }
 }
