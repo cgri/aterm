@@ -750,7 +750,10 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   heading is the only thing that says the state: no mark in the rows, colour only for
   "Needs you", and a second line only for what the user is to do, what a blocked task
   waits for, or - on a task with steps - the next step, whose it is, and "3/8". Chosen
-  over a calmer two-line variant with sessions and notes in every row.
+  over a calmer two-line variant with sessions and notes in every row. A task with steps
+  also gets a rail between the two lines, one segment per step in its mark's colour, and
+  the step titles in the row's tooltip: the whole chain at a glance for about 6 px. Listing
+  the open steps in every row and a chain folded open in place were the alternatives.
   The opened task follows the same rule: no primary button, every action a quiet link, a frame only around what the user is asked for, the title wrapping
   in a textarea grown to fit, and the activity folded away.
   **The panel is as wide as it was dragged, and no wider.** Rows that no longer wrap made

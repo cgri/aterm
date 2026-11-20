@@ -347,7 +347,12 @@ export class TaskPanel {
     const row = button('', `task-row state-${state}${view.alarm ? ' alarm' : ''}`)
     row.addEventListener('click', () => this.show(task.id))
     const live = view.sessions.filter((s) => s.open).map((s) => s.name)
-    row.title = [`${taskRef(task)}  ${task.title}`, ...(live.length ? [`On it: ${live.join(', ')}`] : [])].join('\n')
+    const steps = view.steps.map((s) => `${STEP_MARKS[s.shown]} ${s.step.id}  ${s.step.title} — ${s.owner}`)
+    row.title = [
+      `${taskRef(task)}  ${task.title}`,
+      ...(live.length ? [`On it: ${live.join(', ')}`] : []),
+      ...(steps.length ? ['', ...steps] : [])
+    ].join('\n')
 
     const line = div('task-row-line')
     line.append(span('task-ref', taskRef(task)), span('task-title', task.title))
@@ -356,6 +361,7 @@ export class TaskPanel {
       line.append(span('task-age', ago(task.updatedAt)))
     }
     row.append(line)
+    if (state !== 'done' && view.steps.length > 0) row.append(stepRail(view.steps))
 
     const reason = reasonLine(view)
     if (reason) row.append(reason)
@@ -889,6 +895,17 @@ function reasonLine(view: TaskView): HTMLElement | undefined {
     return line
   }
   return undefined
+}
+
+/**
+ * The whole chain at a glance: one segment per step, in display order, coloured like its
+ * mark. The titles are in the row's tooltip; the line below names the next step.
+ */
+function stepRail(steps: TaskStepView[]): HTMLElement {
+  const rail = div('task-step-rail')
+  rail.setAttribute('aria-hidden', 'true')
+  for (const s of steps) rail.append(span(`task-rail-seg shown-${s.shown}`, ''))
+  return rail
 }
 
 /**
