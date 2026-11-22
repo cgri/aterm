@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, nativeTheme, prot
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import type {
   AgentActivityEvent,
   Appearance,
@@ -20,8 +20,6 @@ import type {
   TabOpenRequest,
   TabRequestAnswer,
   TabStatusReport,
-  TaskAction,
-  Task,
   TextReviewAnswer,
   TextReviewRequest
 } from '@shared/types'
@@ -41,7 +39,6 @@ import { reapOrphanTabs } from './proc/orphans'
 import { checkForUpdates, cleanupDownloads, downloadUpdate, installUpdate } from './update/installer'
 import { PlanReviewServer } from './plan/PlanReviewServer'
 import { TabSpawnServer } from './tabs/TabSpawnServer'
-import { TaskStore } from './tasks/TaskStore'
 import { resourceFile } from './pty/launchers'
 
 /**
@@ -80,7 +77,6 @@ let ptys: PtyManager
 let store: SessionStore
 let plans: PlanReviewServer | undefined
 let tabSpawner: TabSpawnServer | undefined
-let tasks: TaskStore
 let win: BrowserWindow | undefined
 let agentRunning: Record<string, boolean> = {}
 
@@ -457,12 +453,6 @@ function registerIpc(): void {
     tabSpawner?.answerReview(reviewId, answer)
   )
 
-  // The task list lives here, because the sessions' `task_*` calls arrive here; the
-  // renderer gets the whole list on every change.
-  tasks.on('changed', (list: Task[]) => send(IPC.tasksChanged, list))
-  ipcMain.handle(IPC.tasksList, () => tasks.list())
-  ipcMain.handle(IPC.tasksAct, (_e, action: TaskAction) => tasks.apply(action))
-
   ipcMain.handle(IPC.sessionsRecent, () => history.recent())
   ipcMain.handle(IPC.sessionResumable, (_e, cwd: string, sessionId: string) =>
     hasConversation(cwd, sessionId)
@@ -586,13 +576,6 @@ app.whenReady().then(() => {
   // so in practice that is none of them.
   plans = new PlanReviewServer(userData, resourceFile('aterm-plan-hook.ps1'))
   void plans.start().then((settings) => ptys.setPlanSettings(settings))
-  tasks = new TaskStore(userData, (tabId) => {
-    const tab = store.current().tabs.find((t) => t.id === tabId)
-    if (!tab) return undefined
-    const cwd = ptys.cwdOf(tabId) ?? tab.cwd
-    return { tabId, claudeSessionId: tab.claudeSessionId, cwd, name: tab.summary ?? basename(cwd) }
-  })
-  tasks.load()
   const spawner = new TabSpawnServer(
     userData,
     resourceFile('aterm-tabs-mcp.js'),
@@ -600,8 +583,7 @@ app.whenReady().then(() => {
       dirs: () => ptys.cwds(),
       ended: (tabId) => ptys.endedProcess(tabId),
       states: () => tabStates
-    },
-    tasks
+    }
   )
   tabSpawner = spawner
   void spawner.start().then((up) => ptys.setMcpConfig(up ? (tabId) => spawner.configFor(tabId) : undefined))
@@ -624,7 +606,6 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   store?.save({ ...store.current(), window: windowBounds(), appearance, resumeAfterUpdate })
   store?.flush()
-  tasks?.flush()
   history.dispose()
   detector?.stop()
   processTree.stop()
