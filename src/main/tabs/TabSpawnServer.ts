@@ -11,7 +11,6 @@ import type {
   TextReviewAnswer,
   TextReviewRequest
 } from '@shared/types'
-import { taskBriefing } from '@shared/taskBriefing'
 import {
   findLiveSession,
   listLiveSessions,
@@ -21,7 +20,6 @@ import {
 import type { EndedProcess } from '../pty/PtyManager'
 import { hasChanges, workingTreeRoot } from '../util/git'
 import { sessionName } from '../pty/launchers'
-import type { TaskStore } from '../tasks/TaskStore'
 
 /** A call larger than this is not one of ours, and the connection is dropped. */
 const MAX_REQUEST = 1024 * 1024
@@ -146,9 +144,7 @@ export class TabSpawnServer extends EventEmitter {
   constructor(
     userData: string,
     private readonly serverScript: string,
-    private readonly tabs: TabProcesses,
-    /** Answers the `task_*` tools, and puts a tab `open_tab` made on its caller's task. */
-    private readonly tasks?: TaskStore
+    private readonly tabs: TabProcesses
   ) {
     super()
     this.configDir = join(userData, 'runtime', 'mcp')
@@ -278,11 +274,6 @@ export class TabSpawnServer extends EventEmitter {
     if (call.tool === 'review_text') return this.review(call, onGone)
     if (call.tool === 'tab_status') return this.tabStatus(call)
     if (call.tool === 'wait_for_idle') return this.waitForIdle(call, onGone)
-    if (call.tool.startsWith('task_') && this.tasks) {
-      const by = call.ppid ? readLiveSession(call.ppid)?.name : undefined
-      const reply = this.tasks.call({ tabId: call.tabId, by, tool: call.tool, args: call.args })
-      if (reply) return reply
-    }
     return { ok: false, error: `Unknown tool ${call.tool}.` }
   }
 
@@ -392,27 +383,16 @@ export class TabSpawnServer extends EventEmitter {
     const worktree =
       isolation === 'worktree' || (isolation === 'auto' && root !== undefined && (await this.occupied(cwd, root)))
 
-    const task = this.tasks?.taskForChild(call.tabId, args.task)
-    if (typeof task === 'string') return { ok: false, error: task }
-
     const parent = call.ppid ? readLiveSession(call.ppid) : undefined
     const answer = await this.ask<TabOpenRequest>('open', {
       requestId: randomUUID(),
       parentTabId: call.tabId,
       cwd,
-      prompt: handOver(args.prompt, parent?.name, task, title),
+      prompt: handOver(args.prompt, parent?.name),
       worktree,
       title
     })
     if (!answer.ok) return { ok: false, error: answer.error }
-    // On the caller's task from the start, so the task list shows it working at once.
-    if (task) {
-      this.tasks?.joinTab(
-        task.id,
-        { tabId: answer.tabId, claudeSessionId: answer.claudeSessionId, cwd, name: title },
-        parent?.name
-      )
-    }
     return { tabId: answer.tabId, claudeSessionId: answer.claudeSessionId, cwd, worktree, title }
   }
 
@@ -589,19 +569,13 @@ function isDirectory(path: string): boolean {
  * One that starts with a dash gets a line in front, a leftover from when it was a
  * command-line argument.
  */
-function handOver(
-  task: string,
-  parentName: string | undefined,
-  atermTask?: Parameters<typeof taskBriefing>[0],
-  self?: string
-): string {
+function handOver(task: string, parentName: string | undefined): string {
   const parent = parentName ? `the Claude Code session "${parentName}"` : 'another Claude Code session'
   const body = task.trim()
   return [
     body.startsWith('-') ? `Task:\n${body}` : body,
     '',
     '---',
-    ...(atermTask ? [taskBriefing(atermTask, self), ''] : []),
     `You were opened from aterm by ${parent}. Work on this together with the user in this terminal; it may take many turns. Do not report back after your first reply unless the task is really finished. When it is done, or the user asks you to, send a concise result to ${parentName ? `"${parentName}"` : 'that session'} with SendMessage, by that name and never by the uds: address its messages come from, which is gone once that session is resumed (ListAgents finds it if the name is gone). You may message it earlier when you need something only it knows.`
   ].join('\n')
 }

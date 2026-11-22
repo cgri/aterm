@@ -21,24 +21,6 @@ function arg(name) {
 const PIPE = arg('--pipe')
 const TAB = arg('--tab')
 
-/**
- * Told to Claude Code once, at the start of every session, and put into its system prompt
- * as this server's instructions. The tool descriptions alone were not enough: a session
- * asked to create tasks and start on one created them, began working and never joined,
- * so the task list could show nothing of it.
- */
-const INSTRUCTIONS = [
-  'This session runs in an aterm tab. aterm keeps a task list the user follows beside the terminals.',
-  'Whenever you start working on one of its tasks - because the user named it, asked you to pick one,',
-  'or you created it to work on now - call task_join first (or task_create with join: true), so the',
-  'list shows this session on it. task_join answers with when to report on the task through',
-  'task_update; follow that for as long as the session is on the task.',
-  'A task is one piece of work as the user sees it - a ticket, an issue, a topic - not one per',
-  'repository: work that spans several repositories is still one task, and the sessions in those',
-  'repositories (or one session working in all of them) are on that same task. Before creating a',
-  'task, check task_list for one that already covers the work.'
-].join(' ')
-
 const TOOLS = [
   {
     name: 'open_tab',
@@ -75,11 +57,6 @@ const TOOLS = [
         title: {
           type: 'string',
           description: 'One to five words naming the task, e.g. "Fix login timeout". Names the tab and the new session.'
-        },
-        task: {
-          type: 'string',
-          description:
-            'The aterm task the new session works on. Leave it out to put it on the task this session is on, if any; "none" for no task.'
         }
       },
       required: ['cwd', 'prompt', 'title']
@@ -153,133 +130,6 @@ const TOOLS = [
         timeout_minutes: { type: 'number', description: 'How long to wait at most. Default 30.' }
       }
     }
-  },
-  {
-    name: 'task_list',
-    description:
-      "List the tasks in aterm's task list - the user's to-dos and the work on tickets and " +
-      'issues, each with the sessions on it. Use it to find the task the user means.',
-    inputSchema: {
-      type: 'object',
-      properties: { include_done: { type: 'boolean', description: 'Also list finished tasks.' } }
-    }
-  },
-  {
-    name: 'task_get',
-    description: "One task's title, source, notes, steps, open questions and recent activity.",
-    inputSchema: {
-      type: 'object',
-      properties: { task: { type: 'string', description: 'Task id. Defaults to the task this session is on.' } }
-    }
-  },
-  {
-    name: 'task_create',
-    description:
-      "Add a task to aterm's task list - for work that comes up and is to be done later or by " +
-      'another session. Only when the user asks for it or agrees. One task per piece of work as ' +
-      'the user sees it (a ticket, an issue, a topic), never one per repository: work spanning ' +
-      'several repositories is one task, with a note naming them. Check task_list first.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        title: { type: 'string', description: 'A few words naming the task.' },
-        source: { type: 'string', description: 'A ticket key or an issue/PR/MR link, if there is one.' },
-        notes: { type: 'string', description: 'What else there is to know, in a few lines.' },
-        cwd: { type: 'string', description: 'Where a session on it would work. Defaults to this session\'s folder.' },
-        join: {
-          type: 'boolean',
-          description: 'Put this session on the new task - set it when you are about to work on it. Default: it goes to the backlog.'
-        }
-      },
-      required: ['title']
-    }
-  },
-  {
-    name: 'task_join',
-    description:
-      'Put this session on an aterm task. Call it as soon as you start working on a task from the ' +
-      'list, whoever picked it; without it the user sees nobody working on the task. A session is ' +
-      'on one task at a time; several sessions can be on the same task. The answer says when to ' +
-      'report with task_update.',
-    inputSchema: {
-      type: 'object',
-      properties: { task: { type: 'string', description: 'The task id from task_list.' } },
-      required: ['task']
-    }
-  },
-  {
-    name: 'task_leave',
-    description: 'Take this session off its aterm task.',
-    inputSchema: { type: 'object', properties: {} }
-  },
-  {
-    name: 'task_update',
-    description:
-      "Keep this session's aterm task current: its chain of steps, which the user reads to see " +
-      'what is left and whose turn it is, and the state aterm cannot see itself. One call per ' +
-      'hand-over: finishing your step and adding the next one go together. The answer is the ' +
-      'chain in one line, with the step ids. task_join explains when to call it.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        steps: {
-          type: 'array',
-          description:
-            'Steps to add or change, merged by id with what is there. Without an id, a new step (at the end, or before the step "before" names).',
-          items: {
-            type: 'object',
-            properties: {
-              id: { type: 'number', description: 'The step to change. Leave out to add one.' },
-              title: { type: 'string', description: 'Verb and object: "Merge lib !60".' },
-              owner: {
-                type: 'string',
-                description:
-                  '"me", "user", a session\'s name (or "session:<name>"), or who else - colleagues, CI, a customer. A new step defaults to "me".'
-              },
-              done: { type: 'boolean' },
-              blocked: { type: 'string', description: 'What it waits for, from someone outside aterm. "" clears it.' },
-              after: {
-                type: ['array', 'null'],
-                items: { type: 'number' },
-                description: 'The step ids it waits for. Default: every step before it. [] for none - a step that can run in parallel.'
-              },
-              url: { type: 'string', description: 'The PR/MR, build or release page.' },
-              note: { type: 'string', description: 'Half a sentence, e.g. "needs your go in the tab".' },
-              before: { type: 'number', description: 'Put the step before the step with this id.' },
-              remove: { type: 'boolean', description: 'Remove the step.' }
-            }
-          }
-        },
-        replace: {
-          type: 'boolean',
-          description: 'steps is the whole chain, in order: open steps left out are removed, done ones kept. For the first write and for reordering.'
-        },
-        status: {
-          type: 'string',
-          enum: ['working', 'needs_user', 'blocked', 'done'],
-          description:
-            'Only for what steps do not say: needs_user before you ask the user a question; blocked when the whole task waits for someone else; working when you take it up again after that; done when the task is finished.'
-        },
-        note: {
-          type: 'string',
-          description: 'One sentence: the question, what the task waits for, or where it stands.'
-        },
-        ask: {
-          type: 'string',
-          enum: ['question', 'review'],
-          description: 'With needs_user. "review" adds a step owned by the user, with url.'
-        },
-        url: { type: 'string', description: 'With ask "review" or resolve_reviews: the PR/MR.' },
-        resolve_reviews: {
-          type: 'boolean',
-          description:
-            "The PR/MR is merged or closed: the user's steps with that url (all of them with a url, without one) are done. " +
-            "A review handed to colleagues is not resolved: make it a step owned by them."
-        },
-        title: { type: 'string', description: 'A better title for the task, e.g. when it was created from a bare link.' },
-        task: { type: 'string', description: 'Task id. Defaults to the task this session is on.' }
-      }
-    }
   }
 ]
 
@@ -333,8 +183,7 @@ async function handle(message) {
       result: {
         protocolVersion: (params && params.protocolVersion) || '2025-06-18',
         capabilities: { tools: {} },
-        serverInfo: { name: 'aterm', version: '1' },
-        instructions: INSTRUCTIONS
+        serverInfo: { name: 'aterm', version: '1' }
       }
     })
   } else if (method === 'tools/list') {

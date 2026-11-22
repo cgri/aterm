@@ -22,8 +22,6 @@ export const IPC = {
   openTabFolder: 'tabs:open-folder',
   resolvePaths: 'fs:resolve-paths',
   openPath: 'fs:open-path',
-  tasksList: 'tasks:list',
-  tasksAct: 'tasks:act',
 
   // Renderer → main (send, high frequency)
   ptyWrite: 'pty:write',
@@ -52,6 +50,5 @@ export const IPC = {
   textReviewClosed: 'text:review-closed',
   tabsOpen: 'tabs:open',
   tabsClose: 'tabs:close',
-  tabImages: 'tabs:images',
-  tasksChanged: 'tasks:changed'
+  tabImages: 'tabs:images'
 } as const
