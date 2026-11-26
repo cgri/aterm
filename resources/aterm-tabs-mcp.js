@@ -123,7 +123,15 @@ const TOOLS = [
           description:
             'Where it is going to be posted, e.g. "GitHub cgri/aterm PR #66" or "Jira BIO-1234".'
         },
-        text: { type: 'string', description: 'The text, in Markdown, exactly as it would be posted.' }
+        text: { type: 'string', description: 'The text exactly as it would be posted.' },
+        format: {
+          type: 'string',
+          enum: ['markdown', 'jira'],
+          description:
+            'What the text is written in, so it is shown the way the target will render it: ' +
+            '"jira" for Jira wiki markup (h2., # numbered lists, {{code}}, *bold*), "markdown" ' +
+            'otherwise. Defaults to "markdown".'
+        }
       },
       required: ['title', 'target', 'text']
     }

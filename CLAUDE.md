@@ -702,6 +702,10 @@ persisted flags — `TabState.everStarted` exists for placeholder wording only.
   confirmed, because echoing it cost a whole text's tokens for nothing), comments (Claude revises and calls
   again; the next round is compared like a plan's), reject (with the general comment as the
   reason), and Esc, no decision. Nothing is posted by aterm; it only holds the call.
+  **A text is drawn in what it is written in.** `format` is `markdown` or `jira` (wiki
+  markup, `jiraMarkup.ts`): read as Markdown, a Jira `# ` numbered list came out as a stack
+  of headings and `{{code}}` stayed in its braces. Comment offsets are into the rendered
+  text, so they work with either renderer.
   **The user may edit the text and approve their own version**, but editing and commenting
   do not mix: a comment is anchored by offsets into the rendered text, so editing is offered
   only while there are none, and comments made after an edit are on the edited text, which

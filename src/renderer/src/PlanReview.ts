@@ -1,4 +1,5 @@
-import type { PlanStartMode } from '@shared/types'
+import type { PlanStartMode, TextFormat } from '@shared/types'
+import { renderJira } from './jiraMarkup'
 import { renderPlan } from './planMarkdown'
 
 /** A comment on a passage, anchored by character offsets into the plan's text. */
@@ -107,6 +108,8 @@ export class PlanReview {
   private readonly composerSave: HTMLButtonElement
 
   private plan = ''
+  /** What the text is written in; a plan is always Markdown. */
+  private format: TextFormat = 'markdown'
   private round = 1
   private comments: PlanComment[] = []
   /** The passage the composer is open on, and the comment it edits, if any. */
@@ -289,6 +292,10 @@ export class PlanReview {
     new ResizeObserver(() => this.layout()).observe(this.doc)
   }
 
+  private render(text: string): DocumentFragment {
+    return this.format === 'jira' ? renderJira(text) : renderPlan(text)
+  }
+
   isOpen(): boolean {
     return this.open
   }
@@ -298,11 +305,15 @@ export class PlanReview {
    * text the changes are measured against; `draft` is what the user had written on this
    * very plan before stepping out to the terminal.
    */
-  show(plan: string, opts: { previous?: PlanRound; draft?: PlanRound; heading?: TextHeading }): void {
+  show(
+    plan: string,
+    opts: { previous?: PlanRound; draft?: PlanRound; heading?: TextHeading; format?: TextFormat }
+  ): void {
     this.plan = this.original = plan
+    this.format = opts.format ?? 'markdown'
     this.round = (opts.previous?.round ?? 0) + 1
     this.setEditing(false)
-    this.doc.replaceChildren(renderPlan(plan))
+    this.doc.replaceChildren(this.render(plan))
     this.closeComposer()
 
     // A draft is what the user had written on this very text: same text, or their own
@@ -311,7 +322,7 @@ export class PlanReview {
       opts.draft && (opts.draft.plan === plan || opts.draft.original === plan) ? opts.draft : undefined
     if (draft && draft.plan !== plan) {
       this.plan = draft.plan
-      this.doc.replaceChildren(renderPlan(draft.plan))
+      this.doc.replaceChildren(this.render(draft.plan))
     }
     this.comments = draft ? draft.comments.map((c) => ({ ...c })) : []
     this.general.value = draft?.general ?? ''
@@ -443,7 +454,7 @@ export class PlanReview {
       const value = editor.value.trim() === this.plan.trim() ? this.plan : editor.value
       if (value !== this.plan) {
         this.plan = value
-        this.doc.replaceChildren(renderPlan(value))
+        this.doc.replaceChildren(this.render(value))
         if (this.previousText !== undefined) this.markChanges(this.previousText)
       }
       if (this.open) this.el.focus({ preventScroll: true })
@@ -733,7 +744,7 @@ export class PlanReview {
    */
   private markChanges(previousPlan: string): number {
     const before = document.createElement('div')
-    before.appendChild(renderPlan(previousPlan))
+    before.appendChild(this.render(previousPlan))
     const known = new Set(blocks(before).map(blockText))
     let changed = 0
     for (const block of blocks(this.doc)) {

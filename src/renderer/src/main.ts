@@ -1743,7 +1743,8 @@ function onTextReview(request: TextReviewRequest): void {
   pane.textReview.show(request.text, {
     previous: pane.textLastRound,
     draft: pane.textDraft,
-    heading: { title: request.title, target: request.target }
+    heading: { title: request.title, target: request.target },
+    format: request.format
   })
   settleWaiting(pane, waited)
   pane.reviewBehind = false
