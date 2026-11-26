@@ -338,7 +338,8 @@ export class TabSpawnServer extends EventEmitter {
     const target = typeof args.target === 'string' ? args.target.trim() : ''
     if (!target) return Promise.resolve({ ok: false, error: 'target must say where the text is going.' })
 
-    const request: TextReviewRequest = { reviewId: randomUUID(), tabId: call.tabId, title, target, text }
+    const format = args.format === 'jira' ? 'jira' : 'markdown'
+    const request: TextReviewRequest = { reviewId: randomUUID(), tabId: call.tabId, title, target, text, format }
     return new Promise((done) => {
       const review: Review = {
         settle: (answer) => done(reviewReply(answer)),

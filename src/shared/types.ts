@@ -286,9 +286,13 @@ export interface TextReviewRequest {
   title: string
   /** Where it is going, e.g. "GitHub cgri/aterm#66". */
   target: string
-  /** Markdown. */
   text: string
+  /** What the text is written in, which is what it is drawn as. */
+  format: TextFormat
 }
+
+/** Markdown, or Jira's wiki markup (Server and Data Center), where `# ` is a numbered list. */
+export type TextFormat = 'markdown' | 'jira'
 
 /**
  * `approve` hands back the text to post, word for word — the user's own edit of it, if
